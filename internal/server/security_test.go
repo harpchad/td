@@ -691,3 +691,97 @@ func newServerWithRealHashing(t *testing.T) *harness {
 	}
 	return ts
 }
+
+// Assertion: a sync token reaches its own source and nothing else.
+//
+// Each plugin gets its own scope, sync:<source>, so a compromised Planner
+// token cannot rewrite the Jira mirror and cannot touch anything local. This
+// is the reason the scope is namespaced rather than one shared "sync".
+func TestASyncScopeIsPerSource(t *testing.T) {
+	ts := newServer(t)
+
+	planner, err := ts.store.CreateToken(t.Context(), "planner", "plugin:planner",
+		[]string{api.ScopeSyncPrefix + "planner"}, ts.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := map[string]any{"items": []map[string]any{
+		{"external_id": "PLAN-1", "title": "Renew the certificate", "status": "todo", "rev": "1"},
+	}}
+
+	// Its own source works.
+	resp, out := request(t, ts, http.MethodPost, "/api/v1/sync/planner", body,
+		map[string]string{"Authorization": "Bearer " + planner.Secret})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("own source = %d: %s", resp.StatusCode, out)
+	}
+
+	// Another plugin's does not.
+	resp, _ = request(t, ts, http.MethodPost, "/api/v1/sync/jira", body,
+		map[string]string{"Authorization": "Bearer " + planner.Secret})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("another source = %d, want 403", resp.StatusCode)
+	}
+
+	// And it reaches nothing else in the API. A sync scope is not a write
+	// scope, and a plugin has no business creating tasks by hand.
+	for _, call := range []struct {
+		method, path string
+		body         any
+	}{
+		{http.MethodPost, "/api/v1/tasks", map[string]any{"title": "not yours"}},
+		{http.MethodPatch, "/api/v1/tasks/103", map[string]any{"title": "not yours"}},
+		{http.MethodDelete, "/api/v1/tasks/103", nil},
+		{http.MethodPost, "/api/v1/undo", map[string]any{}},
+		{http.MethodGet, "/api/v1/tasks", nil},
+		{http.MethodGet, "/api/v1/tokens", nil},
+	} {
+		resp, _ := request(t, ts, call.method, call.path, call.body,
+			map[string]string{"Authorization": "Bearer " + planner.Secret})
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("%s %s = %d, want 403 for a sync-only token",
+				call.method, call.path, resp.StatusCode)
+		}
+	}
+}
+
+// Assertion: a sync batch is attributed to the plugin and is undoable, which
+// is what makes a bad import recoverable rather than permanent.
+func TestASyncBatchIsUndoable(t *testing.T) {
+	ts := newServer(t)
+
+	tok, err := ts.store.CreateToken(t.Context(), "planner", "plugin:planner",
+		[]string{api.ScopeSyncPrefix + "planner"}, ts.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, out := request(t, ts, http.MethodPost, "/api/v1/sync/planner", map[string]any{
+		"items": []map[string]any{
+			{"external_id": "PLAN-1", "title": "Renew the certificate", "status": "todo", "rev": "1"},
+		},
+	}, map[string]string{"Authorization": "Bearer " + tok.Secret})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sync = %d: %s", resp.StatusCode, out)
+	}
+
+	events, err := ts.store.Events(t.Context(), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range events {
+		if e.Actor == "plugin:planner" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the sync wrote no event attributed to the plugin")
+	}
+
+	// Undo is scoped to the actor, so undoing as the plugin reverses the
+	// import without touching your own last change.
+	if _, err := ts.store.Undo(t.Context(), "plugin:planner", ts.now); err != nil {
+		t.Errorf("undoing a plugin batch: %v", err)
+	}
+}

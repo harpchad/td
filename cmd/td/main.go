@@ -44,6 +44,10 @@ const usage = `td - task manager
   td filters           list saved filters
   td whoami            show which credential is in use and what it may do
   td flush             send anything queued while offline
+  td sync planner      mirror Microsoft Planner into td; -n reads without posting
+  td export --json     the whole database, which imports back
+  td export --markdown one file per task, for Obsidian
+  td import <file>     restore an export into an empty database
 
 <ref> is a task number or a ULID. Every command takes --json.
 `
@@ -122,6 +126,12 @@ func run(args []string) error {
 		return whoami(ctx, c, rest)
 	case "flush":
 		return flush(ctx, c)
+	case "sync":
+		return syncCmd(ctx, c, cfg, rest)
+	case "export":
+		return exportCmd(ctx, c, rest)
+	case "import":
+		return importCmd(ctx, c, rest)
 	default:
 		return fmt.Errorf("unknown command %q, try `td help`", cmd)
 	}

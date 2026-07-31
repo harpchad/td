@@ -33,6 +33,7 @@ tags:
   - name: tokens
   - name: mcp
   - name: oauth
+  - name: sync
   - name: attachments
   - name: series
 
@@ -757,6 +758,109 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/export:
+    get:
+      tags: [history]
+      summary: The whole database
+      description: >-
+        Everything td holds, in a form that goes back in through /import. A
+        task system you cannot get your data out of is a hostage situation,
+        and getting it out is only half of that: the round trip is what makes
+        this a backup rather than a report.
+
+        Deliberately absent: fold state, which is view state and must never be
+        exported; and every credential, so a file copied to object storage
+        cannot log anybody in. Accounts, sessions, tokens, OAuth clients,
+        grants, and signing keys are all excluded.
+      operationId: exportAll
+      responses:
+        "200":
+          description: the export document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Export" }
+
+  /api/v1/import:
+    post:
+      tags: [history]
+      summary: Restore an export
+      description: >-
+        Restores into an empty database and refuses one that already holds
+        tasks: merging two task sets means deciding what a colliding number
+        means, and there is no answer to that which is not somebody's data
+        quietly disappearing.
+
+        Sequence numbers, timestamps, and the event log are preserved rather
+        than regenerated, because undo walks backwards through the log and the
+        MCP change cursor points into it.
+      operationId: importAll
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Export" }
+      responses:
+        "200":
+          description: what was restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks: { type: integer }
+                  people: { type: integer }
+                  events: { type: integer }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: the database is not empty
+
+  /api/v1/sync/{source}:
+    post:
+      tags: [sync]
+      summary: Apply a sync plugin batch
+      description: >-
+        Upserts by (source, external_id), applies the field-ownership rules,
+        and marks `gone` items `upstream_gone = 1` rather than deleting them.
+        Idempotent, so a plugin can always replay: an item whose `rev` matches
+        what is stored is left completely alone, with no write and no event.
+
+        **Field ownership is the core rule.** Upstream owns title, status,
+        due_at, and the external URL and revision. Locally owned and never
+        touched: priority, notes, tags, person links, snooze, start, notify,
+        effort, and parent. "My priority got wiped by a sync" kills trust in
+        one incident, so the division is enforced here rather than left to
+        each plugin.
+
+        One exception runs the other way: a task you completed or dropped in
+        td keeps that status whatever the upstream item says. Completing a
+        mirrored task is a statement about your own work.
+
+        Requires the `sync:<source>` scope, so a token minted for one plugin
+        cannot write another's mirror and reaches nothing else in the API.
+      operationId: syncSource
+      parameters:
+        - name: source
+          in: path
+          required: true
+          description: The plugin's name, which becomes task.source. Never "local".
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SyncRequest" }
+      responses:
+        "200":
+          description: what the batch did
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncResult" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: the token does not carry this source's sync scope
+
   /api/v1/people:
     get:
       tags: [people]
@@ -1385,6 +1489,126 @@ components:
           items: { type: string, enum: [header] }
         resource_name: { type: string }
         resource_documentation: { type: string }
+
+    Export:
+      type: object
+      required: [version, exported_at, timezone, tasks]
+      properties:
+        version:
+          type: integer
+          description: >-
+            Checked on import. A backup that silently half-restores is worse
+            than one that refuses.
+        exported_at: { type: string, format: date-time }
+        timezone: { type: string }
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        people:
+          type: array
+          items: { $ref: "#/components/schemas/Person" }
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/Group" }
+        identities:
+          type: array
+          items: { $ref: "#/components/schemas/Identity" }
+        filters:
+          type: array
+          items: { $ref: "#/components/schemas/SavedFilter" }
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/Series" }
+        attachments:
+          type: array
+          description: >-
+            The rows, not the bytes. The blobs are files on disk and are
+            backed up as files.
+          items: { $ref: "#/components/schemas/Attachment" }
+        events:
+          type: array
+          description: >-
+            The history, with its sequence numbers preserved. It is what makes
+            an export a record rather than a snapshot.
+          items: { $ref: "#/components/schemas/Event" }
+
+    SyncRequest:
+      type: object
+      required: [items]
+      properties:
+        cursor:
+          type: string
+          description: >-
+            Where the plugin resumed from. Echoed back; what it means is the
+            plugin's business.
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SyncItem" }
+        gone:
+          type: array
+          description: >-
+            External ids that disappeared upstream. Marked, never deleted: a
+            ticket you can no longer see is not a ticket that never existed.
+          items: { type: string }
+
+    SyncItem:
+      type: object
+      required: [external_id, title]
+      description: >-
+        Every optional field is omitted rather than zeroed when the plugin
+        cannot see it. A partial reader that sent empty values would blank the
+        mirror on its first run.
+      properties:
+        external_id: { type: string }
+        title: { type: string }
+        status:
+          type: string
+          description: >-
+            Already mapped onto td's vocabulary by the plugin, because only
+            the plugin knows what its system's states mean. Anything outside
+            the closed set is ignored rather than stored.
+          enum: [inbox, todo, doing, waiting, done, dropped]
+        url: { type: string }
+        rev:
+          type: string
+          description: >-
+            The upstream revision or ETag. An item whose rev has not moved is
+            left untouched, which is what makes a replay free.
+        due_at: { type: string, nullable: true }
+        people:
+          type: array
+          items:
+            type: object
+            required: [role, source_user]
+            properties:
+              role: { $ref: "#/components/schemas/Role" }
+              source_user:
+                type: string
+                description: >-
+                  The identifier in the source system, resolved onto a person
+                  through person_identity. Not an email and not a display
+                  name, both of which change.
+              name:
+                type: string
+                description: >-
+                  Used to create the person the first time an identity is
+                  seen. Without it an unknown identity is skipped and the task
+                  still arrives.
+
+    SyncResult:
+      type: object
+      required: [cursor, created, updated, gone, unchanged]
+      properties:
+        cursor: { type: string }
+        created: { type: integer }
+        updated: { type: integer }
+        gone: { type: integer }
+        unchanged:
+          type: integer
+          description: >-
+            Items whose rev matched. A plugin replaying its window should see
+            mostly this, which is how idempotence is visible rather than
+            merely claimed.
 
     Attachment:
       type: object

@@ -1,0 +1,8 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#planner/plans/$entity",
+  "@odata.etag": "W/\"JzEtUGxhbiAgQEBAQEBAQEBAQEBAQEBARCc=\"",
+  "id": "xqQg5FS2LkCp935s-FIFm2QAFkHM",
+  "title": "Infrastructure",
+  "owner": "ebf3b108-5234-4e22-b93d-656d7dae5874",
+  "createdDateTime": "2026-01-14T16:22:10.4179563Z"
+}

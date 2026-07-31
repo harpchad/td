@@ -18,6 +18,122 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  The journal follows the event log rather than firing inline
+Phase: 10
+
+The obvious build posts to Memos from inside Complete.
+
+Decided: an outbox cursor into the event log, delivered on the same tick as
+everything else. Two properties have to hold at once and the inline version
+gets both wrong. A completion must never fail because a journal is
+unreachable, which means the post cannot be in the write path. And a memo must
+be posted exactly once, which means a retry cannot be a duplicate. A cursor
+gives both: the write path never touches Memos, and the cursor only advances
+past an entry that landed.
+
+The cursor advances per entry rather than once per batch. A batch that fails
+halfway has delivered its first half, and moving the cursor at the end would
+repost those on the next tick.
+
+An unknown consumer starts at the newest event rather than at zero, so
+switching the webhook on does not post a year of history into somebody's
+journal.
+
+Reversible: `internal/notify/journal.go` and one table.
+
+## 2026-07-31  A memo is dated by the completion, not by the delivery
+Phase: 10
+
+Decided: `Compose` reads the completion time off the task and does not take a
+clock. If Memos was down for a day the entry arrives a day late, and a journal
+entry dated by when it was delivered would be wrong about the one fact it
+exists to record.
+
+Reversible: one line, and a test that sets the two apart by three days.
+
+## 2026-07-31  Field ownership lives in the server, as data
+Phase: 11
+
+Section 8 says to write the ownership table down per plugin before writing
+code. Taken literally that puts the table in each plugin.
+
+Decided: the table is `internal/sync`'s `Upstream` and `Local` lists, and the
+server enforces it. A plugin says what it read; it does not get to say what
+that is allowed to change. Two reasons. A rule spread across plugins drifts a
+field at a time, and the second plugin is where it drifts. And a plugin token
+is a credential you paste into something else, so the blast radius of a
+compromised or simply buggy one should not include your priorities.
+
+The contract's `Item` type has no priority field at all, which makes the most
+important half of the rule structural rather than enforced.
+
+Rejected: letting a plugin declare its own ownership, which is how "my
+priority got wiped by a sync" happens on the day somebody adds a plugin in a
+hurry.
+
+Reversible: two slices and one function.
+
+## 2026-07-31  A completed mirror stays completed
+Phase: 11
+
+Status is upstream-owned, so the straightforward reading is that a sync
+overwrites it every time.
+
+Decided: a task you completed or dropped in td keeps that status whatever the
+upstream item says. Completing a mirrored task is a statement about your own
+work: you have done your part, and whether the ticket is still open is
+somebody else's business. A sync that reopened it every fifteen minutes would
+make the mirror an argument rather than a list, and you would stop trusting
+the list.
+
+The consequence is stated rather than hidden: the mirror and the source can
+disagree about status, and when they do, td is right about you.
+
+Reversible: `sync.LocalStatus`, one function.
+
+## 2026-07-31  An empty read never marks anything gone
+Phase: 11
+
+Planner has no delta query and no tombstones, so "gone" is whatever td holds
+for a source that a full read did not contain. That makes the read
+authoritative, which makes a partial read destructive.
+
+Decided: a read that returned zero tasks skips the gone pass entirely. An
+expired token, a mistyped plan id, and a plan somebody genuinely emptied all
+look identical from here, and only one of those should mark every mirrored
+task `upstream_gone` in a single pass. Refusing to subtract from nothing is
+the cheapest guard against the worst thing this plugin can do.
+
+The residual risk is stated: a read that returned *some* tasks but not all of
+them, which Graph should not do but could, would still mark the difference
+gone. Marking rather than deleting is what makes that recoverable.
+
+Reversible: one guard in `planner.Run`.
+
+## 2026-07-31  Export refuses to merge
+Phase: not scheduled, but a v1 done criterion
+
+`td export --json` round-tripping through import is in section 13's list and
+in the definition of done, and section 16 never gave it a phase.
+
+Decided: import restores into an empty database and refuses one that already
+holds tasks. Merging two task sets means deciding what a colliding number
+means, and every answer to that quietly loses somebody's data. A restore is
+into a fresh database, which is what a restore is.
+
+The write path is direct SQL rather than going through `Create` and `Patch`.
+Those apply defaults, run the state machine, and write events, all of which
+would rewrite the history the export exists to preserve. Sequence numbers and
+timestamps come back exactly as they left, because undo walks backwards
+through the log and the MCP cursor points into it.
+
+Fold state and every credential are absent from the document. Both are
+structural: they are not fields on the exported types, so leaving them out is
+not a rule anybody has to remember.
+
+Reversible: `internal/store/export.go`, and the round-trip test would catch a
+change to any of it.
+
 ## 2026-07-31  The JWT encoding is written here, not imported
 Phase: 9
 

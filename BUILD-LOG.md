@@ -840,3 +840,124 @@ The consent screen does not show which client is asking beyond its
 self-declared name. A client registers its own `client_name`, so the screen is
 repeating a string an unauthenticated caller chose. That is worth stating on
 the page and is not stated yet.
+
+---
+
+## Phase 10: the Memos completion webhook
+
+2026-07-31
+
+### What shipped
+
+Completed tasks post themselves to Memos. `internal/memos` composes and
+posts; `internal/notify.Journal` decides what to post and when.
+
+The decision worth recording is that it follows a cursor into the event log
+rather than firing inline from `Complete`. Two properties have to hold at
+once. Completing a task must never fail because a journal is unreachable,
+which means the post cannot be in the write path. And a memo must arrive
+exactly once, which means a retry cannot duplicate it. A cursor gives both,
+and the inline version gives neither.
+
+The cursor advances per entry rather than per batch, so a batch that fails
+halfway does not repost its first half on the next tick. An unknown consumer
+starts at the newest event, so switching the webhook on does not dump a year
+of history into somebody's journal.
+
+### What was learned
+
+**A memo has to be dated by the completion, not by the delivery.** If Memos
+was down for a day the entry arrives a day late, and dating it by delivery
+would make the journal wrong about the one thing it records. `Compose` reads
+the completion time off the task and does not take a clock at all.
+
+**"No read path" is worth asserting rather than assuming.** Section 17
+decided it; the test now checks the type has no fetch and the config has no
+polling interval and no mapping from a memo back to a task.
+
+### What was deferred
+
+Nothing from this phase. The webhook is one direction, one event kind, one
+consumer, which is exactly what section 17 fixed.
+
+---
+
+## Phase 11: the Planner sync plugin
+
+2026-07-31
+
+### What shipped
+
+`POST /api/v1/sync/{source}` and `internal/plugins/planner`, plus
+`internal/sync`, which is where the field-ownership table lives as data.
+
+Section 8 says to write that table down per plugin before writing code. It is
+written down once, in the server, and the server enforces it. A plugin says
+what it read upstream; it does not get to say what that is allowed to change.
+A rule spread across plugins drifts a field at a time, and a plugin token is a
+credential you paste into something else, so its blast radius should not
+include your priorities. The contract's `Item` type has no priority field at
+all, which makes the important half structural.
+
+The plugin is a client. It reads Graph, translates, and posts over HTTP with a
+`sync:planner` token, which reaches its own source and nothing else in the
+API. Everything it writes is attributed to `plugin:planner` and is one undo
+loop away.
+
+The fixtures under `testdata/plugins/planner` are hand-written from Graph's
+published `plannerTask`, `plannerPlan`, and `user` documentation. No tenant
+was contacted and nothing in the package can reach one: the Graph client is
+aimed at an httptest server in every test. `tasks.json` and
+`tasks_updated.json` are the same plan minutes apart, arranged so one task
+changed, one is byte-identical, one disappeared, and one is new.
+
+Also shipped, because it is a v1 done criterion with no phase: `td export
+--json`, `td export --markdown`, and `td import`. The JSON round-trips, and
+that is a test rather than a claim.
+
+### What was learned
+
+**Idempotence has to be visible, not asserted.** The result carries an
+`unchanged` count, and the test that matters counts events before and after
+three replays rather than trusting the return value. An "idempotent" sync that
+still churns `updated_at` and writes events is not idempotent in any way that
+helps.
+
+**The gone list is the dangerous part.** Planner has no delta query and no
+tombstones, so "gone" is computed by subtraction from a read the plugin has to
+assume was complete. An expired token returns zero tasks and looks exactly
+like an emptied plan. Refusing to subtract from an empty read is the cheapest
+guard against marking every mirrored task gone in one pass, and marking rather
+than deleting is what makes the residual case recoverable.
+
+**Map iteration would have broken replay.** Planner puts assignees in a map
+keyed by user id, so two translations of an unchanged plan produced different
+payloads until the ids were sorted. The test runs the translation twenty times
+and compares bytes.
+
+**A first sync links nobody, and that is correct.** An unmapped Graph id whose
+name collides with somebody already known is skipped rather than guessed at,
+because merging two different people is worse than a missing link. It is a
+worse first-run experience than a name match and the right default; the
+end-to-end test maps the identities first, the way a person would.
+
+**Planner's due date is a date, not an instant.** It stores midnight UTC on
+the day the user picked, and reading that as an instant anywhere west of UTC
+turns Friday into Thursday.
+
+### What was deferred
+
+Write-back, permanently as far as v1 is concerned. Section 8 decided a
+read-only mirror and gave the reason: it removes the callback path, the action
+queue, and the whole class of failures where a remote write half-succeeds.
+
+The Graph token is pasted or shelled out for. Device-code and client-credential
+flows against Entra are real work and would need a real tenant to test, which
+`CLAUDE.md` forbids.
+
+No scheduler for the plugin. `td sync planner` is a command; putting it on a
+timer is cron's job and does not need code here.
+
+Markdown export is one-way. It writes frontmatter and notes for Obsidian and
+nothing reads it back, because the JSON is the format that round-trips and two
+import paths is one more than is worth maintaining.

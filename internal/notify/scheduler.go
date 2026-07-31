@@ -62,6 +62,10 @@ type Scheduler struct {
 	// the sweep.
 	Blobs Blobs
 
+	// Journal posts completed tasks to Memos so the journal fills itself.
+	// Nil, or an unconfigured one, posts nothing.
+	Journal *Journal
+
 	// sweptAt is when the last orphan collection ran. Zero means never, and
 	// the first tick after start does one.
 	sweptAt time.Time
@@ -118,6 +122,19 @@ func (s *Scheduler) Once(ctx context.Context) {
 	}
 
 	s.sweepBlobs(ctx, now)
+
+	// The journal is separate from reminders and is not gated on them: they
+	// answer different questions, and one being off is no reason for the
+	// other to be.
+	if s.Journal != nil {
+		if n, err := s.Journal.Deliver(ctx, now); err != nil {
+			// Not an error worth stopping the tick for. The cursor did not
+			// move past what failed, so the next pass retries it.
+			s.Log.Error("posting to the journal", "err", err, "delivered", n)
+		} else if n > 0 {
+			s.Log.Info("journal entries posted", "count", n)
+		}
+	}
 
 	if !s.Policy.Enabled() {
 		return

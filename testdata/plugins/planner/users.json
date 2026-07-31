@@ -1,0 +1,23 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users",
+  "value": [
+    {
+      "id": "8f3d2e11-0000-4a2b-9c3d-000000000001",
+      "displayName": "Stacey Whitlock",
+      "userPrincipalName": "stacey@example.invalid",
+      "mail": "stacey@example.invalid"
+    },
+    {
+      "id": "8f3d2e11-0000-4a2b-9c3d-000000000002",
+      "displayName": "Mikah Ortiz",
+      "userPrincipalName": "mikah@example.invalid",
+      "mail": "mikah@example.invalid"
+    },
+    {
+      "id": "8f3d2e11-0000-4a2b-9c3d-000000000003",
+      "displayName": "Brandiss Okafor",
+      "userPrincipalName": "brandiss@example.invalid",
+      "mail": "brandiss@example.invalid"
+    }
+  ]
+}

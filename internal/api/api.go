@@ -376,6 +376,14 @@ const (
 	KindRecurrenceFired = "recurrence.fired"
 )
 
+// Sync event kinds.
+const (
+	// KindSyncGone marks a mirrored task whose upstream item disappeared. It
+	// is a mark rather than a delete: a ticket you can no longer see is not a
+	// ticket that never existed.
+	KindSyncGone = "sync.gone"
+)
+
 // Attachment event kinds.
 const (
 	KindTaskAttached = "task.attached"

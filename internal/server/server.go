@@ -175,6 +175,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/ui/folds/{id}", s.setFold)
 	mux.HandleFunc("GET /api/v1/events", s.listEvents)
 	mux.HandleFunc("POST /api/v1/undo", s.undo)
+	mux.HandleFunc("POST /api/v1/sync/{source}", s.syncSource)
+	mux.HandleFunc("GET /api/v1/export", s.export)
+	mux.HandleFunc("POST /api/v1/import", s.importAll)
 
 	if s.ui != nil {
 		s.ui.Routes(mux)

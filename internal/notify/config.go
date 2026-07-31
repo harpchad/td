@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/harpchad/td/internal/memos"
 )
 
 // ServerConfig is the server's config.toml.
@@ -15,7 +17,8 @@ import (
 // $XDG_CONFIG_HOME/td/config.toml, and a commented default is written on
 // first start if none exists.
 type ServerConfig struct {
-	Notify Policy `toml:"notify"`
+	Notify Policy       `toml:"notify"`
+	Memos  memos.Config `toml:"memos"`
 }
 
 // DefaultConfigFile is written on first start. It documents the policy in
@@ -49,12 +52,29 @@ date_only_at = "08:00"
 # ` + "`tdd token create -name ntfy -scopes write`" + ` and paste it here.
 # Without it the notification is a click-through with no buttons.
 action_token = ""
+
+[memos]
+# Completed tasks are posted here so the journal fills itself. Empty turns
+# it off, which is the default. This is one direction only: nothing in Memos
+# can create or change a task, because a journal that makes work is a second
+# inbox and there is already one inbox.
+url = ""
+
+# A Memos access token. Required when url is set.
+token = ""
+
+# PRIVATE, PROTECTED, or PUBLIC. A task manager's contents are not a blog.
+visibility = "PRIVATE"
+
+# Prepended to every memo so the journal entries are filterable inside
+# Memos. Empty omits it.
+tag = "td"
 `
 
 // LoadServerConfig reads config.toml, writing a commented default first if
 // none exists. An empty path skips the file entirely.
 func LoadServerConfig(path string) (ServerConfig, error) {
-	cfg := ServerConfig{Notify: DefaultPolicy}
+	cfg := ServerConfig{Notify: DefaultPolicy, Memos: memos.DefaultConfig}
 	if path == "" {
 		return cfg, nil
 	}
@@ -75,6 +95,9 @@ func LoadServerConfig(path string) (ServerConfig, error) {
 		return cfg, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if err := cfg.Notify.Validate(); err != nil {
+		return cfg, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := cfg.Memos.Validate(); err != nil {
 		return cfg, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil

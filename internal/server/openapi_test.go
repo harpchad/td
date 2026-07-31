@@ -69,6 +69,9 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 		"/api/v1/ui/folds/{id}":                     {"post"},
 		"/api/v1/events":                            {"get"},
 		"/api/v1/undo":                              {"post"},
+		"/api/v1/sync/{source}":                     {"post"},
+		"/api/v1/export":                            {"get"},
+		"/api/v1/import":                            {"post"},
 	}
 
 	for path, methods := range want {

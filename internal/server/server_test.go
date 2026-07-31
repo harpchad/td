@@ -45,7 +45,14 @@ const (
 // testdata/seed.json, with its clock pinned to the fixture's, an account
 // created, and a full-scope token minted. Phase 1's tests run through the
 // same auth path everything else does.
-func newServer(t *testing.T) *harness {
+func newServer(t *testing.T) *harness { return newServerWith(t, true) }
+
+// newEmptyServer is the same server over a database with no fixture loaded,
+// which is what a restore needs: import refuses a database that already holds
+// tasks.
+func newEmptyServer(t *testing.T) *harness { return newServerWith(t, false) }
+
+func newServerWith(t *testing.T, withSeed bool) *harness {
 	t.Helper()
 
 	d, err := seed.Load(filepath.Join("..", "..", "testdata", "seed.json"))
@@ -62,8 +69,10 @@ func newServer(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if err := st.Seed(context.Background(), d); err != nil {
-		t.Fatal(err)
+	if withSeed {
+		if err := st.Seed(context.Background(), d); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	srv, err := server.New(st, slog.New(slog.DiscardHandler))

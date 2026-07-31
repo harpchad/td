@@ -1,0 +1,74 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#planner/plans('xqQg5FS2LkCp935s-FIFm2QAFkHM')/tasks",
+  "value": [
+    {
+      "@odata.etag": "W/\"JzEtVGFzayAgQEBAQEBAQEBAQEBAQEBARSc=\"",
+      "id": "01_TASK_RENEW",
+      "planId": "xqQg5FS2LkCp935s-FIFm2QAFkHM",
+      "bucketId": "hsOf2dhOJkHtGdSTr_-KRZgAEjNu",
+      "title": "Renew the wildcard certificate",
+      "orderHint": "8585363890158512841",
+      "createdDateTime": "2026-07-20T14:02:11.3070000Z",
+      "startDateTime": null,
+      "dueDateTime": "2026-08-04T00:00:00Z",
+      "completedDateTime": null,
+      "completedBy": null,
+      "percentComplete": 0,
+      "priority": 3,
+      "hasDescription": true,
+      "createdBy": {
+        "user": { "displayName": null, "id": "8f3d2e11-0000-4a2b-9c3d-000000000003" }
+      },
+      "assignments": {
+        "8f3d2e11-0000-4a2b-9c3d-000000000001": {
+          "@odata.type": "#microsoft.graph.plannerAssignment",
+          "assignedBy": {
+            "user": { "displayName": null, "id": "8f3d2e11-0000-4a2b-9c3d-000000000003" }
+          },
+          "assignedDateTime": "2026-07-20T14:02:30.1200000Z",
+          "orderHint": "N9917 U2883!"
+        }
+      }
+    },
+    {
+      "@odata.etag": "W/\"JzEtVGFzayAgQEBAQEBAQEBAQEBAQEBARic=\"",
+      "id": "01_TASK_SOC2",
+      "planId": "xqQg5FS2LkCp935s-FIFm2QAFkHM",
+      "bucketId": "hsOf2dhOJkHtGdSTr_-KRZgAEjNu",
+      "title": "Upload SOC2 evidence",
+      "orderHint": "8585363890158512842",
+      "createdDateTime": "2026-07-22T09:15:00.0000000Z",
+      "startDateTime": null,
+      "dueDateTime": "2026-08-10T00:00:00Z",
+      "completedDateTime": null,
+      "completedBy": null,
+      "percentComplete": 50,
+      "priority": 5,
+      "hasDescription": false,
+      "createdBy": {
+        "user": { "displayName": null, "id": "8f3d2e11-0000-4a2b-9c3d-000000000002" }
+      },
+      "assignments": {}
+    },
+    {
+      "@odata.etag": "W/\"JzEtVGFzayAgQEBAQEBAQEBAQEBAQEBARyc=\"",
+      "id": "01_TASK_TIRES",
+      "planId": "xqQg5FS2LkCp935s-FIFm2QAFkHM",
+      "bucketId": "hsOf2dhOJkHtGdSTr_-KRZgAEjNu",
+      "title": "Order tires for the truck",
+      "orderHint": "8585363890158512843",
+      "createdDateTime": "2026-07-25T11:41:07.9910000Z",
+      "startDateTime": null,
+      "dueDateTime": null,
+      "completedDateTime": null,
+      "completedBy": null,
+      "percentComplete": 0,
+      "priority": 9,
+      "hasDescription": false,
+      "createdBy": {
+        "user": { "displayName": null, "id": "8f3d2e11-0000-4a2b-9c3d-000000000002" }
+      },
+      "assignments": {}
+    }
+  ]
+}

@@ -21,6 +21,7 @@ import (
 
 	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/blob"
+	"github.com/harpchad/td/internal/memos"
 	"github.com/harpchad/td/internal/notify"
 	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/server"
@@ -175,6 +176,9 @@ func run(args []string) error {
 	if err := cfg.Notify.Validate(); err != nil {
 		return err
 	}
+	if err := cfg.Memos.Validate(); err != nil {
+		return err
+	}
 
 	if configured, err := st.HasAccount(context.Background()); err == nil && !configured {
 		log.Warn("no account configured, every route answers 503",
@@ -228,6 +232,13 @@ func run(args []string) error {
 		Now:         func() time.Time { return time.Now().In(loc) },
 		ActionToken: cfg.Notify.ActionToken,
 		Blobs:       blobs,
+		Journal: &notify.Journal{
+			Store: st, Poster: memos.NewHTTPPoster(cfg.Memos), Config: cfg.Memos,
+			BaseURL: *baseURL, Loc: loc,
+		},
+	}
+	if cfg.Memos.Enabled() {
+		log.Info("journal on", "memos", cfg.Memos.URL, "visibility", cfg.Memos.Visibility)
 	}
 	if pinned != nil {
 		at := *pinned

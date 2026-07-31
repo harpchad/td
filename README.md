@@ -6,10 +6,12 @@ the TUI.
 `BUILD-SPEC.md` is what is being built. `CLAUDE.md` is how. `testdata/` is
 the oracle: when the code and a fixture disagree, the code is wrong.
 
-**Status: phase 9 of 11.** Schema, event log, task CRUD, the filter grammar,
-the CLI one-shots, authentication, the TUI, the web UI, editing, ntfy
-reminders, people, recurrence, subtasks, triage, attachments, MCP, and OAuth
-2.1.
+**Status: all 11 phases built.** Schema, event log, task CRUD, the filter
+grammar, the CLI one-shots, authentication, the TUI, the web UI, editing,
+ntfy reminders, people, recurrence, subtasks, triage, attachments, MCP,
+OAuth 2.1, the Memos journal webhook, and the Planner mirror. Plus
+`td export`/`td import`, which section 13 asks for and section 16 never
+scheduled.
 
 Section 16 says to stop after phase 5 and use it for two weeks before phase
 6, on the grounds that half the requirements will change. That was raised and
@@ -353,6 +355,106 @@ bugs that JWT libraries keep having comes from being flexible about that:
 account and grants no access; a registered client still has to send its user
 through `/authorize`. There is still no signup page and no password reset
 route.
+
+## The journal
+
+Completed tasks post themselves to Memos, so the journal fills itself. One
+direction only: nothing in Memos can create or change a task, because a
+journal that makes work is a second inbox and there is already one inbox.
+
+```toml
+[memos]
+url        = "https://memos.example.com"
+token      = ""              # a Memos access token
+visibility = "PRIVATE"       # a task manager's contents are not a blog
+tag        = "td"            # prepended, so the entries are filterable
+```
+
+Off until you set a URL. It follows a cursor into the event log rather than
+firing inline from the completion, which is what makes both of the properties
+worth having true at once: a completion is never lost because Memos was
+restarting, and never posted twice because something retried. Completing a
+task cannot fail because a journal is down.
+
+Switching it on starts from that moment rather than posting a year of
+history. A memo is dated by when the work finished, not by when it was
+delivered, so an entry that arrives after an outage is still right about the
+one fact it exists to record.
+
+## Sync plugins
+
+One way. A mirrored task carries `external_url` and the detail view puts it
+on the first line, so one keystroke opens the real thing. That removes the
+callback path, the action queue, and the whole class of failures where a
+remote write half-succeeds and the two systems disagree about what happened.
+
+```sh
+td sync planner -n     # read and translate, post nothing
+td sync planner        # mirror it
+```
+
+```toml
+[planner]
+plans       = ["xqQg5FS2LkCp935s-FIFm2QAFkHM"]
+graph_token = ""       # Tasks.Read and User.ReadBasic.All
+# graph_token_command = "az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv"
+```
+
+Mint the token with
+`tdd token create -name planner -actor plugin:planner -scopes sync:planner,read`.
+The scope is per source, so a Planner token cannot write the Jira mirror and
+reaches nothing else in the API. Everything it writes is attributed to
+`plugin:planner` and is one `td undo` loop away from gone.
+
+**Field ownership is the core rule**, and it is enforced by the server rather
+than by each plugin:
+
+| Upstream owns, overwritten every sync | Yours, never touched |
+| --- | --- |
+| title, status, due date | priority, notes, tags |
+| external URL and revision | person links, snooze, start |
+| | notify, effort, parent, series |
+
+One exception runs the other way: a task you completed or dropped in td keeps
+that status whatever the ticket says. Completing a mirrored task is a
+statement about your own work, and a sync that reopened it every fifteen
+minutes would make the mirror an argument rather than a list.
+
+Planner's own priority is deliberately not mapped. It is set by whoever made
+the card; td's priority is your answer to "what should I do next", and those
+are different questions.
+
+Items that disappear upstream are marked `upstream_gone`, never deleted: a
+ticket you can no longer see is not a ticket that never existed, and
+something in your notes probably refers to it. Planner has no delta query, so
+"gone" is computed by subtraction from a full read, and a read that returned
+nothing never marks anything gone. An expired token looks exactly like an
+emptied plan, and only one of those should delete your mirror.
+
+## Backup
+
+```sh
+td export --json -o td-$(date +%F).json    # goes back in
+td export --markdown -o vault/             # one file per task, for Obsidian
+td import td-2026-07-31.json               # into an empty database
+```
+
+The JSON round-trips: export, restore into a fresh database, export again,
+and the two files are byte-identical. That is a test, because a backup you
+have never restored is a hypothesis.
+
+It carries tasks, people, groups, identities, saved filters, series,
+attachment rows, and the whole event log with its sequence numbers intact, so
+undo and the MCP change cursor still work after a restore. It carries no
+credentials at all, so a file copied to object storage cannot log anybody in,
+and no fold state, which is view state.
+
+Import refuses a database that already has tasks. Merging two task sets means
+deciding what a colliding number means, and there is no answer to that which
+is not somebody's data quietly disappearing.
+
+`litestream` to object storage is still the right continuous answer. This is
+the one you can read.
 
 ## API
 
