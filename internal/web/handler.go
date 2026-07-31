@@ -183,9 +183,13 @@ type tokenRow struct {
 }
 
 type keyRow struct {
-	Keys  string
-	Help  string
-	Phase int
+	Keys string
+	Help string
+	// When says where an unimplemented key lands. A sentence rather than a
+	// phase number: section 16 does not schedule all of them, and the TUI and
+	// this page disagreed about the invented ones until they both stopped
+	// inventing.
+	When string
 }
 
 func (u *UI) base(r *http.Request, title string) pageData {
@@ -665,11 +669,11 @@ func keymap() []keyRow {
 		{Keys: "r", Help: "reload"},
 		{Keys: "?", Help: "this help"},
 		{Keys: "esc", Help: "back"},
-		{Keys: "e", Help: "edit", Phase: 5},
-		{Keys: "w", Help: "waiting on someone", Phase: 6},
-		{Keys: "s", Help: "snooze", Phase: 5},
-		{Keys: "p", Help: "set priority", Phase: 5},
-		{Keys: "t", Help: "tags", Phase: 5},
-		{Keys: "@", Help: "people", Phase: 6},
+		{Keys: "e", Help: "edit", When: "not scheduled yet"},
+		{Keys: "p", Help: "set priority", When: "not scheduled yet"},
+		{Keys: "t", Help: "tags", When: "not scheduled yet"},
+		{Keys: "s", Help: "snooze", When: "with reminders, in phase 5"},
+		{Keys: "w", Help: "waiting on someone", When: "with people, in phase 6"},
+		{Keys: "@", Help: "people", When: "with people, in phase 6"},
 	}
 }

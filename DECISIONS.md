@@ -18,6 +18,29 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  Editing a task is not in the build order, and the keymap now says so
+Phase: 4
+
+Section 11 gives the complete keymap, including `e` edit, `p` priority, and
+`t` tags. Section 16's build order never schedules them. Phase 3 is "TUI:
+list, detail, add, complete, filters, undo", and phase 4 is parity with
+phase 3. Nothing later mentions editing a task.
+
+Phase 3 papered over this by having those keys report "arrives in phase 4",
+which was a guess. Phase 4 shipped without them, so the TUI was telling the
+user something false, and the web help had guessed phase 5 for the same keys
+so the two clients disagreed.
+
+Both now say "not scheduled yet". The keys that section 16 does schedule keep
+their phase: snooze with reminders in 5, people in 6, series in 7. A test
+asserts `e` does not claim a schedule.
+
+This is the gap being recorded rather than resolved. Deciding when editing
+lands is a scope call, and section 16 says to stop after phase 5 and use the
+thing for two weeks first, which is exactly the period that would settle it.
+
+Reversible: it is a string until someone schedules the work.
+
 ## 2026-07-31  Solarized Light needed --td-dim raised to clear its own floor
 Phase: 4
 

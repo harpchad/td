@@ -138,7 +138,7 @@ func (m *Model) listKey(key string) (tea.Model, tea.Cmd) {
 	// A key that is specified but not built yet says which phase it lands in,
 	// because a key that silently does nothing reads as a bug.
 	if b, ok := deferredKeys[key]; ok {
-		m.status = key + " (" + b.help + ") arrives in phase " + itoa(int64(b.phase))
+		m.status = key + " (" + b.help + "): " + b.when
 		return m, nil
 	}
 

@@ -9,8 +9,11 @@ type binding struct {
 	help string
 	// hint is the label in the bottom bar. Empty keeps it off the bar.
 	hint string
-	// phase names where the key lands when it is not implemented yet.
-	phase int
+	// when says where an unimplemented key lands. It is a sentence rather
+	// than a phase number because BUILD-SPEC.md section 16 does not schedule
+	// every one of them, and a number invented here becomes a promise the
+	// build order never made. Empty means the key works.
+	when string
 }
 
 // bindings is the whole keymap, in the order the help screen lists it.
@@ -30,7 +33,7 @@ var bindings = []binding{
 	{keys: []string{"Z"}, help: "fold every parent in view"},
 	// Listed here rather than with the other deferred keys so the bottom bar
 	// reads in the order section 11 draws it.
-	{keys: []string{"w"}, help: "waiting on someone", hint: "w wait", phase: 6},
+	{keys: []string{"w"}, help: "waiting on someone", hint: "w wait", when: "with people, in phase 6"},
 	{keys: []string{"/"}, help: "edit the filter", hint: "/ search"},
 	{keys: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, help: "saved filters"},
 	{keys: []string{"u"}, help: "undo", hint: "u undo"},
@@ -39,21 +42,26 @@ var bindings = []binding{
 	{keys: []string{"esc"}, help: "back"},
 	{keys: []string{"q", "ctrl+c"}, help: "quit"},
 
-	// Specified, not yet built. Each says which phase it arrives in.
-	{keys: []string{"e"}, help: "edit", phase: 4},
-	{keys: []string{"s"}, help: "snooze", phase: 5},
-	{keys: []string{"p"}, help: "set priority", phase: 4},
-	{keys: []string{"t"}, help: "tags", phase: 4},
-	{keys: []string{"@"}, help: "people", phase: 6},
-	{keys: []string{"E"}, help: "edit the series", phase: 7},
+	// Specified in section 11, not built yet. Each says where it lands.
+	//
+	// Editing a task has no phase in section 16's build order: it is not in
+	// phase 3's list and phase 4 is parity with phase 3. That is a gap in the
+	// plan rather than something waiting its turn, so these say so instead of
+	// naming a phase nobody committed to.
+	{keys: []string{"e"}, help: "edit", when: "not scheduled yet"},
+	{keys: []string{"p"}, help: "set priority", when: "not scheduled yet"},
+	{keys: []string{"t"}, help: "tags", when: "not scheduled yet"},
+	{keys: []string{"s"}, help: "snooze", when: "with reminders, in phase 5"},
+	{keys: []string{"@"}, help: "people", when: "with people, in phase 6"},
+	{keys: []string{"E"}, help: "edit the series", when: "with recurrence, in phase 7"},
 }
 
-// deferredKeys maps a key to the phase that implements it, so pressing one
-// says so instead of doing nothing.
+// deferredKeys maps a key to where it lands, so pressing one says so instead
+// of doing nothing.
 var deferredKeys = func() map[string]binding {
 	out := map[string]binding{}
 	for _, b := range bindings {
-		if b.phase == 0 {
+		if b.when == "" {
 			continue
 		}
 		for _, k := range b.keys {

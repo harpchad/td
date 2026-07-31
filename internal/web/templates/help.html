@@ -10,7 +10,7 @@
       {{range .Keys}}
       <div class="td-help__row">
         <span class="td-help__keys">{{.Keys}}</span>
-        <span class="td-help__what">{{.Help}}{{if .Phase}} (phase {{.Phase}}){{end}}</span>
+        <span class="td-help__what">{{.Help}}{{if .When}} — {{.When}}{{end}}</span>
       </div>
       {{end}}
       <p class="td-help__what" style="margin-top:var(--td-row)">

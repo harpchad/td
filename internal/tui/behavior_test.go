@@ -373,19 +373,29 @@ func TestDetailIsAFullScreenReplacement(t *testing.T) {
 	}
 }
 
-// TestDeferredKeysSayWhichPhase covers the choice that a specified key which
-// is not built yet reports itself rather than doing nothing, because a key
-// that silently does nothing reads as a bug.
-func TestDeferredKeysSayWhichPhase(t *testing.T) {
+// TestDeferredKeysSayWhereTheyLand covers the choice that a specified key
+// which is not built yet reports itself rather than doing nothing, because a
+// key that silently does nothing reads as a bug. It also guards against the
+// message naming a phase that has already shipped.
+func TestDeferredKeysSayWhereTheyLand(t *testing.T) {
 	h, _ := open(t)
 
 	h.key("w")
 	view := plain(h.view())
-	if !strings.Contains(view, "phase") {
+	if !strings.Contains(view, "phase 6") {
 		t.Errorf("w did nothing visible:\n%s", view)
 	}
 	if !strings.Contains(view, "waiting") {
 		t.Error("the message does not say what the key would do")
+	}
+
+	// Editing has no phase in section 16's build order, so the key says that
+	// rather than naming a phase nobody committed to. The first cut said
+	// "phase 4", which shipped without it.
+	h.key("e")
+	view = plain(h.view())
+	if !strings.Contains(view, "not scheduled") {
+		t.Errorf("e claims a schedule it does not have:\n%s", view)
 	}
 }
 

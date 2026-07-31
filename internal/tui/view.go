@@ -435,8 +435,8 @@ func (m *Model) renderHelp() string {
 	for _, b := range bindings {
 		keys := strings.Join(b.keys, " ")
 		help := b.help
-		if b.phase > 0 {
-			help += dim.Render("  (phase " + itoa(int64(b.phase)) + ")")
+		if b.when != "" {
+			help += dim.Render("  — " + b.when)
 		}
 		lines = append(lines, m.boxed(inner, " "+dim.Render(padRight(keys, 14))+truncate(help, inner-16)))
 	}
