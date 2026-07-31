@@ -1,0 +1,80 @@
+{{define "list"}}
+{{if .Error}}
+<div class="td-notice td-notice--error">{{.Error}}</div>
+{{end}}
+{{if .Status}}
+<div class="td-notice td-dim">{{.Status}}</div>
+{{end}}
+
+{{if not .Rows}}
+  {{template "empty" .}}
+{{else}}
+<div class="td-list">
+{{range .Rows}}
+  {{if .OpensGroup}}<div class="td-group" data-collapsed="{{if .Collapsed}}true{{else}}false{{end}}">{{end}}
+  {{template "row" .}}
+  {{if .ClosesGroup}}</div>{{end}}
+{{end}}
+</div>
+{{end}}
+{{end}}
+
+{{/* One row. The markup is the mockup's, class for class. */}}
+{{define "row"}}
+<div class="td-row{{if .Sub}} td-row--sub{{end}}{{if .Done}} td-row--done{{end}}"
+     data-id="{{.Task.ID}}" data-num="{{.Task.Num}}"{{if .Sub}} id="sub-{{.Task.ParentID}}"{{end}}>
+  {{if .HasChildren}}
+    <form action="/w/fold/{{.Task.ID}}" method="post" style="display:contents"
+          hx-post="/w/fold/{{.Task.ID}}" hx-target="#list" hx-swap="innerHTML">
+      <button class="td-fold" type="submit" aria-expanded="{{if .Collapsed}}false{{else}}true{{end}}"
+              aria-controls="sub-{{.Task.ID}}" aria-label="fold"></button>
+    </form>
+  {{else}}
+    <span class="td-fold td-fold--leaf"></span>
+  {{end}}
+
+  <form action="/w/complete/{{.Task.ID}}" method="post" style="display:contents"
+        hx-post="/w/complete/{{.Task.ID}}" hx-target="#list" hx-swap="innerHTML">
+    <label class="td-box">
+      <input type="checkbox" class="td-done" name="done"
+             {{if .Done}}checked{{end}}{{if .Indeterminate}} data-indeterminate="true"{{end}}
+             data-autosubmit data-complete
+             aria-label="{{if .Done}}reopen{{else}}complete{{end}} {{.Task.Title}}">
+    </label>
+  </form>
+
+  <span class="td-num">{{.Task.Num}}</span>
+  <span class="td-prio{{if .PriorityClass}} {{.PriorityClass}}{{end}}">{{.PriorityLabel}}</span>
+  <a class="td-title td-link" href="/t/{{.Task.Num}}" data-open>{{.Task.Title}}</a>
+
+  <span class="td-row__tokens">
+    {{range .People}}<a class="td-token td-link" href="/?q={{.Query | urlquery}}">{{.Label}}</a>{{end}}
+    {{range .Tags}}<a class="td-token td-link" href="/?q={{.Query | urlquery}}">{{.Label}}</a>{{end}}
+  </span>
+
+  {{if .HasChildren}}<span class="td-children">{{.Task.ChildrenDone}}/{{.Task.ChildrenTotal}}</span>{{end}}
+  <span class="td-due{{if .Overdue}} td-due--overdue{{end}}">{{.Due}}</span>
+
+  <form action="/w/drop/{{.Task.ID}}" method="post" style="display:none"
+        hx-post="/w/drop/{{.Task.ID}}" hx-target="#list" hx-swap="innerHTML">
+    <button type="submit" data-drop>drop</button>
+  </form>
+</div>
+{{end}}
+
+{{/* Empty is an invitation: it says what would put something here and
+     names the filter that found nothing. */}}
+{{define "empty"}}
+<div class="td-empty">
+{{if .InboxZero}}
+  <div>Inbox zero.</div>
+  <div class="td-empty__line">Nothing waiting to be triaged.</div>
+{{else if .Filter}}
+  <div>Nothing matches <code>{{.Filter}}</code></div>
+  <div class="td-empty__line">Change the filter, or add something that would match.</div>
+{{else}}
+  <div>Nothing here yet.</div>
+  <div class="td-empty__line">Press <code>a</code> to put the first thing in the inbox.</div>
+{{end}}
+</div>
+{{end}}

@@ -1,0 +1,31 @@
+{{define "body"}}
+<div class="td-login">
+  <div class="td-modal">
+    <div class="td-modal__title">td</div>
+    {{if .NoAccount}}
+      <p style="margin:0 0 var(--td-row)">No account configured. Run
+      <b>tdd account create</b> on the server.</p>
+    {{else}}
+      <form action="/login" method="post">
+        <label class="td-login__field">
+          <span class="td-login__label">username</span>
+          <input class="td-input" type="text" name="username" autocomplete="username" autofocus>
+        </label>
+        <label class="td-login__field">
+          <span class="td-login__label">password</span>
+          <input class="td-input" type="password" name="password" autocomplete="current-password">
+        </label>
+        <label class="td-login__field">
+          <span class="td-login__label">code, or a recovery code</span>
+          <input class="td-input" type="text" name="totp" inputmode="numeric"
+                 autocomplete="one-time-code" spellcheck="false">
+        </label>
+        {{if .Error}}<p class="td-notice--error" style="margin:0 0 var(--td-row)">{{.Error}}</p>{{end}}
+        <div class="td-form__actions">
+          <button class="td-btn td-btn--primary" type="submit">Sign in</button>
+        </div>
+      </form>
+    {{end}}
+  </div>
+</div>
+{{end}}

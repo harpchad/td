@@ -98,6 +98,22 @@ func isPublicPath(path string) bool {
 	case "/healthz", "/login", "/logout":
 		return true
 	}
+	// The stylesheet and the two scripts are needed to render the login page
+	// itself, so they sit outside the credential check. They carry no data.
+	return strings.HasPrefix(path, "/static/")
+}
+
+// isBrowserPath reports whether a path belongs to the server-rendered UI
+// rather than the API. The two answer an unauthenticated request very
+// differently: the API answers 401 with nothing at all, and a browser gets
+// sent to the login page, which is the only route that renders anything.
+func isBrowserPath(path string) bool {
+	switch {
+	case path == "/", path == "/settings", path == "/help":
+		return true
+	case strings.HasPrefix(path, "/t/"), strings.HasPrefix(path, "/w/"):
+		return true
+	}
 	return false
 }
 
@@ -121,6 +137,13 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 
 		p, err := s.resolveCredential(r)
 		if err != nil || p == nil {
+			if isBrowserPath(r.URL.Path) && wantsHTML(r) {
+				s.logAuth(r, api.KindAuthDenied, "anonymous", map[string]any{
+					"path": r.URL.Path, "reason": "no session",
+				})
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+				return
+			}
 			s.denyEmpty(w, r, "no valid credential")
 			return
 		}
@@ -170,6 +193,15 @@ func (s *Server) resolveCredential(r *http.Request) (*principal, error) {
 		return nil, err
 	}
 	return &principal{Actor: "me", Scopes: sessionScopes, Kind: "session"}, nil
+}
+
+// wantsHTML reports whether the caller is a browser following a link, rather
+// than something asking for JSON.
+func wantsHTML(r *http.Request) bool {
+	if r.Header.Get("HX-Request") == "true" {
+		return true
+	}
+	return strings.Contains(r.Header.Get("Accept"), "text/html")
 }
 
 func bearerToken(r *http.Request) (string, bool) {
@@ -241,8 +273,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.LoginRequest
-	if err := decode(r, &req); err != nil {
+	req, err := decodeLogin(r)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -258,7 +290,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		// enumeration oracle.
 		_ = auth.VerifyPassword(req.Password, s.dummyHash)
 		s.logAuth(r, api.KindAuthLoginFailed, "anonymous", map[string]any{"stage": "username"})
-		s.denyLogin(w)
+		s.failLogin(w, r)
 		return
 	}
 
@@ -266,7 +298,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		// Same answer as a wrong password, so probing cannot discover that an
 		// account is locked, which would confirm it exists.
 		s.logAuth(r, api.KindAuthLoginFailed, "anonymous", map[string]any{"stage": "locked"})
-		s.denyLogin(w)
+		s.failLogin(w, r)
 		return
 	}
 
@@ -276,7 +308,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.logAuth(r, api.KindAuthLoginFailed, "anonymous", map[string]any{"stage": "password"})
-		s.denyLogin(w)
+		s.failLogin(w, r)
 		return
 	}
 
@@ -286,7 +318,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.logAuth(r, api.KindAuthLoginFailed, "anonymous", map[string]any{"stage": "totp"})
-		s.denyLogin(w)
+		s.failLogin(w, r)
 		return
 	}
 
@@ -303,6 +335,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, s.sessionCookie(secret, sess.ExpiresAt))
 	s.logAuth(r, api.KindAuthLogin, "me", nil)
 
+	if isFormPost(r) {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	writeJSON(w, http.StatusOK, api.SessionInfo{
 		Username: acct.Username, Scopes: sessionScopes,
 		Actor: "me", ExpiresAt: sess.ExpiresAt, Kind: "session",
@@ -328,8 +364,70 @@ func (s *Server) verifySecondFactor(r *http.Request, acct store.Account, req api
 func (s *Server) denyLogin(w http.ResponseWriter) {
 	writeJSON(w, http.StatusUnauthorized, &api.Error{
 		Code:    api.ErrUnauthorized,
-		Message: "that combination did not work",
+		Message: loginFailureMessage,
 	})
+}
+
+// loginFailureMessage is the only thing a failed sign-in ever says. Not which
+// factor was wrong, and not whether the account exists.
+const loginFailureMessage = "that combination did not work"
+
+func isFormPost(r *http.Request) bool {
+	ct := r.Header.Get("Content-Type")
+	return strings.HasPrefix(ct, "application/x-www-form-urlencoded") ||
+		strings.HasPrefix(ct, "multipart/form-data")
+}
+
+// decodeLogin reads the credentials from a JSON body or an HTML form. The
+// browser posts a form because the login page has to work with no JavaScript
+// at all, which is also what makes it testable without one.
+func decodeLogin(r *http.Request) (api.LoginRequest, error) {
+	if !isFormPost(r) {
+		var req api.LoginRequest
+		err := decode(r, &req)
+		return req, err
+	}
+	if err := r.ParseForm(); err != nil {
+		return api.LoginRequest{}, &api.Error{Code: api.ErrBadRequest, Message: "could not read the form"}
+	}
+	req := api.LoginRequest{
+		Username: r.PostFormValue("username"),
+		Password: r.PostFormValue("password"),
+	}
+	// One field takes either factor: a six digit code or a recovery code.
+	// Asking a person to pick the right box for a string they are reading off
+	// a card is a question the server can answer itself.
+	code := strings.TrimSpace(r.PostFormValue("totp"))
+	if isSixDigits(code) {
+		req.TOTP = code
+	} else {
+		req.RecoveryCode = code
+	}
+	return req, nil
+}
+
+func isSixDigits(s string) bool {
+	if len(s) != 6 {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// failLogin answers a failed sign-in. A form post goes back to the page
+// carrying the one message; anything else gets the JSON refusal. Both are the
+// same status and say the same thing.
+func (s *Server) failLogin(w http.ResponseWriter, r *http.Request) {
+	if isFormPost(r) && s.ui != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		s.ui.Login(w, r, loginFailureMessage)
+		return
+	}
+	s.denyLogin(w)
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -343,6 +441,11 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	expired := s.sessionCookie("", "")
 	expired.MaxAge = -1
 	http.SetCookie(w, expired)
+
+	if isFormPost(r) {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

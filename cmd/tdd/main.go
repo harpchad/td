@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/server"
 	"github.com/harpchad/td/internal/store"
+	"github.com/harpchad/td/internal/web"
 )
 
 func main() {
@@ -42,6 +44,8 @@ func run(args []string) error {
 		"the server's own public URL. Required: OAuth discovery, the ntfy click-through, and the resource claim all depend on knowing it")
 	trustedProxies := fs.String("trusted-proxies", envOr("TD_TRUSTED_PROXIES", ""),
 		"comma separated CIDRs whose X-Forwarded-For is believed. Empty trusts nothing")
+	themeDir := fs.String("themes", envOr("TD_THEME_DIR", ""),
+		"directory of extra theme files. Defaults to <config>/themes")
 	showVersion := fs.Bool("version", false, "print the API version and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -116,6 +120,16 @@ func run(args []string) error {
 		return err
 	}
 	srv.TrustedProxies = networks
+
+	// The browser UI. Themes are files: a palette that fails the contrast
+	// floor is logged and skipped rather than loaded unreadable.
+	dir := *themeDir
+	if dir == "" {
+		dir = defaultThemeDir()
+	}
+	if err := srv.AttachWeb(web.Load(dir, log), dir); err != nil {
+		return err
+	}
 
 	if configured, err := st.HasAccount(context.Background()); err == nil && !configured {
 		log.Warn("no account configured, every route answers 503",
@@ -247,6 +261,19 @@ func isLoopback(addr string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// defaultThemeDir is $XDG_CONFIG_HOME/td/themes, so a palette you like is a
+// file drop rather than a pull request.
+func defaultThemeDir() string {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return filepath.Join(dir, "td", "themes")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "td", "themes")
 }
 
 func envOr(key, fallback string) string {

@@ -18,6 +18,116 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  Solarized Light needed --td-dim raised to clear its own floor
+Phase: 4
+
+Section 12 sets a contrast floor a theme must pass before it loads: 4.5:1
+for ink on paper, and 3:1 for ink at `--td-dim` on paper. It says that is a
+unit test rather than a runtime nicety.
+
+Written as specified, the test failed on a shipped theme. Solarized Light at
+`--td-dim: 0.72` composites base01 over base3 to a grey that clears 2.92:1,
+just under the 3:1 floor. Every other palette passes with margin: Nord
+5.23:1, Dracula 6.12:1, Tokyo Night 5.09:1, and the two built-ins 4.05:1 and
+5.49:1.
+
+Raised it to 0.75 in `themes.css`. The arithmetic is in the comment beside
+it: 0.74 is the first value that passes and 0.75 leaves a little.
+
+This edits one of the three artifacts that outrank the prose, which is worth
+being explicit about. It is not the artifact overruling the spec, though: the
+floor and the palette are in the same file, and the file's own header says
+`--td-dim` exists to be raised on low-contrast palettes and names Solarized
+as one that needs it. 0.72 was an estimate that came up short. Nothing about
+the palette's identity changed; one opacity did.
+
+The alternative was to let the check reject Solarized Light at load, which is
+the behavior the rule specifies for a failing theme. Rejected because section
+12 also says to ship it, and a theme that ships and never loads is worse than
+either.
+
+Also worth recording: Solarized Light has the least headroom of any palette
+here at 4.99:1 for ink on paper against a 4.5:1 floor. A future palette
+tweak there is more likely than anywhere else to trip the check.
+
+Reversible: one number.
+
+## 2026-07-31  One stylesheet, assembled from the files that are the authority
+Phase: 4
+
+Section 12 says one hand-written stylesheet, and `CLAUDE.md` says
+`tokens.css` and `themes.css` outrank the prose. Those pull slightly apart:
+the system already lives in two files, and the app needs a third layer of
+layout.
+
+The browser fetches exactly one stylesheet, `/static/td.css`, assembled at
+startup from tokens, themes, any user themes that cleared the floor, and an
+app layer. The app layer introduces no colors, no radii, no shadows, and no
+second type scale; everything in it is layout, and every value is a token.
+
+`go:embed` cannot reach outside a package directory, so `internal/web/css`
+mirrors the two root files. `TestEmbeddedCSSMatchesTheAuthority` compares
+them byte for byte, which turns editing one and not the other into a build
+failure rather than a drift nobody notices until the mockup and the app
+disagree. `make sync-css` is the fix.
+
+Rejected: making the root files the copies and the package files the
+authority, which would move the artifact `CLAUDE.md` names out from under
+the name it names it by.
+
+Reversible: yes.
+
+## 2026-07-31  No inline script at all, rather than an htmx hash
+Phase: 4
+
+Section 15 asks for a CSP with no inline script "except the htmx bundle
+hash", which suggests inlining htmx and allowing its hash.
+
+Nothing is inlined. htmx and the keymap are served as files, so
+`script-src 'self'` covers both and the policy carries no hash at all. A
+hash has to be recomputed whenever the file changes, and a stale one fails
+in a way that looks like the script simply not running.
+
+The first cut of the templates used `onchange="this.form.requestSubmit()"`
+on the row checkbox and the theme radio, which would have forced
+`unsafe-inline` back into the policy for two lines of convenience. A test
+that scans every page for inline handlers and script bodies caught it; both
+moved into a delegated listener in `td.js`.
+
+Reversible: yes, and the test would fail first.
+
+## 2026-07-31  The browser routes are not in openapi.yaml
+Phase: 4
+
+`openapi.yaml` is linted on every `make check` and a route without an entry
+fails the build. The web UI adds a dozen routes.
+
+None of them is documented there, and a test asserts that. `openapi.yaml`
+describes the JSON API that clients, plugins, and MCP program against. The
+server-rendered pages and their form posts are not an interface anything
+integrates with, and documenting them would invite someone to try, then
+constrain the markup as though it were a contract.
+
+The route-coverage test now runs in both directions: every API route has an
+entry, and no browser route does.
+
+Reversible: yes.
+
+## 2026-07-31  Every web action works with JavaScript off
+Phase: 4
+
+Section 12 specifies htmx, which implies the actions are JavaScript-driven.
+
+Each action is a real form with a real action and method. htmx intercepts it
+and swaps the list fragment; without htmx the form posts and the server
+redirects. The `HX-Request` header is what picks between the two.
+
+This is not primarily about supporting a browser with scripting off. It is
+what makes the whole UI testable with an HTTP client, which is why there are
+web tests at all rather than a note saying the browser UI is untested.
+
+Reversible: yes, at the cost of those tests.
+
 ## 2026-07-31  A selected row is built flat, not flattened afterwards
 Phase: 3
 

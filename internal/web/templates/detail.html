@@ -1,0 +1,59 @@
+{{define "body"}}
+<div class="td-app" data-td-app>
+  <div class="td-bar">
+    <span><b>td</b></span>
+    <span class="td-dim">task {{.Task.Num}}</span>
+    <span class="td-bar__spacer"></span>
+    <a class="td-link" href="/" data-back>back</a>
+  </div>
+
+  <div class="td-app__body td-scroll">
+    <div class="td-detail">
+      {{/* A mirrored task puts its source on the first line, so one click
+           opens the real thing. */}}
+      {{if .ExternalURL}}
+      <div><a class="td-link" href="{{.ExternalURL}}" rel="noopener noreferrer">{{.ExternalURL}}</a></div>
+      {{end}}
+
+      <div class="td-detail__title">
+        <span class="td-num">{{.Task.Num}}</span>
+        <span class="td-prio{{if .PriorityClass}} {{.PriorityClass}}{{end}}">{{.PriorityLabel}}</span>
+        <span>{{.Task.Title}}</span>
+      </div>
+
+      <div class="td-detail__fields">
+        <span class="td-detail__label">status</span><span>{{.Task.Status}}</span>
+        {{if .Due}}<span class="td-detail__label">due</span><span{{if .Overdue}} class="td-due--overdue"{{end}}>{{.Due}}</span>{{end}}
+        {{if .Task.StartAt}}<span class="td-detail__label">start</span><span>{{.Task.StartAt}}</span>{{end}}
+        {{if .Task.SnoozeUntil}}<span class="td-detail__label">snoozed</span><span>until {{.Task.SnoozeUntil}}</span>{{end}}
+        {{if .Tags}}<span class="td-detail__label">tags</span><span>{{range .Tags}}<a class="td-token td-link" href="/?q={{.Query | urlquery}}">{{.Label}}</a> {{end}}</span>{{end}}
+        {{range .People}}<span class="td-detail__label">{{.Role}}</span><span><a class="td-token td-link" href="/?q={{.Query | urlquery}}">{{.Label}}</a></span>{{end}}
+        {{if .Task.ChildrenTotal}}<span class="td-detail__label">subtasks</span><span>{{.Task.ChildrenDone}} of {{.Task.ChildrenTotal}} done</span>{{end}}
+        {{if .Task.Attachments}}<span class="td-detail__label">files</span><span>{{.Task.Attachments}}</span>{{end}}
+        <span class="td-detail__label">notify</span><span>{{.Task.Notify}}</span>
+        <span class="td-detail__label">source</span><span>{{.Task.Source}}</span>
+        <span class="td-detail__label">id</span><span class="td-dim">{{.Task.ID}}</span>
+      </div>
+
+      {{if .Task.Notes}}<div class="td-detail__notes">{{.Task.Notes}}</div>{{end}}
+
+      <div class="td-form__actions">
+        <form action="/w/complete/{{.Task.ID}}" method="post">
+          <button class="td-btn td-btn--primary" type="submit" data-complete>
+            {{if .Done}}Reopen{{else}}Mark done{{end}}</button>
+        </form>
+        <form action="/w/drop/{{.Task.ID}}" method="post">
+          <button class="td-btn" type="submit" data-drop>Drop</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="td-bar td-bar--status">
+    <span class="td-key"><b>d</b> done</span>
+    <span class="td-key"><b>x</b> drop</span>
+    <span class="td-key"><b>u</b> undo</span>
+    <span class="td-key"><b>esc</b> back</span>
+  </div>
+</div>
+{{end}}

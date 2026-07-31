@@ -91,6 +91,14 @@ run-live:
 	@mkdir -p $(BUILD_DIR)
 	@go run ./cmd/tdd -db $(DEV_DB) -addr 127.0.0.1:8080 -base-url http://127.0.0.1:8080
 
+.PHONY: sync-css
+## tokens.css and themes.css at the root are the authority. go:embed cannot
+## reach outside a package, so internal/web/css mirrors them and a test fails
+## the build when the two drift.
+sync-css:
+	@cp tokens.css themes.css internal/web/css/
+	@echo "synced tokens.css and themes.css into internal/web/css"
+
 .PHONY: account
 ## Create the one account. There is no signup page and no route that makes one.
 account:

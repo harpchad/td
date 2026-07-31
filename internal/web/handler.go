@@ -1,0 +1,675 @@
+package web
+
+import (
+	"context"
+	"errors"
+	"html/template"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/harpchad/td/internal/api"
+	"github.com/harpchad/td/internal/query"
+	"github.com/harpchad/td/internal/store"
+)
+
+// ThemeCookie remembers the picked theme. It is a preference rather than
+// data, so it lives in a cookie rather than in the database.
+const ThemeCookie = "td_theme"
+
+// Service is what the web UI needs from the rest of the server. The handlers
+// go through the same store every other client's requests do, so a bug shows
+// up everywhere at once instead of hiding in the path you use least.
+type Service interface {
+	List(ctx context.Context, filter string, now time.Time) ([]api.Task, error)
+	Get(ctx context.Context, id string) (api.Task, error)
+	Resolve(ctx context.Context, ref string) (string, error)
+	Create(ctx context.Context, actor string, in api.TaskCreate, now time.Time) (api.Task, error)
+	Complete(ctx context.Context, actor, id string, now time.Time) (api.CompleteResult, error)
+	Drop(ctx context.Context, actor, id string, now time.Time) (api.Task, error)
+	Undo(ctx context.Context, actor string, now time.Time) (api.UndoResult, error)
+	SavedFilters(ctx context.Context) ([]api.SavedFilter, error)
+	CollapsedTasks(ctx context.Context) ([]string, error)
+	SetCollapsed(ctx context.Context, taskID string, collapsed bool) error
+	Tokens(ctx context.Context) ([]api.Token, error)
+	RevokeToken(ctx context.Context, id string, now time.Time) error
+	HasAccount(ctx context.Context) (bool, error)
+}
+
+// UI serves the browser interface.
+type UI struct {
+	svc    Service
+	assets *Assets
+	tmpl   map[string]*template.Template
+	log    *slog.Logger
+
+	// Now is the clock every page renders against, and the same one the sort
+	// order used.
+	Now func() time.Time
+	// ThemeDir is shown on the settings page so a file drop is discoverable.
+	ThemeDir string
+	// AssetVersion busts the cache when the binary changes.
+	AssetVersion string
+}
+
+// New builds the web UI over a service and a set of assets.
+func New(svc Service, assets *Assets, log *slog.Logger, now func() time.Time) (*UI, error) {
+	if log == nil {
+		log = slog.Default()
+	}
+	tmpl, err := parseTemplates()
+	if err != nil {
+		return nil, err
+	}
+	return &UI{
+		svc: svc, assets: assets, tmpl: tmpl, log: log, Now: now,
+		AssetVersion: api.Version,
+	}, nil
+}
+
+func parseTemplates() (map[string]*template.Template, error) {
+	pages := []string{"home", "detail", "login", "help", "settings"}
+	out := map[string]*template.Template{}
+
+	for _, page := range pages {
+		files := []string{"templates/layout.html", "templates/" + page + ".html"}
+		if page == "home" {
+			files = append(files, "templates/list.html")
+		}
+		t, err := template.New("layout").ParseFS(templateFS, files...)
+		if err != nil {
+			return nil, err
+		}
+		out[page] = t
+	}
+
+	// The list fragment is rendered on its own for htmx swaps.
+	frag, err := template.New("list").ParseFS(templateFS, "templates/list.html")
+	if err != nil {
+		return nil, err
+	}
+	out["list"] = frag
+	return out, nil
+}
+
+// Routes registers the browser routes on a mux.
+func (u *UI) Routes(mux *http.ServeMux) {
+	// Registered for every method, not just GET. With "GET /" the mux answers
+	// 405 for a POST to any unregistered path, which says "this exists but
+	// not for that verb" about paths that do not exist at all. 404 is the
+	// true answer, and it is what the no-registration-route test asserts.
+	mux.HandleFunc("/", u.home)
+	mux.HandleFunc("GET /t/{ref}", u.detail)
+	mux.HandleFunc("GET /help", u.help)
+	mux.HandleFunc("GET /settings", u.settings)
+
+	mux.HandleFunc("POST /w/add", u.add)
+	mux.HandleFunc("POST /w/complete/{id}", u.complete)
+	mux.HandleFunc("POST /w/drop/{id}", u.drop)
+	mux.HandleFunc("POST /w/undo", u.undo)
+	mux.HandleFunc("POST /w/fold/{id}", u.fold)
+	mux.HandleFunc("POST /w/theme", u.setTheme)
+	mux.HandleFunc("POST /w/tokens/{id}/revoke", u.revokeToken)
+
+	mux.HandleFunc("GET /static/td.css", u.asset(u.assets.CSS, "text/css; charset=utf-8"))
+	mux.HandleFunc("GET /static/td.js", u.asset(u.assets.Script, "text/javascript; charset=utf-8"))
+	mux.HandleFunc("GET /static/htmx.min.js", u.asset(u.assets.HTMX, "text/javascript; charset=utf-8"))
+}
+
+func (u *UI) asset(body []byte, contentType string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", contentType)
+		// Immutable because the URL carries the build version.
+		if r.URL.Query().Get("v") != "" {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
+		_, _ = w.Write(body)
+	}
+}
+
+// pageData is everything a template can read.
+type pageData struct {
+	Title        string
+	Theme        string
+	AssetVersion string
+
+	Filter     string
+	FilterName string
+	Saved      []api.SavedFilter
+	Counts     Counts
+	Rows       []Row
+	InboxZero  bool
+
+	Task        api.Task
+	Done        bool
+	Overdue     bool
+	Due         string
+	Tags        []Token
+	People      []DetailPerson
+	ExternalURL string
+
+	PriorityClass string
+	PriorityLabel string
+
+	Themes   []themeChoice
+	ThemeDir string
+	Tokens   []tokenRow
+	Keys     []keyRow
+
+	NoAccount bool
+	Status    string
+	Error     string
+}
+
+// DetailPerson is a person link on the detail page, carrying its role.
+type DetailPerson struct {
+	Role  string
+	Label string
+	Query string
+}
+
+type themeChoice struct {
+	Name     string
+	Label    string
+	BuiltIn  bool
+	Selected bool
+}
+
+type tokenRow struct {
+	ID, Name, Prefix, Actor, Scopes, LastUsed string
+	Revoked                                   bool
+}
+
+type keyRow struct {
+	Keys  string
+	Help  string
+	Phase int
+}
+
+func (u *UI) base(r *http.Request, title string) pageData {
+	return pageData{
+		Title:        title,
+		Theme:        u.themeOf(r),
+		AssetVersion: u.AssetVersion,
+	}
+}
+
+func (u *UI) themeOf(r *http.Request) string {
+	c, err := r.Cookie(ThemeCookie)
+	if err != nil || c.Value == "" {
+		return "light"
+	}
+	for _, t := range u.assets.Themes {
+		if t.Name == c.Value {
+			return c.Value
+		}
+	}
+	// A cookie naming a theme that has since been removed or rejected falls
+	// back rather than rendering an undefined palette.
+	return "light"
+}
+
+func (u *UI) home(w http.ResponseWriter, r *http.Request) {
+	// This pattern catches everything unmatched, so anything that is not the
+	// root is a 404 rather than the home page.
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "", http.StatusMethodNotAllowed)
+		return
+	}
+
+	data := u.base(r, "Today")
+	filter := r.URL.Query().Get("q")
+
+	saved, err := u.svc.SavedFilters(r.Context())
+	if err != nil {
+		u.fail(w, r, err)
+		return
+	}
+	data.Saved = saved
+
+	if filter == "" {
+		for _, f := range saved {
+			if f.Slot == 1 {
+				filter = f.Query
+				break
+			}
+		}
+	}
+	u.fillList(r, &data, filter, "")
+
+	u.render(w, "home", data)
+}
+
+// fillList loads the list into the page data, and reports a filter that does
+// not parse as an error rather than an empty list.
+func (u *UI) fillList(r *http.Request, data *pageData, filter, status string) {
+	data.Filter = filter
+	data.Status = status
+	data.FilterName = "Everything"
+
+	if saved := data.Saved; saved != nil {
+		for _, f := range saved {
+			if f.Query == filter {
+				data.FilterName = f.Name
+				break
+			}
+		}
+	}
+	data.InboxZero = filter == "is:inbox"
+
+	now := u.Now()
+	tasks, err := u.svc.List(r.Context(), filter, now)
+	if err != nil {
+		var parseErr *query.ParseError
+		if errors.As(err, &parseErr) {
+			data.Error = parseErr.Msg
+			return
+		}
+		u.log.Error("web list", "err", err)
+		data.Error = "the server could not read that list"
+		return
+	}
+
+	collapsed := map[string]bool{}
+	if ids, err := u.svc.CollapsedTasks(r.Context()); err == nil {
+		for _, id := range ids {
+			collapsed[id] = true
+		}
+	}
+
+	data.Counts = countOf(tasks, now)
+	data.Rows = buildRows(tasks, collapsed, now)
+}
+
+// listFragment re-renders just the list, which is what every htmx action
+// swaps in.
+func (u *UI) listFragment(w http.ResponseWriter, r *http.Request, status string) {
+	data := u.base(r, "Today")
+	saved, err := u.svc.SavedFilters(r.Context())
+	if err == nil {
+		data.Saved = saved
+	}
+
+	filter := r.FormValue("q")
+	if filter == "" {
+		filter = filterFromReferer(r)
+	}
+	if filter == "" {
+		for _, f := range data.Saved {
+			if f.Slot == 1 {
+				filter = f.Query
+				break
+			}
+		}
+	}
+	u.fillList(r, &data, filter, status)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := u.tmpl["list"].ExecuteTemplate(w, "list", data); err != nil {
+		u.log.Error("render list fragment", "err", err)
+	}
+}
+
+// filterFromReferer recovers the filter an htmx action was fired from, so
+// completing a task on a filtered list re-renders that same list.
+func filterFromReferer(r *http.Request) string {
+	ref := r.Header.Get("HX-Current-URL")
+	if ref == "" {
+		ref = r.Referer()
+	}
+	if ref == "" {
+		return ""
+	}
+	_, rawQuery, ok := strings.Cut(ref, "?")
+	if !ok {
+		return ""
+	}
+	values, err := parseQuery(rawQuery)
+	if err != nil {
+		return ""
+	}
+	return values.Get("q")
+}
+
+func (u *UI) detail(w http.ResponseWriter, r *http.Request) {
+	id, err := u.svc.Resolve(r.Context(), r.PathValue("ref"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	task, err := u.svc.Get(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	data := u.base(r, task.Title)
+	data.Task = task
+	data.Done = task.Status == api.StatusDone
+	data.PriorityClass = priorityClass(task.Priority)
+	data.PriorityLabel = priorityLabel(task.Priority)
+	if task.DueAt != nil {
+		data.Due, data.Overdue = dueLabel(task, u.Now())
+	}
+	if task.ExternalURL != nil {
+		data.ExternalURL = *task.ExternalURL
+	}
+	for _, tag := range task.Tags {
+		data.Tags = append(data.Tags, Token{Label: "#" + tag, Query: "#" + tag})
+	}
+	for _, p := range task.People {
+		handle := firstWordLower(p.Name)
+		data.People = append(data.People, DetailPerson{
+			Role: p.Role, Label: "@" + handle, Query: "@" + handle,
+		})
+	}
+
+	u.render(w, "detail", data)
+}
+
+func (u *UI) help(w http.ResponseWriter, r *http.Request) {
+	data := u.base(r, "Keys")
+	data.Keys = keymap()
+	u.render(w, "help", data)
+}
+
+func (u *UI) settings(w http.ResponseWriter, r *http.Request) {
+	data := u.base(r, "Settings")
+	data.ThemeDir = u.ThemeDir
+
+	for _, t := range u.assets.Themes {
+		data.Themes = append(data.Themes, themeChoice{
+			Name: t.Name, Label: t.Label, BuiltIn: t.BuiltIn,
+			Selected: t.Name == data.Theme,
+		})
+	}
+
+	tokens, err := u.svc.Tokens(r.Context())
+	if err != nil {
+		u.fail(w, r, err)
+		return
+	}
+	for _, t := range tokens {
+		row := tokenRow{
+			ID: t.ID, Name: t.Name, Prefix: t.Prefix, Actor: t.Actor,
+			Scopes: strings.Join(t.Scopes, ", "), LastUsed: "never",
+			Revoked: t.RevokedAt != nil,
+		}
+		if t.LastUsedAt != nil {
+			row.LastUsed = *t.LastUsedAt
+		}
+		data.Tokens = append(data.Tokens, row)
+	}
+
+	u.render(w, "settings", data)
+}
+
+// --- actions -----------------------------------------------------------
+
+func (u *UI) add(w http.ResponseWriter, r *http.Request) {
+	line := strings.TrimSpace(r.FormValue("line"))
+	if line == "" {
+		u.after(w, r, "")
+		return
+	}
+
+	now := u.Now()
+	// Same tokens as the filter grammar, parsed on the way in. Anything the
+	// parser does not recognize stays in the title.
+	capture := query.ParseCapture(line, now)
+	if capture.Title == "" {
+		u.after(w, r, "that is all tags and no task")
+		return
+	}
+
+	task, err := u.svc.Create(r.Context(), u.actor(r), api.TaskCreate{
+		Title: capture.Title, Priority: capture.Priority,
+		DueAt: capture.Due, StartAt: capture.Start,
+		Tags: capture.Tags, People: capture.People,
+	}, now)
+	if err != nil {
+		u.after(w, r, humanError(err))
+		return
+	}
+	u.after(w, r, "added "+itoa(task.Num)+" in "+task.Status)
+}
+
+func (u *UI) complete(w http.ResponseWriter, r *http.Request) {
+	id, ok := u.resolve(w, r)
+	if !ok {
+		return
+	}
+	task, err := u.svc.Get(r.Context(), id)
+	if err != nil {
+		u.after(w, r, humanError(err))
+		return
+	}
+
+	// The checkbox is a toggle: a checked row reopens.
+	if task.Status == api.StatusDone {
+		u.after(w, r, u.reopen(r, id))
+		return
+	}
+
+	res, err := u.svc.Complete(r.Context(), u.actor(r), id, u.Now())
+	if err != nil {
+		u.after(w, r, humanError(err))
+		return
+	}
+	status := "done " + itoa(res.Task.Num)
+	if res.ChildrenOpen > 0 {
+		// The server never cascades. The parent is the commitment and the
+		// children are steps.
+		status += ", " + itoa(int64(res.ChildrenOpen)) + " subtask(s) still open"
+	}
+	u.after(w, r, status)
+}
+
+func (u *UI) reopen(r *http.Request, id string) string {
+	// Reopening is a status change rather than its own verb, and the state
+	// machine only allows done to todo.
+	patcher, ok := u.svc.(interface {
+		Patch(ctx context.Context, actor, id string, p api.TaskPatch, ifMatch string, now time.Time) (api.Task, error)
+	})
+	if !ok {
+		return "reopening is not available"
+	}
+	todo := api.StatusTodo
+	task, err := patcher.Patch(r.Context(), u.actor(r), id, api.TaskPatch{Status: &todo}, "", u.Now())
+	if err != nil {
+		return humanError(err)
+	}
+	return "reopened " + itoa(task.Num)
+}
+
+func (u *UI) drop(w http.ResponseWriter, r *http.Request) {
+	id, ok := u.resolve(w, r)
+	if !ok {
+		return
+	}
+	task, err := u.svc.Drop(r.Context(), u.actor(r), id, u.Now())
+	if err != nil {
+		u.after(w, r, humanError(err))
+		return
+	}
+	u.after(w, r, "dropped "+itoa(task.Num)+", u undoes it")
+}
+
+func (u *UI) undo(w http.ResponseWriter, r *http.Request) {
+	res, err := u.svc.Undo(r.Context(), u.actor(r), u.Now())
+	if err != nil {
+		var apiErr *api.Error
+		if errors.As(err, &apiErr) && apiErr.Code == api.ErrNothingToUndo {
+			u.after(w, r, "nothing left to undo")
+			return
+		}
+		u.after(w, r, humanError(err))
+		return
+	}
+	u.after(w, r, "undid "+res.Kind)
+}
+
+func (u *UI) fold(w http.ResponseWriter, r *http.Request) {
+	id, ok := u.resolve(w, r)
+	if !ok {
+		return
+	}
+	collapsed, err := u.svc.CollapsedTasks(r.Context())
+	if err != nil {
+		u.after(w, r, humanError(err))
+		return
+	}
+	isCollapsed := false
+	for _, c := range collapsed {
+		if c == id {
+			isCollapsed = true
+			break
+		}
+	}
+	if err := u.svc.SetCollapsed(r.Context(), id, !isCollapsed); err != nil {
+		u.after(w, r, humanError(err))
+		return
+	}
+	u.after(w, r, "")
+}
+
+func (u *UI) setTheme(w http.ResponseWriter, r *http.Request) {
+	name := r.FormValue("theme")
+	known := false
+	for _, t := range u.assets.Themes {
+		if t.Name == name {
+			known = true
+			break
+		}
+	}
+	if !known {
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: ThemeCookie, Value: name, Path: "/",
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+		MaxAge: 365 * 24 * 60 * 60,
+	})
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+func (u *UI) revokeToken(w http.ResponseWriter, r *http.Request) {
+	if err := u.svc.RevokeToken(r.Context(), r.PathValue("id"), u.Now()); err != nil {
+		u.log.Error("revoke token", "err", err)
+	}
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+// --- plumbing ----------------------------------------------------------
+
+func (u *UI) resolve(w http.ResponseWriter, r *http.Request) (string, bool) {
+	id, err := u.svc.Resolve(r.Context(), r.PathValue("id"))
+	if err != nil {
+		u.after(w, r, "no task with that id")
+		return "", false
+	}
+	return id, true
+}
+
+// after answers an action. htmx gets the refreshed list; a browser without
+// JavaScript gets a redirect, so every action works with the script off.
+func (u *UI) after(w http.ResponseWriter, r *http.Request, status string) {
+	if r.Header.Get("HX-Request") == "true" {
+		u.listFragment(w, r, status)
+		return
+	}
+	target := "/"
+	if filter := filterFromReferer(r); filter != "" {
+		target = "/?q=" + urlEncode(filter)
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+func (u *UI) actor(_ *http.Request) string { return "me" }
+
+func (u *UI) render(w http.ResponseWriter, page string, data pageData) {
+	t, ok := u.tmpl[page]
+	if !ok {
+		http.Error(w, "no such page", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := t.ExecuteTemplate(w, "layout", data); err != nil {
+		u.log.Error("render", "page", page, "err", err)
+	}
+}
+
+func (u *UI) fail(w http.ResponseWriter, _ *http.Request, err error) {
+	u.log.Error("web", "err", err)
+	http.Error(w, "the server could not complete that", http.StatusInternalServerError)
+}
+
+// humanError turns a store error into something worth reading. Errors say
+// what failed and what to do; they do not apologize.
+func humanError(err error) string {
+	var apiErr *api.Error
+	if errors.As(err, &apiErr) {
+		if apiErr.Message != "" {
+			return apiErr.Message
+		}
+		return apiErr.Code
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return "no task with that id"
+	}
+	return "that did not go through"
+}
+
+// Login renders the sign-in page. It is the only route that renders anything
+// to an unauthenticated request.
+func (u *UI) Login(w http.ResponseWriter, r *http.Request, message string) {
+	data := u.base(r, "Sign in")
+	data.Error = message
+
+	if ok, err := u.svc.HasAccount(r.Context()); err == nil && !ok {
+		data.NoAccount = true
+	}
+	u.render(w, "login", data)
+}
+
+// parseQuery and urlEncode keep net/url out of the template path, which
+// otherwise tempts someone into building URLs by concatenation.
+func parseQuery(raw string) (url.Values, error) { return url.ParseQuery(raw) }
+
+func urlEncode(s string) string { return url.QueryEscape(s) }
+
+// keymap is the help page's content. It is the TUI's keymap, key for key:
+// section 11 says vim-flavored and identical in the web UI, and the point is
+// that whichever client is in front of you takes the same keys.
+func keymap() []keyRow {
+	return []keyRow{
+		{Keys: "j k", Help: "move"},
+		{Keys: "g G", Help: "top, bottom"},
+		{Keys: "enter", Help: "open the detail view"},
+		{Keys: "space d", Help: "toggle done"},
+		{Keys: "x", Help: "drop"},
+		{Keys: "a", Help: "add a task"},
+		{Keys: "z", Help: "fold the row under the cursor"},
+		{Keys: "Z", Help: "fold every parent in view"},
+		{Keys: "/", Help: "edit the filter"},
+		{Keys: "1-9", Help: "saved filters"},
+		{Keys: "u", Help: "undo"},
+		{Keys: "r", Help: "reload"},
+		{Keys: "?", Help: "this help"},
+		{Keys: "esc", Help: "back"},
+		{Keys: "e", Help: "edit", Phase: 5},
+		{Keys: "w", Help: "waiting on someone", Phase: 6},
+		{Keys: "s", Help: "snooze", Phase: 5},
+		{Keys: "p", Help: "set priority", Phase: 5},
+		{Keys: "t", Help: "tags", Phase: 5},
+		{Keys: "@", Help: "people", Phase: 6},
+	}
+}

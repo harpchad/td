@@ -1,0 +1,23 @@
+{{define "body"}}
+<div class="td-app" data-td-app>
+  <div class="td-bar">
+    <span><b>td</b></span><span class="td-dim">keys</span>
+    <span class="td-bar__spacer"></span>
+    <a class="td-link" href="/" data-back>back</a>
+  </div>
+  <div class="td-app__body td-scroll">
+    <div class="td-help">
+      {{range .Keys}}
+      <div class="td-help__row">
+        <span class="td-help__keys">{{.Keys}}</span>
+        <span class="td-help__what">{{.Help}}{{if .Phase}} (phase {{.Phase}}){{end}}</span>
+      </div>
+      {{end}}
+      <p class="td-help__what" style="margin-top:var(--td-row)">
+        The same keys work in the TUI. That is the point of them.
+      </p>
+    </div>
+  </div>
+  <div class="td-bar td-bar--status"><span class="td-key"><b>esc</b> back</span></div>
+</div>
+{{end}}

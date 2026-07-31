@@ -1,0 +1,52 @@
+{{define "body"}}
+<div class="td-app" data-td-app>
+  <div class="td-bar">
+    <span><b>td</b></span>
+    <span class="td-dim">{{.FilterName}}</span>
+    <span class="td-bar__spacer"></span>
+    {{/* On a narrow screen the top bar collapses to the filter and the
+         inbox count: the inbox count is the one that nags. */}}
+    {{if .Counts.Inbox}}<span class="td-count">inbox <b>{{.Counts.Inbox}}</b></span>{{end}}
+    {{if .Counts.Waiting}}<span class="td-count td-bar__collapse">waiting <b>{{.Counts.Waiting}}</b></span>{{end}}
+    {{if .Counts.Overdue}}<span class="td-count td-bar__collapse">overdue <b>{{.Counts.Overdue}}</b></span>{{end}}
+    <a class="td-link td-bar__collapse" href="/settings">settings</a>
+  </div>
+
+  <form class="td-bar td-bar--filter" action="/" method="get" data-td-cancel>
+    <span class="td-dim">filter:</span>
+    <input class="td-input" type="text" name="q" value="{{.Filter}}"
+           data-filter-input aria-label="filter"
+           placeholder="is:open p:&lt;=2 #certs @stacey due:&lt;=friday">
+  </form>
+
+  <div class="td-app__body td-scroll" id="list">
+    {{template "list" .}}
+  </div>
+
+  <form class="td-bar" action="/w/add" method="post"
+        hx-post="/w/add" hx-target="#list" hx-swap="innerHTML" data-td-cancel>
+    <span class="td-dim">add:</span>
+    <input class="td-input" type="text" name="line" data-add-input aria-label="add a task"
+           placeholder="call the dealer  #truck @stacey p:2 due:friday" style="flex:1 1 auto">
+    <button class="td-btn td-btn--primary" type="submit">Add</button>
+  </form>
+
+  {{template "statusbar" .}}
+</div>
+{{end}}
+
+{{define "statusbar"}}
+<div class="td-bar td-bar--status">
+  {{range .Saved}}<a class="td-key td-link" href="/?q={{.Query | urlquery}}" data-slot="{{.Slot}}"><b>{{.Slot}}</b> {{.Name}}</a>{{end}}
+  <span class="td-bar__spacer"></span>
+  <span class="td-key"><b>a</b> add</span>
+  <span class="td-key"><b>d</b> done</span>
+  <span class="td-key"><b>z</b> fold</span>
+  <span class="td-key"><b>/</b> search</span>
+  <form action="/w/undo" method="post" hx-post="/w/undo" hx-target="#list" hx-swap="innerHTML" style="display:contents">
+    <button class="td-key td-link" type="submit" data-undo
+            style="font:inherit;background:none;border:0;padding:0;cursor:pointer;color:inherit"><b>u</b> undo</button>
+  </form>
+  <a class="td-key td-link" href="/help" data-help><b>?</b> keys</a>
+</div>
+{{end}}

@@ -19,6 +19,7 @@ import (
 	"github.com/harpchad/td/internal/auth"
 	"github.com/harpchad/td/internal/query"
 	"github.com/harpchad/td/internal/store"
+	"github.com/harpchad/td/internal/web"
 )
 
 // Server serves the REST API. The web UI, MCP, and auth arrive in later
@@ -41,6 +42,22 @@ type Server struct {
 	// enumeration attempt cannot read the answer off the response time. It is
 	// computed once because computing it is itself an argon2 call.
 	dummyHash string
+
+	// ui serves the browser interface. Nil leaves the server API-only, which
+	// is what the API tests use.
+	ui *web.UI
+}
+
+// AttachWeb mounts the browser UI. The web routes go through the same store
+// every other client's requests do.
+func (s *Server) AttachWeb(assets *web.Assets, themeDir string) error {
+	ui, err := web.New(s.store, assets, s.log, func() time.Time { return s.Now() })
+	if err != nil {
+		return err
+	}
+	ui.ThemeDir = themeDir
+	s.ui = ui
+	return nil
 }
 
 // New builds a Server over an open store.
@@ -94,6 +111,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/events", s.listEvents)
 	mux.HandleFunc("POST /api/v1/undo", s.undo)
 
+	if s.ui != nil {
+		s.ui.Routes(mux)
+		// The login page is the only route that renders anything to an
+		// unauthenticated request.
+		mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+			s.ui.Login(w, r, r.URL.Query().Get("e"))
+		})
+	}
+
 	// Outermost first: headers apply to every answer including a refusal, the
 	// 503 gate runs before anything looks at a credential, and authentication
 	// runs before any handler sees a request.
@@ -111,8 +137,10 @@ func securityHeaders(h http.Header) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
 
-	// No unsafe-inline anywhere. Phase 4 adds the htmx bundle's hash to
-	// script-src; until there is a script to serve, 'self' is the whole of it.
+	// No unsafe-inline and no unsafe-eval. htmx and the keymap are served as
+	// files rather than inlined, so 'self' covers both and the policy needs
+	// no per-page hash. htmx does evaluate hx- attributes, but it does not
+	// need eval to do it.
 	h.Set("Content-Security-Policy", strings.Join([]string{
 		"default-src 'self'",
 		"script-src 'self'",

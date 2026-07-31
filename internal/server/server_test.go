@@ -18,6 +18,7 @@ import (
 	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/server"
 	"github.com/harpchad/td/internal/store"
+	"github.com/harpchad/td/internal/web"
 )
 
 // harness is a running server plus the credentials to talk to it.
@@ -69,6 +70,12 @@ func newServer(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	srv.Now = func() time.Time { return now }
+
+	// The browser UI is part of the server under test, so the web cases run
+	// against the same handler the API cases do.
+	if err := srv.AttachWeb(web.Load("", slog.New(slog.DiscardHandler)), ""); err != nil {
+		t.Fatal(err)
+	}
 
 	h := &harness{store: st, srv: srv, now: now, username: testUsername, password: testPassword}
 

@@ -1,0 +1,157 @@
+/* td application layer
+ *
+ * This composes the primitives in tokens.css. It introduces no colors, no
+ * radii, no shadows, and no second type scale: everything here is layout,
+ * and every value it uses is a token.
+ *
+ * If you find yourself reaching for a hex value in this file, the answer is
+ * in tokens.css or the answer is no.
+ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--td-font);
+  font-size: var(--td-size);
+  font-weight: var(--td-weight);
+  line-height: var(--td-row);
+  color: var(--td-ink);
+  background: var(--td-paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+a, .td-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---------------------------------------------------------------- */
+/* app shell: two chrome rows at the top, one at the bottom,         */
+/* everything else is list. Same as the TUI, because they are the    */
+/* same product.                                                     */
+
+.td-app {
+  display: flex; flex-direction: column;
+  height: 100dvh;
+  max-width: 120ch; margin: 0 auto;
+  border-left: var(--td-border) solid var(--td-rule);
+  border-right: var(--td-border) solid var(--td-rule);
+}
+.td-app__body { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+
+/* The filter bar is a bar that happens to contain an input. */
+.td-bar--filter .td-input { flex: 1 1 auto; border-bottom: 0; }
+
+/* ---------------------------------------------------------------- */
+/* list                                                             */
+
+.td-list { display: block; }
+
+/* The row is a link-shaped thing without being a link: the whole row is
+ * clickable for selection, and the controls inside it keep their own
+ * behavior. */
+.td-row { text-decoration: none; }
+.td-row:focus-visible { outline: none; background: var(--td-ink); color: var(--td-paper); }
+.td-row:focus-visible .td-due--overdue { color: var(--td-alert-inv); }
+
+/* The title has to be the element that gives way when the row is narrow,
+ * so it is the only flexible one. */
+.td-title { flex: 1 1 auto; min-width: 0; }
+
+/* Tokens sit between the title and the right-hand group and shrink before
+ * the due date does. */
+.td-row__tokens {
+  display: flex; gap: var(--td-gap);
+  overflow: hidden; flex: 0 1 auto; min-width: 0;
+}
+
+/* ---------------------------------------------------------------- */
+/* empty, error, offline                                            */
+/*                                                                  */
+/* Empty is an invitation: it says what would put something here and     */
+/* names the filter that found nothing.                             */
+
+.td-empty { padding: var(--td-row) var(--td-pad); }
+.td-empty__line { opacity: var(--td-dim); }
+.td-empty code { font: inherit; opacity: 1; font-weight: var(--td-weight-bold); }
+
+.td-notice { padding: 0 var(--td-pad); }
+.td-notice--error { color: var(--td-alert); font-weight: var(--td-weight-bold); }
+
+/* ---------------------------------------------------------------- */
+/* detail: a full-screen replacement, not a split pane               */
+
+.td-detail { padding: var(--td-row) var(--td-pad); }
+.td-detail__title {
+  display: flex; gap: var(--td-gap); align-items: baseline;
+  margin-bottom: var(--td-row);
+}
+.td-detail__fields {
+  display: grid; grid-template-columns: 12ch 1fr;
+  row-gap: 0; column-gap: var(--td-gap);
+}
+.td-detail__label { opacity: var(--td-dim); }
+.td-detail__notes { margin-top: var(--td-row); white-space: pre-wrap; }
+
+/* ---------------------------------------------------------------- */
+/* forms and settings                                               */
+
+.td-form { padding: var(--td-row) var(--td-pad); max-width: 60ch; }
+.td-form__row { display: flex; gap: var(--td-gap); align-items: center; height: var(--td-row); }
+.td-form__label { width: 16ch; opacity: var(--td-dim); }
+.td-form__actions { display: flex; gap: 3ch; margin-top: calc(var(--td-row) * 1.2); }
+
+.td-section { padding: var(--td-row) var(--td-pad); }
+.td-section__title {
+  font-weight: var(--td-weight-bold);
+  border-bottom: var(--td-border) solid var(--td-rule);
+  margin-bottom: var(--td-row);
+}
+
+/* The theme picker is a list, not a gallery and not a live preview. */
+.td-themes { display: block; }
+.td-theme { display: flex; align-items: center; gap: var(--td-gap); height: var(--td-row); }
+
+.td-tokens { width: 100%; border-collapse: collapse; }
+.td-tokens th, .td-tokens td {
+  text-align: left; height: var(--td-row); padding: 0 var(--td-gap) 0 0;
+  white-space: nowrap;
+}
+.td-tokens th { opacity: var(--td-dim); font-weight: var(--td-weight); }
+.td-tokens td.td-dim { opacity: var(--td-dim); }
+
+/* ---------------------------------------------------------------- */
+/* login: the only route that renders to an unauthenticated request  */
+
+.td-login { display: grid; place-content: center; min-height: 100dvh; }
+.td-login .td-modal { width: min(52ch, 92vw); }
+.td-login__field { display: block; margin-bottom: var(--td-row); }
+.td-login__field .td-input { width: 100%; }
+.td-login__label { display: block; opacity: var(--td-dim); }
+
+/* ---------------------------------------------------------------- */
+/* help: the keymap, which is the same keymap the TUI uses           */
+
+.td-help { padding: var(--td-row) var(--td-pad); }
+.td-help__row { display: flex; gap: var(--td-gap); height: var(--td-row); }
+.td-help__keys { width: 14ch; font-weight: var(--td-weight-bold); }
+.td-help__what { opacity: var(--td-dim); }
+
+/* ---------------------------------------------------------------- */
+/* mobile: same grid, bigger targets                                */
+
+@media (max-width: 60ch) {
+  .td-app { border-left: 0; border-right: 0; }
+  /* The top bar collapses to the filter and the inbox count. */
+  .td-bar__collapse { display: none; }
+  .td-detail__fields { grid-template-columns: 10ch 1fr; }
+  .td-form__label { width: 100%; }
+  .td-form__row { height: auto; flex-direction: column; align-items: flex-start; }
+}
+
+/* The status line is a toolbar on touch, which is what it already is
+ * everywhere else. */
+@media (pointer: coarse) {
+  .td-bar--status { height: 44px; font-size: var(--td-size); }
+  .td-bar--status .td-key { padding: 0 var(--td-gap); }
+}

@@ -21,6 +21,7 @@ var forbidden = map[string][]string{
 		"github.com/harpchad/td/internal/store",
 		"github.com/harpchad/td/internal/server",
 		"github.com/harpchad/td/internal/seed",
+		"github.com/harpchad/td/internal/web",
 		"modernc.org/sqlite",
 		// Section 1: the client links no password hashing. It holds a bearer
 		// token and nothing else, so argon2 and TOTP have no business in a
@@ -32,6 +33,7 @@ var forbidden = map[string][]string{
 	// The server links no terminal UI.
 	"github.com/harpchad/td/cmd/tdd": {
 		"github.com/harpchad/td/internal/tui",
+		"charm.land/bubbletea/v2",
 	},
 }
 

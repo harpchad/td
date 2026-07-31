@@ -1,0 +1,73 @@
+{{define "body"}}
+<div class="td-app" data-td-app>
+  <div class="td-bar">
+    <span><b>td</b></span><span class="td-dim">settings</span>
+    <span class="td-bar__spacer"></span>
+    <a class="td-link" href="/" data-back>back</a>
+  </div>
+
+  <div class="td-app__body td-scroll">
+    <div class="td-section">
+      <div class="td-section__title">Theme</div>
+      {{/* A list, not a gallery and not a live preview. Themes are files. */}}
+      <form class="td-themes" action="/w/theme" method="post">
+        {{range .Themes}}
+        <label class="td-theme">
+          <input class="td-radio" type="radio" name="theme" value="{{.Name}}"
+                 {{if .Selected}}checked{{end}} data-autosubmit>
+          <span>{{.Label}}</span>
+          {{if .BuiltIn}}<span class="td-dim">built in</span>{{end}}
+        </label>
+        {{end}}
+      </form>
+      <p class="td-dim" style="margin:var(--td-row) 0 0">
+        Drop a <code>[data-theme="name"]</code> block into
+        <b>{{.ThemeDir}}</b> to add one. A palette that fails the contrast
+        floor is logged and skipped.
+      </p>
+    </div>
+
+    <div class="td-section">
+      <div class="td-section__title">Tokens</div>
+      {{if not .Tokens}}
+        <p class="td-dim">No tokens. <b>tdd token create</b> makes one.</p>
+      {{else}}
+      <table class="td-tokens">
+        <thead><tr>
+          <th>name</th><th>prefix</th><th>actor</th><th>scopes</th><th>last used</th><th></th>
+        </tr></thead>
+        <tbody>
+        {{range .Tokens}}
+        <tr>
+          <td>{{.Name}}</td>
+          <td class="td-dim">{{.Prefix}}</td>
+          <td class="td-dim">{{.Actor}}</td>
+          <td class="td-dim">{{.Scopes}}</td>
+          <td class="td-dim">{{.LastUsed}}</td>
+          <td>
+            {{if .Revoked}}<span class="td-dim">revoked</span>
+            {{else}}
+            <form action="/w/tokens/{{.ID}}/revoke" method="post" style="display:inline">
+              <button class="td-link" type="submit"
+                      style="font:inherit;background:none;border:0;padding:0;cursor:pointer;color:inherit">revoke</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{end}}
+    </div>
+
+    <div class="td-section">
+      <div class="td-section__title">Session</div>
+      <form action="/logout" method="post">
+        <button class="td-btn" type="submit">Sign out</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="td-bar td-bar--status"><span class="td-key"><b>esc</b> back</span></div>
+</div>
+{{end}}

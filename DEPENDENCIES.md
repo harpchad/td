@@ -134,6 +134,21 @@ Considered instead: `lipgloss.Width` alone, which measures but does not cut.
 It arrives transitively with lipgloss regardless.
 Binary impact: client only.
 
+## htmx 2.0.7 (vendored, not a Go module)
+Phase: 4
+Used for: swapping the list fragment after an action, so completing a task
+does not reload the page. Section 12 names it and says to load it from a
+vendored file.
+Vendored at `internal/web/static/htmx.min.js`, 50 KB, 0BSD licensed.
+SHA-256: `sha256-YCMa5rqds4JesVomESLV9VkhxNU7Zr9jfcGLTuJ8efk=`.
+`TestVendoredHTMXIsIntact` checks that hash, so a swapped bundle fails the
+build rather than being trusted on the strength of its filename.
+Considered instead: writing the fetch-and-swap by hand, which is perhaps
+sixty lines and would then need its own tests for history, focus, and error
+handling. Also considered inlining it to satisfy the CSP with a hash; serving
+it as a file needs no hash at all.
+Binary impact: server only, embedded.
+
 ---
 
 ## Tools

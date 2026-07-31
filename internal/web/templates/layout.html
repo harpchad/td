@@ -1,0 +1,15 @@
+{{define "layout"}}<!doctype html>
+<html lang="en" data-theme="{{.Theme}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>{{.Title}} — td</title>
+<link rel="stylesheet" href="/static/td.css?v={{.AssetVersion}}">
+<script src="/static/htmx.min.js?v={{.AssetVersion}}" defer></script>
+<script src="/static/td.js?v={{.AssetVersion}}" defer></script>
+</head>
+<body>
+{{template "body" .}}
+</body>
+</html>{{end}}

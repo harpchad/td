@@ -6,9 +6,8 @@ the TUI.
 `BUILD-SPEC.md` is what is being built. `CLAUDE.md` is how. `testdata/` is
 the oracle: when the code and a fixture disagree, the code is wrong.
 
-**Status: phase 3 of 11.** Schema, event log, task CRUD, the filter grammar,
-the CLI one-shots, authentication, and the TUI. No web UI yet: there is a
-`POST /login` that issues a session cookie, and no page to type into.
+**Status: phase 4 of 11.** Schema, event log, task CRUD, the filter grammar,
+the CLI one-shots, authentication, the TUI, and the web UI.
 
 ## Build and check
 
@@ -125,6 +124,23 @@ proxy's CIDR: with nothing trusted, `X-Forwarded-For` is ignored, every
 request looks like it came from the proxy, and the per-IP login limit
 becomes one global limit.
 
+## The web UI
+
+Open the server's base URL in a browser. Server-rendered Go templates plus a
+vendored htmx, one stylesheet, no build step. The keymap is the TUI's, key
+for key, and every action is a real form: with JavaScript off the forms post
+and the server redirects.
+
+`tokens.css` and `themes.css` at the repository root are the visual system
+and outrank anything written about it, including this file. They are mirrored
+into `internal/web/css` because `go:embed` cannot reach outside a package;
+a test fails the build if the two drift, and `make sync-css` fixes it.
+
+Themes ship as Light, Dark, Nord, Solarized Light, Dracula, and Tokyo Night.
+Drop a `[data-theme="name"]` block into `$XDG_CONFIG_HOME/td/themes/*.css` to
+add one. A palette that does not clear 4.5:1 for ink on paper, or 3:1 for ink
+at `--td-dim`, is logged and skipped rather than loaded unreadable.
+
 ## Filter grammar
 
 Terms are space separated and AND by default. `-` negates, `|` is OR, and
@@ -160,6 +176,7 @@ internal/api      request and response types, API version constant
 internal/query    filter grammar, sort comparator, capture parser
 internal/auth     argon2id, TOTP, tokens, recovery codes  <- cmd/tdd only
 internal/tui      Bubble Tea v2                           <- cmd/td only
+internal/web      templates, htmx, the stylesheet         <- cmd/tdd only
 internal/store    SQLite, migrations, FTS      <- cmd/tdd only
 internal/server   HTTP surface                 <- cmd/tdd only
 internal/client   HTTP client, config, offline queue

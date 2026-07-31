@@ -1,0 +1,477 @@
+package server_test
+
+import (
+	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
+	"testing"
+)
+
+// The web UI is rendered HTML, so these read the markup. Every case is a rule
+// section 12, tokens.css, or mockup.html states.
+
+// login signs in through the form and returns the session cookie, which is
+// what a browser would carry.
+func login(t *testing.T, ts *harness) string {
+	t.Helper()
+	form := url.Values{
+		"username": {testUsername},
+		"password": {testPassword},
+		"totp":     {ts.totp},
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		ts.URL+"/login", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("form login = %d, want a redirect to the app", resp.StatusCode)
+	}
+	for _, c := range resp.Cookies() {
+		if c.Name == "td_session" {
+			return c.Value
+		}
+	}
+	t.Fatal("form login set no session cookie")
+	return ""
+}
+
+// page fetches an HTML page as a signed-in browser.
+func page(t *testing.T, ts *harness, session, path string) (respMeta, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept", "text/html")
+	if session != "" {
+		req.AddCookie(&http.Cookie{Name: "td_session", Value: session})
+	}
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body := make([]byte, 1<<20)
+	n, _ := resp.Body.Read(body)
+	for n < len(body) {
+		more, err := resp.Body.Read(body[n:])
+		n += more
+		if err != nil {
+			break
+		}
+	}
+	return respMeta{StatusCode: resp.StatusCode, Header: resp.Header}, string(body[:n])
+}
+
+// TestHomeRendersTheFixtureOrder covers parity with the TUI: the same filter
+// produces the same list in the same order, with the subtask lifted under its
+// parent.
+func TestHomeRendersTheFixtureOrder(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	resp, html := page(t, ts, session, "/?q="+url.QueryEscape("is:open src:local -is:inbox -is:snoozed -is:deferred"))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("home = %d", resp.StatusCode)
+	}
+
+	nums := regexp.MustCompile(`data-num="(\d+)"`).FindAllStringSubmatch(html, -1)
+	var got []string
+	for _, m := range nums {
+		got = append(got, m[1])
+	}
+	// The comparator order is 104 102 101 114 108 106 113 103; display order
+	// lifts 113 under 101, which is what query.Arrange does for both clients.
+	want := []string{"104", "102", "101", "113", "114", "108", "106", "103"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("row order = %v\nwant %v", got, want)
+	}
+
+	// The subtask carries the modifier the stylesheet indents on.
+	if !strings.Contains(html, `td-row--sub`) {
+		t.Error("no td-row--sub, so the subtask is not indented")
+	}
+	// And the parent's count is always drawn, because when it is folded that
+	// count is the only signal the children exist.
+	if !strings.Contains(html, `class="td-children">0/1<`) {
+		t.Error("the parent does not draw its child count")
+	}
+}
+
+// TestRowMarkupMatchesTheMockup covers the classes the mockup fixes. The
+// stylesheet is the authority and it keys off these names.
+func TestRowMarkupMatchesTheMockup(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+	_, html := page(t, ts, session, "/")
+
+	for _, class := range []string{
+		"td-bar", "td-bar--status", "td-bar__spacer", "td-count",
+		"td-row", "td-num", "td-prio", "td-title", "td-token", "td-due",
+		"td-children", "td-box", "td-done", "td-fold", "td-fold--leaf",
+		"td-group", "td-key", "td-link", "td-scroll",
+	} {
+		if !strings.Contains(html, class) {
+			t.Errorf("the home page never uses %q, which tokens.css styles", class)
+		}
+	}
+
+	// Priority is encoded in weight and value, never in hue.
+	if !strings.Contains(html, "td-prio--1") || !strings.Contains(html, "td-prio--2") {
+		t.Error("the priority ramp classes are missing")
+	}
+	// The overdue token is the one paired color exception.
+	if !strings.Contains(html, "td-due--overdue") {
+		t.Error("the overdue row does not carry td-due--overdue")
+	}
+	// Task state is a real checkbox, not a toggle. Toggles are for settings.
+	if !strings.Contains(html, `type="checkbox" class="td-done"`) {
+		t.Error("task state is not a native checkbox")
+	}
+	if strings.Contains(html, "td-toggle") {
+		t.Error("the task list uses a toggle, which is for persistent settings only")
+	}
+}
+
+// TestUnauthenticatedBrowserGetsTheLoginPage covers the one route that
+// renders anything without a credential, and checks the API still answers
+// with nothing at all.
+func TestUnauthenticatedBrowserGetsTheLoginPage(t *testing.T) {
+	ts := newServer(t)
+
+	resp, _ := page(t, ts, "", "/")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("home without a session = %d, want a redirect to /login", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/login" {
+		t.Errorf("redirected to %q, want /login", loc)
+	}
+
+	resp, html := page(t, ts, "", "/login")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("login page = %d", resp.StatusCode)
+	}
+	for _, want := range []string{`name="username"`, `name="password"`, `name="totp"`, "td-modal"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the login page is missing %q", want)
+		}
+	}
+	// No registration and no password reset, anywhere on the page.
+	for _, bad := range []string{"register", "sign up", "signup", "forgot", "reset"} {
+		if strings.Contains(strings.ToLower(html), bad) {
+			t.Errorf("the login page mentions %q, and there is no such route", bad)
+		}
+	}
+
+	// The API is unchanged: 401 and an empty body.
+	apiResp, body := doAnon(t, ts, http.MethodGet, "/api/v1/tasks", nil)
+	if apiResp.StatusCode != http.StatusUnauthorized || len(body) != 0 {
+		t.Errorf("the API answered %d with %d bytes", apiResp.StatusCode, len(body))
+	}
+}
+
+// TestNoInlineScriptAnywhere covers the CSP rule. A single inline handler
+// would force unsafe-inline back into the policy.
+func TestNoInlineScriptAnywhere(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	for _, path := range []string{"/", "/login", "/help", "/settings", "/t/101"} {
+		_, html := page(t, ts, session, path)
+
+		// Go's regexp has no lookahead, so match every script element and
+		// check each one carries a src and an empty body.
+		scripts := regexp.MustCompile(`(?s)<script([^>]*)>(.*?)</script>`)
+		for _, m := range scripts.FindAllStringSubmatch(html, -1) {
+			attrs, body := m[1], strings.TrimSpace(m[2])
+			if !strings.Contains(attrs, "src=") {
+				t.Errorf("%s carries a script with no src: <script%s>", path, attrs)
+			}
+			if body != "" {
+				t.Errorf("%s carries an inline script body: %q", path, body)
+			}
+		}
+		// Inline event handlers are the other way inline code gets in, and
+		// they need unsafe-inline just as much as a <script> block does.
+		for _, handler := range []string{"onclick=", "onchange=", "onsubmit=", "onload=", "oninput="} {
+			if strings.Contains(html, handler) {
+				t.Errorf("%s carries an inline %s handler", path, handler)
+			}
+		}
+		// javascript: URLs are the other way inline code gets in.
+		if strings.Contains(html, "javascript:") {
+			t.Errorf("%s carries a javascript: URL", path)
+		}
+	}
+
+	// And the policy itself still refuses inline.
+	resp, _ := page(t, ts, session, "/")
+	csp := resp.Header.Get("Content-Security-Policy")
+	if strings.Contains(csp, "unsafe-inline") || strings.Contains(csp, "unsafe-eval") {
+		t.Errorf("CSP = %q", csp)
+	}
+	if !strings.Contains(csp, "script-src 'self'") {
+		t.Errorf("CSP = %q, want script-src 'self' for the vendored files", csp)
+	}
+}
+
+// TestEveryActionWorksWithoutJavaScript covers the progressive path: the
+// forms post and redirect when htmx is not driving them, which is also what
+// makes them testable without a browser.
+func TestEveryActionWorksWithoutJavaScript(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	post := func(path string) respMeta {
+		t.Helper()
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+path, strings.NewReader(""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(&http.Cookie{Name: "td_session", Value: session})
+		client := &http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		return respMeta{StatusCode: resp.StatusCode, Header: resp.Header}
+	}
+
+	id, err := ts.store.Resolve(t.Context(), "103")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{
+		"/w/complete/" + id,
+		"/w/undo",
+		"/w/fold/" + id,
+		"/w/drop/" + id,
+	} {
+		if got := post(path).StatusCode; got != http.StatusSeeOther {
+			t.Errorf("POST %s without htmx = %d, want a redirect", path, got)
+		}
+	}
+}
+
+// TestHtmxActionsReturnTheListFragment covers the swap path: an action fired
+// by htmx answers with the list rather than a whole page.
+func TestHtmxActionsReturnTheListFragment(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	id, err := ts.store.Resolve(t.Context(), "103")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		ts.URL+"/w/complete/"+id, strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req.AddCookie(&http.Cookie{Name: "td_session", Value: session})
+
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body := make([]byte, 1<<20)
+	n, _ := resp.Body.Read(body)
+	html := string(body[:n])
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("htmx action = %d", resp.StatusCode)
+	}
+	if strings.Contains(html, "<!doctype html>") {
+		t.Error("an htmx action returned a whole page rather than the fragment")
+	}
+	if !strings.Contains(html, "td-row") {
+		t.Error("the fragment carries no rows")
+	}
+	if !strings.Contains(html, "done 103") {
+		t.Error("the fragment does not report what happened")
+	}
+}
+
+// TestEmptyStateNamesTheFilter covers the rule that empty is an invitation.
+func TestWebEmptyStateNamesTheFilter(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	_, html := page(t, ts, session, "/?q="+url.QueryEscape("#nosuchtag"))
+	if !strings.Contains(html, "Nothing matches") {
+		t.Error("no empty state")
+	}
+	if !strings.Contains(html, "#nosuchtag") {
+		t.Error("the empty state does not name the filter that found nothing")
+	}
+
+	_, html = page(t, ts, session, "/?q=is%3Ainbox")
+	if strings.Contains(html, "td-empty") && !strings.Contains(html, "Inbox zero") {
+		t.Error("an empty inbox does not say the one satisfied thing")
+	}
+}
+
+// TestABadFilterReportsTheParserMessage covers the shared grammar: the web
+// box and the API say the same thing about the same typo.
+func TestABadFilterReportsTheParserMessage(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	_, html := page(t, ts, session, "/?q="+url.QueryEscape("foo:bar"))
+	if !strings.Contains(html, "unknown filter key") {
+		t.Errorf("the page does not carry the parser's message:\n%s", firstLines(html, 40))
+	}
+}
+
+// TestSettingsListsThemesAndTokens covers the picker being a list rather than
+// a gallery, and the settings page section 15 asks for.
+func TestSettingsListsThemesAndTokens(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	_, html := page(t, ts, session, "/settings")
+
+	for _, theme := range []string{"nord", "dracula", "tokyo-night", "solarized-light", "light", "dark"} {
+		if !strings.Contains(html, `value="`+theme+`"`) {
+			t.Errorf("the theme picker does not offer %q", theme)
+		}
+	}
+	// A list, not a gallery and not a live preview: radios, no swatches.
+	if !strings.Contains(html, "td-radio") {
+		t.Error("the theme picker is not a list of radios")
+	}
+
+	// Tokens with their last-used time and a revoke control.
+	if !strings.Contains(html, "revoke") {
+		t.Error("the settings page has no revoke control")
+	}
+	if !strings.Contains(html, "td_") {
+		t.Error("the settings page does not show a token prefix")
+	}
+	// And never the secret itself.
+	if strings.Contains(html, ts.token) {
+		t.Error("the settings page rendered a token secret")
+	}
+}
+
+// TestThemeCookieSelectsThePalette covers the picker end to end.
+func TestThemeCookieSelectsThePalette(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	_, html := page(t, ts, session, "/")
+	if !strings.Contains(html, `data-theme="light"`) {
+		t.Error("the default page is not the light theme")
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/w/theme",
+		strings.NewReader("theme=nord"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "td_session", Value: session})
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	var themeCookie string
+	for _, c := range resp.Cookies() {
+		if c.Name == "td_theme" {
+			themeCookie = c.Value
+		}
+	}
+	if themeCookie != "nord" {
+		t.Fatalf("theme cookie = %q, want nord", themeCookie)
+	}
+
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(&http.Cookie{Name: "td_session", Value: session})
+	req.AddCookie(&http.Cookie{Name: "td_theme", Value: "nord"})
+	resp2, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+	body := make([]byte, 4096)
+	n, _ := resp2.Body.Read(body)
+	if !strings.Contains(string(body[:n]), `data-theme="nord"`) {
+		t.Error("the theme cookie did not select the palette")
+	}
+}
+
+// TestStylesheetIsOneFileAndCarriesTheSystem covers "one hand-written
+// stylesheet": the browser fetches one, assembled from the files that are the
+// authority.
+func TestStylesheetIsOneFileAndCarriesTheSystem(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	_, html := page(t, ts, session, "/")
+	sheets := regexp.MustCompile(`<link[^>]+rel="stylesheet"`).FindAllString(html, -1)
+	if len(sheets) != 1 {
+		t.Errorf("the page loads %d stylesheets, want one", len(sheets))
+	}
+
+	_, css := page(t, ts, session, "/static/td.css")
+	for _, want := range []string{
+		"--td-paper", "--td-ink", "--td-accent", "--td-dim",
+		".td-row--selected", ".td-done", ".td-toggle", ".td-modal__title",
+		`[data-theme="nord"]`, `[data-theme="dracula"]`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("the stylesheet is missing %q", want)
+		}
+	}
+
+	// No framework got in.
+	for _, bad := range []string{"tailwind", "bootstrap", "!important;transition"} {
+		if strings.Contains(strings.ToLower(css), bad) {
+			t.Errorf("the stylesheet contains %q", bad)
+		}
+	}
+}
+
+func firstLines(s string, n int) string {
+	lines := strings.SplitN(s, "\n", n+1)
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	return strings.Join(lines, "\n")
+}

@@ -343,3 +343,104 @@ produces display order for both, and the fold endpoints are shared.
 look, and outrank the prose. The TUI deliberately reads none of them: it
 renders through the terminal's own ANSI palette, so a theme file would only
 fight the terminal.
+
+---
+
+## Phase 4: the web UI
+
+2026-07-31
+
+### What shipped
+
+Section 16 step 4: the browser UI at parity with the TUI, plus the
+stylesheet that defines the look. Server-rendered Go templates, vendored
+htmx, one stylesheet, no build step.
+
+Home, detail, help, settings, and the login page phase 2 deferred here.
+Quick-add, complete, reopen, drop, undo, fold, filters, and the theme
+picker. The keymap is the TUI's, key for key.
+
+`tokens.css`, `themes.css`, and `mockup.html` were read first and treated as
+the authority they are. The markup is the mockup's, class for class: a test
+lists the classes tokens.css styles and fails if a page stops using one.
+
+### The contrast floor found something
+
+Section 12 says a theme has to clear 4.5:1 for ink on paper and 3:1 for ink
+at `--td-dim`, and that this is a unit test rather than a runtime nicety.
+Written as specified, it failed on a shipped palette.
+
+Solarized Light at `--td-dim: 0.72` composites to 2.92:1, just under the
+floor. Every other theme passes with room: Nord 5.23, Dracula 6.12, Tokyo
+Night 5.09, the built-ins 4.05 and 5.49. The arithmetic was checked by hand
+before touching anything, because a contrast test that is subtly wrong would
+"find" problems that are not there.
+
+Raised it to 0.75, which is the first passing value plus a little. That is
+an edit to one of the three artifacts that outrank the prose, so it is in
+`DECISIONS.md` with the numbers. The file's own header says `--td-dim`
+exists to be raised on low-contrast palettes and names Solarized as one that
+needs it; 0.72 was just short.
+
+Worth carrying forward: Solarized Light has the least headroom of any
+palette at 4.99:1 ink on paper against a 4.5:1 floor.
+
+### What was learned
+
+**A test wrote the CSP rule into the templates.** The first cut used
+`onchange="this.form.requestSubmit()"` on the row checkbox and the theme
+radio. Two attributes, entirely reasonable-looking, and they would have
+forced `unsafe-inline` back into the policy that section 15 says must not
+have it. The test that scans every page for inline handlers and script
+bodies caught both. They moved into a delegated listener, and nothing is
+inlined at all now, so the policy needs no htmx hash either.
+
+**404 and 405 are different claims.** Registering `GET /` as the catch-all
+made a POST to `/register` answer 405, which says "this path exists but not
+for that verb" about a path that does not exist. The no-registration-route
+assertion caught it. Registering the pattern for every method and answering
+404 explicitly is the honest version.
+
+**Secure cookies make curl a bad smoke test.** The session cookie carries
+`Secure`, so curl will not store it over plain HTTP, and a shell check of
+the web UI silently gets the login page every time. Browsers treat
+`http://localhost` and `http://127.0.0.1` as trustworthy origins and do
+store it, so this is a property of curl rather than a bug. Passing the
+cookie explicitly is the workaround; it cost twenty minutes to notice.
+
+**One stylesheet is a claim about the browser, not the source.** The system
+already lives in two files and the app needs a layout layer. The browser
+fetches exactly one, assembled at startup. The two authority files are
+mirrored into the package because `go:embed` cannot reach outside it, and a
+byte-for-byte test makes drift a build failure.
+
+### What was deferred, and why
+
+- **Editing from the web.** `e`, `p`, and `t` are on the help page marked
+  phase 5. The list, detail, and capture paths are here; a full edit form is
+  a bigger piece of design than it looks and belongs with the settings work
+  that reminders bring.
+- **Long-press action menu on touch.** Section 12 asks for it. The rows are
+  44px targets and every action has a visible control, so the gap is a
+  convenience rather than a hole.
+- **The select widget.** Section 12 specifies a bordered list panel anchored
+  under the field rather than a native dropdown. Nothing in phase 4 needs a
+  select: the theme picker is radios, which is what "the picker is a list"
+  asks for.
+- **Live updates.** The page reloads after its own writes. `GET /events`
+  exists and nothing subscribes. Same reason as the TUI: the polling loop
+  should be written once, with the phase 5 scheduler.
+- **A CSRF token.** The session cookie is `SameSite=Lax`, which blocks
+  cross-site form posts, and every mutating route is a POST. Worth revisiting
+  when the OAuth work in phase 9 adds a second way to hold a session.
+
+### Notes for phase 5
+
+Reminders need a scheduler goroutine on a 60 second tick, which is the first
+thing in this design that runs on its own. Two things are waiting on it:
+`PurgeExpiredSessions` from phase 2, which exists and is never called, and
+the change-feed polling both UIs want.
+
+The `notify` tri-state has a control inventory entry already: it is three
+states, so it is radios rather than a toggle, and the toggle is reserved for
+persistent settings like quiet hours.

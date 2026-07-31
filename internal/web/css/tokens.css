@@ -1,0 +1,321 @@
+/* td design tokens and primitives
+ *
+ * The whole visual system lives here. Component CSS may compose these
+ * primitives; it may not introduce new colors, new radii, new shadows,
+ * or a second type scale.
+ *
+ * Rules that are not negotiable:
+ *   - border-radius is 0 everywhere except .td-toggle, where the round
+ *     shape is the affordance rather than decoration
+ *   - shadows are hard offsets, never blurred
+ *   - focus and selection are inverse video, never a glow or a ring
+ *   - links are always underlined
+ *   - the only animation is the caret
+ */
+
+:root,
+[data-theme="light"] {
+  /* Palette. The app surface is paper. Transient surfaces (modals,
+   * menus, the command bar) invert to a terminal window. Amber is the
+   * only saturated value and it marks exactly one action per screen. */
+  --td-paper:        #e6e5df;
+  --td-ink:          #16181c;
+  --td-grey:         #767570;
+  --td-grey-faint:   #b3b2ab;
+  --td-rule:         #16181c;
+
+  --td-surface:      #1c1f26;   /* inverted: modals, menus */
+  --td-surface-ink:  #e6e5df;
+  --td-surface-grey: #8c8f97;
+
+  --td-accent:       #e8b53d;   /* primary action, one per screen */
+  --td-accent-ink:   #16181c;
+  --td-alert:        #b5442f;   /* overdue, destructive. never a background */
+  --td-alert-inv:    #e0654c;   /* the same role, on an inverted row */
+
+  /* De-emphasis is opacity, never a grey token. A fixed grey is
+   * correct on one background and invisible on the other. */
+  --td-dim:    0.58;
+  --td-dimmer: 0.40;
+
+  /* Type. One family. Two sizes. Two weights. */
+  --td-font: "JetBrains Mono", "IBM Plex Mono", ui-monospace,
+             SFMono-Regular, Menlo, monospace;
+  --td-size:       14px;
+  --td-size-small: 12px;
+  --td-weight:      400;
+  --td-weight-bold: 700;
+
+  /* Grid. Horizontal rhythm is character-based, vertical is a fixed
+   * row. Nothing lands off this grid. */
+  --td-row:    24px;
+  --td-gap:    1ch;
+  --td-pad:    2ch;
+
+  /* Structure */
+  --td-border:  1px;
+  --td-rule-w:  3px;   /* double-rule chrome */
+  --td-shadow:  4px;   /* hard offset, no blur */
+}
+
+[data-theme="dark"] {
+  --td-paper:        #16181c;
+  --td-ink:          #e6e5df;
+  --td-grey:         #8c8f97;
+  --td-grey-faint:   #4a4d55;
+  --td-rule:         #e6e5df;
+  --td-surface:      #e6e5df;
+  --td-surface-ink:  #16181c;
+  --td-surface-grey: #767570;
+  --td-alert:        #e0654c;
+}
+
+/* ---------------------------------------------------------------- */
+/* base                                                             */
+
+.td-root {
+  font-family: var(--td-font);
+  font-size: var(--td-size);
+  font-weight: var(--td-weight);
+  line-height: var(--td-row);
+  color: var(--td-ink);
+  background: var(--td-paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+.td-root a,
+.td-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---------------------------------------------------------------- */
+/* chrome: bars and rules                                           */
+
+.td-bar {
+  display: flex; align-items: center; gap: var(--td-gap);
+  height: var(--td-row); padding: 0 var(--td-pad);
+  border-bottom: var(--td-border) solid var(--td-rule);
+}
+.td-bar--status {
+  border-bottom: 0; border-top: var(--td-border) solid var(--td-rule);
+  font-size: var(--td-size-small); color: var(--td-grey);
+}
+.td-bar__spacer { margin-left: auto; }
+.td-count { color: var(--td-grey); }
+.td-count b { font-weight: var(--td-weight-bold); color: var(--td-ink); }
+
+/* key hints in the status line: the letter is bold, the word is not */
+.td-key b { font-weight: var(--td-weight-bold); color: var(--td-ink); }
+
+/* ---------------------------------------------------------------- */
+/* list rows                                                        */
+
+.td-row {
+  display: flex; align-items: center; gap: var(--td-gap);
+  height: var(--td-row); padding: 0 var(--td-pad);
+  white-space: nowrap; cursor: default;
+}
+.td-row--selected { background: var(--td-ink); color: var(--td-paper); }
+.td-row--selected .td-due--overdue { color: var(--td-alert-inv); }
+.td-row--sub { padding-left: calc(var(--td-pad) + 4ch); }
+
+.td-num { width: 4ch; opacity: var(--td-dim); }
+.td-prio { width: 3ch; }
+/* Priority is encoded in weight and value, never in hue: both color
+ * slots are spoken for (amber = the one primary action, red = overdue
+ * and destructive). The ramp works in the TUI too, as bold / normal /
+ * dim / dimmer. Unset priority renders as blank. */
+.td-prio--1 { font-weight: var(--td-weight-bold); }
+.td-prio--2 { opacity: 1; }
+.td-prio--3 { opacity: var(--td-dim); }
+.td-prio--4 { opacity: var(--td-dimmer); }
+.td-title { overflow: hidden; text-overflow: ellipsis; }
+.td-dim { opacity: var(--td-dim); }
+.td-due { margin-left: auto; opacity: var(--td-dim); }
+.td-due--overdue { color: var(--td-alert); opacity: 1; font-weight: var(--td-weight-bold); }
+.td-children { opacity: var(--td-dim); }
+
+/* Tag and person tokens. No border, no fill, no padding: the sigil
+ * already marks them as structured values, and a box around every one
+ * turns a scannable row into a form. Dim is the whole treatment.
+ * Named token rather than chip so nobody re-adds the container. */
+.td-token { opacity: var(--td-dim); }
+
+/* ---------------------------------------------------------------- */
+/* fold                                                             */
+/*                                                                  */
+/* <details> is the obvious native answer and it is the wrong one    */
+/* here: <summary> toggles on a click anywhere inside it, so the row */
+/* checkbox would fold the group every time you completed a task.    */
+/* A button with aria-expanded keeps both controls working, and the  */
+/* keyboard path is the shared keymap (z), not the element default.  */
+
+.td-group[data-collapsed="true"] .td-row--sub { display: none; }
+
+.td-fold {
+  appearance: none; -webkit-appearance: none;
+  font: inherit; color: inherit; background: transparent;
+  border: 0; padding: 0; width: 2ch; text-align: left; cursor: pointer;
+}
+.td-fold::before { content: "\25BE"; }                    /* down: open */
+.td-fold[aria-expanded="false"]::before { content: "\25B8"; }  /* right: closed */
+.td-fold:focus-visible { outline: var(--td-border) solid currentColor; outline-offset: 1px; }
+.td-fold--leaf { visibility: hidden; cursor: default; }
+
+/* ---------------------------------------------------------------- */
+/* buttons                                                          */
+
+.td-btn {
+  font: inherit; line-height: calc(var(--td-row) + 4px);
+  height: calc(var(--td-row) + 4px); padding: 0 var(--td-pad);
+  border: var(--td-border) solid var(--td-ink); border-radius: 0;
+  background: var(--td-paper); color: var(--td-ink);
+  box-shadow: var(--td-shadow) var(--td-shadow) 0 0 var(--td-ink);
+  cursor: pointer;
+}
+.td-btn--primary { background: var(--td-accent); color: var(--td-accent-ink); }
+.td-btn:active,
+.td-btn--pressed {
+  transform: translate(var(--td-shadow), var(--td-shadow));
+  box-shadow: none;
+}
+.td-btn:focus-visible {
+  outline: none; background: var(--td-ink); color: var(--td-paper);
+}
+.td-btn[disabled] {
+  color: var(--td-grey-faint); border-color: var(--td-grey-faint);
+  box-shadow: var(--td-shadow) var(--td-shadow) 0 0 var(--td-grey-faint);
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------- */
+/* toggle: the one rounded thing in the system                      */
+
+.td-toggle {
+  display: inline-flex; align-items: center;
+  width: 6ch; height: 20px; padding: 2px;
+  border: var(--td-border) solid var(--td-ink); border-radius: 999px;
+  background: var(--td-ink); cursor: pointer;
+}
+.td-toggle__knob {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--td-paper);
+  margin-left: 0;
+}
+.td-toggle[aria-checked="true"] .td-toggle__knob { margin-left: auto; }
+.td-toggle[aria-disabled="true"] { cursor: not-allowed; }
+.td-toggle[aria-disabled="true"] .td-toggle__knob { background: var(--td-grey); }
+.td-toggle:focus-visible { outline: var(--td-border) solid var(--td-ink); outline-offset: 2px; }
+
+/* ---------------------------------------------------------------- */
+/* row completion: a real checkbox, stripped                        */
+/*                                                                  */
+/* The TUI draws [ ] because a terminal has no other option. The web */
+/* uses <input type="checkbox"> so that label clicks, keyboard, and  */
+/* screen readers work without being reimplemented. Same control,    */
+/* two renderers, not the same glyph.                                */
+/*                                                                  */
+/* unchecked     todo, inbox                                        */
+/* indeterminate doing, waiting                                     */
+/* checked       done                                               */
+
+.td-box {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 3ch; min-height: var(--td-row); cursor: pointer;
+}
+.td-done {
+  appearance: none; -webkit-appearance: none;
+  /* Form controls do not inherit color. Without this, currentColor
+   * resolves to the UA default and the box vanishes on an inverted
+   * row. Every control in this file that draws itself with
+   * currentColor needs it. */
+  color: inherit;
+  width: 13px; height: 13px; margin: 0; padding: 0;
+  border: var(--td-border) solid currentColor; border-radius: 0;
+  background: transparent; cursor: pointer;
+  display: inline-grid; place-content: center;
+}
+.td-done:checked { background: currentColor; }
+.td-done:indeterminate::before {
+  content: ""; display: block; width: 7px; height: 1px; background: currentColor;
+}
+/* thicken without moving anything on the grid */
+.td-done:hover { box-shadow: inset 0 0 0 1px currentColor; }
+/* the one control that does not invert on focus: inverting a 13px box */
+/* is indistinguishable from checking it */
+.td-done:focus-visible { outline: var(--td-border) solid currentColor; outline-offset: 2px; }
+
+.td-row--done .td-title { color: var(--td-grey); text-decoration: line-through; }
+
+/* ---------------------------------------------------------------- */
+/* form controls: checkbox, radio, input                            */
+
+.td-check, .td-radio {
+  appearance: none; -webkit-appearance: none;
+  color: inherit;
+  width: 13px; height: 13px; margin: 0;
+  border: var(--td-border) solid currentColor; background: transparent;
+  cursor: pointer; vertical-align: middle;
+}
+.td-radio { border-radius: 50%; }
+.td-check:checked, .td-radio:checked { background: currentColor; }
+.td-check:focus-visible, .td-radio:focus-visible {
+  outline: var(--td-border) solid currentColor; outline-offset: 2px;
+}
+
+.td-input {
+  font: inherit; color: inherit; background: transparent;
+  border: 0; border-bottom: var(--td-border) solid var(--td-ink);
+  border-radius: 0; padding: 0 0.5ch; height: var(--td-row);
+  caret-color: var(--td-ink);
+}
+.td-input:focus { outline: none; background: var(--td-ink); color: var(--td-paper); }
+.td-input::placeholder { color: var(--td-grey-faint); }
+
+/* ---------------------------------------------------------------- */
+/* modal: double rule with the title inset into the top edge        */
+
+.td-modal {
+  position: relative;
+  background: var(--td-surface); color: var(--td-surface-ink);
+  border: var(--td-rule-w) double var(--td-surface-ink);
+  border-radius: 0; padding: calc(var(--td-row) * 1.5) var(--td-pad) var(--td-pad);
+  box-shadow: var(--td-shadow) var(--td-shadow) 0 0 var(--td-ink);
+}
+.td-modal__title {
+  position: absolute; top: calc(var(--td-rule-w) * -1 - 1px); left: 50%;
+  transform: translateX(-50%);
+  padding: 0 var(--td-gap); height: var(--td-row); line-height: var(--td-row);
+  background: var(--td-surface); color: var(--td-surface-ink);
+  font-weight: var(--td-weight-bold); white-space: nowrap;
+}
+.td-modal .td-btn {
+  border-color: var(--td-surface-ink);
+  background: var(--td-surface-ink); color: var(--td-surface);
+  box-shadow: var(--td-shadow) var(--td-shadow) 0 0 #000;
+}
+.td-modal .td-btn--primary { background: var(--td-accent); color: var(--td-accent-ink); }
+.td-modal .td-toggle { border-color: var(--td-surface-ink); background: #000; }
+.td-modal .td-toggle__knob { background: var(--td-surface-ink); }
+.td-modal .td-link { color: var(--td-surface-ink); }
+
+/* ---------------------------------------------------------------- */
+/* scrollbar: a character-wide gutter, not the browser default      */
+
+.td-scroll { scrollbar-width: thin; scrollbar-color: var(--td-grey) transparent; }
+.td-scroll::-webkit-scrollbar { width: 1ch; }
+.td-scroll::-webkit-scrollbar-track { background: transparent; }
+.td-scroll::-webkit-scrollbar-thumb { background: var(--td-grey); border-radius: 0; }
+
+/* ---------------------------------------------------------------- */
+/* touch                                                            */
+
+@media (pointer: coarse) {
+  :root { --td-row: 44px; }
+  .td-row { height: 44px; }
+  .td-btn { height: 44px; line-height: 44px; }
+  /* the box stays 13px; the label around it grows to a real target */
+  .td-box { width: 5ch; min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

@@ -70,6 +70,16 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 			t.Errorf("openapi.yaml documents %s, which the mux does not serve", path)
 		}
 	}
+
+	// The browser routes are deliberately absent. openapi.yaml describes the
+	// JSON API that clients and plugins program against; the server-rendered
+	// pages and their form posts are not an interface anything integrates
+	// with, and documenting them there would invite someone to try.
+	for _, page := range []string{"/", "/settings", "/help", "/t/{ref}", "/w/add"} {
+		if doc.Paths.Find(page) != nil {
+			t.Errorf("openapi.yaml documents the browser route %s", page)
+		}
+	}
 }
 
 func upper(s string) string {
