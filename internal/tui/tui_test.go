@@ -42,6 +42,8 @@ type fakeServer struct {
 	completed []string
 	undos     int
 	created   []api.TaskCreate
+	patched   []map[string]any
+	snoozed   []api.SnoozeRequest
 }
 
 func newFake(t *testing.T) *fakeServer {
@@ -118,6 +120,24 @@ func newFake(t *testing.T) *fakeServer {
 		f.created = append(f.created, in)
 		w.WriteHeader(http.StatusCreated)
 		writeJSON(w, api.Task{ID: in.ID, Num: 999, Title: in.Title, Status: api.StatusInbox})
+	})
+	mux.HandleFunc("PATCH /api/v1/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.patched = append(f.patched, body)
+		for i := range f.tasks {
+			if f.tasks[i].ID == r.PathValue("id") {
+				writeJSON(w, f.tasks[i])
+				return
+			}
+		}
+		writeJSON(w, api.Task{})
+	})
+	mux.HandleFunc("POST /api/v1/tasks/{id}/snooze", func(w http.ResponseWriter, r *http.Request) {
+		var req api.SnoozeRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		f.snoozed = append(f.snoozed, req)
+		writeJSON(w, api.Task{ID: r.PathValue("id")})
 	})
 	mux.HandleFunc("POST /api/v1/undo", func(w http.ResponseWriter, _ *http.Request) {
 		f.undos++

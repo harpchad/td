@@ -31,6 +31,11 @@ var bindings = []binding{
 	{keys: []string{"x"}, help: "drop"},
 	{keys: []string{"z"}, help: "fold the row under the cursor", hint: "z fold"},
 	{keys: []string{"Z"}, help: "fold every parent in view"},
+	{keys: []string{"e"}, help: "edit the task line", hint: "e edit"},
+	{keys: []string{"p"}, help: "set priority"},
+	{keys: []string{"t"}, help: "set tags"},
+	{keys: []string{"s"}, help: "snooze"},
+	{keys: []string{"N"}, help: "edit notes"},
 	// Listed here rather than with the other deferred keys so the bottom bar
 	// reads in the order section 11 draws it.
 	{keys: []string{"w"}, help: "waiting on someone", hint: "w wait", when: "with people, in phase 6"},
@@ -43,15 +48,6 @@ var bindings = []binding{
 	{keys: []string{"q", "ctrl+c"}, help: "quit"},
 
 	// Specified in section 11, not built yet. Each says where it lands.
-	//
-	// Editing a task has no phase in section 16's build order: it is not in
-	// phase 3's list and phase 4 is parity with phase 3. That is a gap in the
-	// plan rather than something waiting its turn, so these say so instead of
-	// naming a phase nobody committed to.
-	{keys: []string{"e"}, help: "edit", when: "not scheduled yet"},
-	{keys: []string{"p"}, help: "set priority", when: "not scheduled yet"},
-	{keys: []string{"t"}, help: "tags", when: "not scheduled yet"},
-	{keys: []string{"s"}, help: "snooze", when: "with reminders, in phase 5"},
 	{keys: []string{"@"}, help: "people", when: "with people, in phase 6"},
 	{keys: []string{"E"}, help: "edit the series", when: "with recurrence, in phase 7"},
 }

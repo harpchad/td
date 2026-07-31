@@ -140,6 +140,45 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
 .td-detail__notes { margin-top: var(--td-row); white-space: pre-wrap; }
 
 /* ---------------------------------------------------------------- */
+/* the edit form                                                    */
+
+.td-edit { margin-top: calc(var(--td-row) * 1.5); max-width: 80ch; }
+.td-edit__wide { width: 100%; max-width: 60ch; }
+.td-edit__notes { display: block; margin-top: var(--td-row); }
+
+.td-textarea {
+  font: inherit; color: inherit; background: transparent;
+  border: var(--td-border) solid var(--td-rule); border-radius: 0;
+  padding: 0 0.5ch; width: 100%; max-width: 80ch;
+  line-height: var(--td-row); resize: vertical;
+  caret-color: var(--td-ink);
+}
+.td-textarea:focus {
+  outline: none;
+  background: var(--td-ink); color: var(--td-paper);
+  caret-color: var(--td-paper);
+}
+.td-modal .td-textarea {
+  border-color: var(--td-surface-ink); caret-color: var(--td-surface-ink);
+}
+.td-modal .td-textarea:focus {
+  background: var(--td-surface-ink); color: var(--td-surface);
+  caret-color: var(--td-surface);
+}
+
+/* The notify tri-state. Three values, so radios: a toggle cannot express
+ * "whatever the default says", and toggles are for persistent settings
+ * rather than per-task state. */
+.td-notify { display: flex; gap: 2ch; align-items: center; }
+.td-notify__choice { display: inline-flex; gap: var(--td-gap); align-items: center; }
+
+/* A link that has to read as a secondary button, for Cancel. */
+.td-btn--link {
+  display: inline-flex; align-items: center;
+  text-decoration: none;
+}
+
+/* ---------------------------------------------------------------- */
 /* forms and settings                                               */
 
 .td-form { padding: var(--td-row) var(--td-pad); max-width: 60ch; }

@@ -8,6 +8,7 @@
   </div>
 
   <div class="td-app__body td-scroll">
+    {{if .Status}}<div class="td-notice td-dim">{{.Status}}</div>{{end}}
     <div class="td-detail">
       {{/* A mirrored task puts its source on the first line, so one click
            opens the real thing. */}}
@@ -37,6 +38,60 @@
 
       {{if .Task.Notes}}<div class="td-detail__notes">{{.Task.Notes}}</div>{{end}}
 
+      <form class="td-edit" action="/w/edit/{{.Task.ID}}" method="post">
+        <div class="td-section__title">Edit</div>
+
+        <label class="td-form__row">
+          <span class="td-form__label">title</span>
+          <input class="td-input td-edit__wide" type="text" name="title" value="{{.Task.Title}}">
+        </label>
+
+        <label class="td-form__row">
+          <span class="td-form__label">priority</span>
+          <input class="td-input" type="text" name="priority" value="{{.PriorityValue}}"
+                 inputmode="numeric" placeholder="1 to 4, or empty">
+        </label>
+
+        <label class="td-form__row">
+          <span class="td-form__label">due</span>
+          <input class="td-input" type="text" name="due" value="{{.DueValue}}"
+                 placeholder="a date, or friday, or empty">
+        </label>
+
+        <label class="td-form__row">
+          <span class="td-form__label">tags</span>
+          <input class="td-input td-edit__wide" type="text" name="tags" value="{{.TagValue}}"
+                 placeholder="certs ops">
+        </label>
+
+        {{/* Three states, so radios rather than a toggle. A toggle cannot
+             express "whatever the default says", and toggles are for
+             persistent settings rather than per-task state. */}}
+        <div class="td-form__row">
+          <span class="td-form__label">notify</span>
+          <span class="td-notify">
+            {{range .NotifyChoices}}
+            <label class="td-notify__choice">
+              <input class="td-radio" type="radio" name="notify" value="{{.Value}}"
+                     {{if .Selected}}checked{{end}}>
+              <span>{{.Label}}</span>
+            </label>
+            {{end}}
+          </span>
+        </div>
+
+        <label class="td-edit__notes">
+          <span class="td-form__label">notes</span>
+          <textarea class="td-textarea" name="notes" rows="6"
+                    placeholder="what you learned about this">{{.Task.Notes}}</textarea>
+        </label>
+
+        <div class="td-form__actions">
+          <button class="td-btn td-btn--primary" type="submit">Save changes</button>
+          <a class="td-btn td-btn--link" href="/t/{{.Task.Num}}">Cancel</a>
+        </div>
+      </form>
+
       <div class="td-form__actions">
         <form action="/w/complete/{{.Task.ID}}" method="post">
           <button class="td-btn td-btn--primary" type="submit" data-complete>
@@ -44,6 +99,10 @@
         </form>
         <form action="/w/drop/{{.Task.ID}}" method="post">
           <button class="td-btn" type="submit" data-drop>Drop</button>
+        </form>
+        <form action="/w/snooze/{{.Task.ID}}" method="post">
+          <input type="hidden" name="duration" value="1h">
+          <button class="td-btn" type="submit">Snooze 1h</button>
         </form>
       </div>
     </div>

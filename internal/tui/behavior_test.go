@@ -389,13 +389,11 @@ func TestDeferredKeysSayWhereTheyLand(t *testing.T) {
 		t.Error("the message does not say what the key would do")
 	}
 
-	// Editing has no phase in section 16's build order, so the key says that
-	// rather than naming a phase nobody committed to. The first cut said
-	// "phase 4", which shipped without it.
-	h.key("e")
+	// The people keys are still ahead, and say which phase.
+	h.key("@")
 	view = plain(h.view())
-	if !strings.Contains(view, "not scheduled") {
-		t.Errorf("e claims a schedule it does not have:\n%s", view)
+	if !strings.Contains(view, "phase 6") {
+		t.Errorf("@ did nothing visible:\n%s", view)
 	}
 }
 
@@ -586,4 +584,149 @@ func TestOverdueIsTheOneColorException(t *testing.T) {
 		return
 	}
 	t.Fatal("the overdue row was not rendered")
+}
+
+// TestEditRoundTripsThroughTheCaptureGrammar covers the choice to edit a task
+// as one line rather than as a form. The row already reads as the grammar, so
+// editing it as the grammar is one thing to learn rather than two.
+func TestEditRoundTripsThroughTheCaptureGrammar(t *testing.T) {
+	h, f := open(t)
+
+	h.key("e")
+	view := plain(h.view())
+	if !strings.Contains(view, "edit:") {
+		t.Fatalf("e did not open an editor:\n%s", view)
+	}
+	// Prefilled with the task in the form quick-add accepts.
+	for _, want := range []string{"Send Q3 numbers", "#finance", "@stacey", "p1", "due:"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the edit line is missing %q:\n%s", want, view)
+		}
+	}
+
+	// Escape leaves the task alone.
+	h.key("esc")
+	if len(f.patched) != 0 {
+		t.Errorf("escape still patched %v", f.patched)
+	}
+}
+
+// TestPriorityPromptTakesOneToFour covers p, and the empty value that clears.
+func TestPriorityPromptTakesOneToFour(t *testing.T) {
+	h, f := open(t)
+
+	h.key("p")
+	if !strings.Contains(plain(h.view()), "priority:") {
+		t.Fatal("p did not open the priority editor")
+	}
+	// The current value is prefilled, so changing it is one keystroke.
+	if !strings.Contains(plain(h.view()), "1") {
+		t.Error("the priority editor is not prefilled with the current value")
+	}
+
+	h.send(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	h.key("3")
+	h.key("enter")
+
+	if len(f.patched) != 1 {
+		t.Fatalf("%d patches, want 1", len(f.patched))
+	}
+	if got := f.patched[0]["priority"]; got != float64(3) {
+		t.Errorf("priority = %v, want 3", got)
+	}
+}
+
+// TestPriorityRejectsNonsenseWithoutSending covers the validation happening
+// before the round trip, the same as the filter bar's.
+func TestPriorityRejectsNonsenseWithoutSending(t *testing.T) {
+	h, f := open(t)
+
+	h.key("p")
+	h.send(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	h.key("9")
+	h.key("enter")
+
+	if len(f.patched) != 0 {
+		t.Errorf("an invalid priority was sent: %v", f.patched)
+	}
+	if !strings.Contains(plain(h.view()), "1 to 4") {
+		t.Error("the status line does not say what a priority may be")
+	}
+}
+
+// TestSnoozeTakesADurationOrADate covers both forms the API accepts.
+func TestSnoozeTakesADurationOrADate(t *testing.T) {
+	h, f := open(t)
+
+	h.key("s")
+	for _, r := range "2h" {
+		h.key(string(r))
+	}
+	h.key("enter")
+
+	if len(f.snoozed) != 1 {
+		t.Fatalf("%d snoozes, want 1", len(f.snoozed))
+	}
+	if f.snoozed[0].Duration != "2h" {
+		t.Errorf("snooze = %+v, want a 2h duration", f.snoozed[0])
+	}
+
+	h.key("s")
+	for _, r := range "friday" {
+		h.key(string(r))
+	}
+	h.key("enter")
+	if len(f.snoozed) != 2 {
+		t.Fatalf("%d snoozes, want 2", len(f.snoozed))
+	}
+	if f.snoozed[1].Until == "" {
+		t.Errorf("a date snooze sent %+v, want an absolute instant", f.snoozed[1])
+	}
+}
+
+// TestNotesGetATextarea covers the one multi-line thing in the product.
+func TestNotesGetATextarea(t *testing.T) {
+	h, f := open(t)
+
+	h.key("N")
+	view := plain(h.view())
+	if !strings.Contains(view, "notes on") {
+		t.Fatalf("N did not open the notes editor:\n%s", view)
+	}
+	if !strings.Contains(view, "ctrl+s save") {
+		t.Error("the notes editor does not say how to save")
+	}
+
+	for _, r := range "quoted 780" {
+		h.key(string(r))
+	}
+	// No Text: a real ctrl+s from a terminal carries a code and a modifier,
+	// and String() returns the text when there is one.
+	h.send(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+
+	if len(f.patched) != 1 {
+		t.Fatalf("%d patches, want 1", len(f.patched))
+	}
+	notes, _ := f.patched[0]["notes"].(string)
+	if !strings.Contains(notes, "quoted 780") {
+		t.Errorf("notes = %q", notes)
+	}
+}
+
+// TestEscapeCancelsAnEdit covers the rule that every one-line editor is
+// cancelled the same way.
+func TestEscapeCancelsAnEdit(t *testing.T) {
+	h, f := open(t)
+
+	for _, key := range []string{"e", "p", "t", "s", "N"} {
+		h.key(key)
+		h.key("esc")
+	}
+	if len(f.patched) != 0 || len(f.snoozed) != 0 {
+		t.Errorf("escape still sent something: %v %v", f.patched, f.snoozed)
+	}
+	// And the list is showing again.
+	if !strings.Contains(plain(h.view()), "Send Q3 numbers") {
+		t.Error("escape did not return to the list")
+	}
 }

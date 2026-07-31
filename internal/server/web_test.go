@@ -489,3 +489,143 @@ func firstLines(s string, n int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// TestTheDetailPageEditsEveryField covers editing from the browser, which is
+// the half of the gap the TUI keys were the other half of.
+func TestTheDetailPageEditsEveryField(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	id, err := ts.store.Resolve(t.Context(), "103")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{
+		"title":    {"Order tires and an alignment"},
+		"notes":    {"Discount tire quoted 780 for the set."},
+		"priority": {"1"},
+		"due":      {"friday"},
+		"tags":     {"truck garage"},
+		"notify":   {"on"},
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		ts.URL+"/w/edit/"+id, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "td_session", Value: session})
+
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("edit = %d, want a redirect back to the task", resp.StatusCode)
+	}
+
+	task, err := ts.store.Get(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Title != "Order tires and an alignment" {
+		t.Errorf("title = %q", task.Title)
+	}
+	if task.Notes == "" {
+		t.Error("the notes were not saved")
+	}
+	if task.Priority == nil || *task.Priority != 1 {
+		t.Errorf("priority = %v", task.Priority)
+	}
+	// The date vocabulary is shared, so a keyword works in the form.
+	if task.DueAt == nil || *task.DueAt != "2026-08-07" {
+		t.Errorf("due = %v, want friday resolved against the pinned clock", task.DueAt)
+	}
+	if strings.Join(task.Tags, ",") != "garage,truck" {
+		t.Errorf("tags = %v", task.Tags)
+	}
+	if task.Notify != "on" {
+		t.Errorf("notify = %q", task.Notify)
+	}
+}
+
+// TestAnEmptyFieldClears covers the rule the form makes visible: a box you
+// emptied means clear it, not leave it.
+func TestAnEmptyFieldClears(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	id, err := ts.store.Resolve(t.Context(), "101")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := ts.store.Get(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Priority == nil || before.DueAt == nil {
+		t.Fatal("the fixture task should start with a priority and a due date")
+	}
+
+	form := url.Values{
+		"title": {before.Title}, "notes": {""},
+		"priority": {""}, "due": {""}, "tags": {""}, "notify": {"auto"},
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		ts.URL+"/w/edit/"+id, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "td_session", Value: session})
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	after, err := ts.store.Get(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Priority != nil {
+		t.Errorf("priority = %v, want cleared", *after.Priority)
+	}
+	if after.DueAt != nil {
+		t.Errorf("due = %v, want cleared", *after.DueAt)
+	}
+	if len(after.Tags) != 0 {
+		t.Errorf("tags = %v, want cleared", after.Tags)
+	}
+}
+
+// TestNotifyIsRadiosNotAToggle covers the control inventory rule: the
+// tri-state is three values, and a toggle cannot express "whatever the
+// default says". Toggles are for persistent settings.
+func TestNotifyIsRadiosNotAToggle(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	_, html := page(t, ts, session, "/t/101")
+
+	for _, mode := range []string{"auto", "on", "off"} {
+		if !strings.Contains(html, `type="radio" name="notify" value="`+mode+`"`) {
+			t.Errorf("the notify control has no %q radio", mode)
+		}
+	}
+	if strings.Contains(html, "td-toggle") {
+		t.Error("notify is drawn as a toggle, which cannot express three states")
+	}
+	// And a textarea for notes, which is the one multi-line field.
+	if !strings.Contains(html, "<textarea") {
+		t.Error("the detail page has no notes editor")
+	}
+}

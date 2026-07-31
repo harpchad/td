@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
@@ -57,6 +58,18 @@ type Model struct {
 	addInput    textinput.Model
 	filterInput textinput.Model
 
+	// promptInput is the one-line editor behind e, p, t and s. One input
+	// serves all of them: they differ in what they prefill and what they do
+	// with the answer, not in how they take it.
+	promptInput textinput.Model
+	prompt      prompt
+	promptTask  api.Task
+
+	// notes is the only multi-line thing in the product, so it is the only
+	// place with a textarea.
+	notesInput  textarea.Model
+	editingNote bool
+
 	// status is the one line the bottom bar shows instead of the hints, when
 	// something has happened worth saying.
 	status  string
@@ -96,6 +109,17 @@ func New(ctx context.Context, c *client.Client, opts Options) *Model {
 	filter.Prompt = "filter: "
 	filter.SetVirtualCursor(false)
 
+	promptInput := textinput.New()
+	promptInput.SetVirtualCursor(false)
+
+	notes := textarea.New()
+	notes.Placeholder = "notes"
+	notes.ShowLineNumbers = false
+	// The real cursor, not a drawn one that blinks on a timer. The only
+	// animation in this product is the caret, and the terminal already has
+	// one.
+	notes.SetVirtualCursor(false)
+
 	return &Model{
 		client:       c,
 		ctx:          ctx,
@@ -103,6 +127,8 @@ func New(ctx context.Context, c *client.Client, opts Options) *Model {
 		collapsed:    map[string]bool{},
 		addInput:     add,
 		filterInput:  filter,
+		promptInput:  promptInput,
+		notesInput:   notes,
 		mouseEnabled: opts.Mouse,
 		loading:      true,
 		width:        80,

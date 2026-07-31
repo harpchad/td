@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -261,3 +262,6 @@ func TestHydration(t *testing.T) {
 		t.Errorf("108 groups = %v, want one", grouped.Groups)
 	}
 }
+
+// discardLogger keeps the scheduler quiet in tests.
+func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }

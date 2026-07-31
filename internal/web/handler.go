@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -112,6 +113,8 @@ func (u *UI) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /w/add", u.add)
 	mux.HandleFunc("POST /w/complete/{id}", u.complete)
 	mux.HandleFunc("POST /w/drop/{id}", u.drop)
+	mux.HandleFunc("POST /w/edit/{id}", u.edit)
+	mux.HandleFunc("POST /w/snooze/{id}", u.snooze)
 	mux.HandleFunc("POST /w/undo", u.undo)
 	mux.HandleFunc("POST /w/fold/{id}", u.fold)
 	mux.HandleFunc("POST /w/theme", u.setTheme)
@@ -156,6 +159,11 @@ type pageData struct {
 
 	PriorityClass string
 	PriorityLabel string
+	// The edit form's current values, as the form wants them.
+	PriorityValue string
+	DueValue      string
+	TagValue      string
+	NotifyChoices []notifyChoice
 
 	Themes   []themeChoice
 	ThemeDir string
@@ -172,6 +180,13 @@ type DetailPerson struct {
 	Role  string
 	Label string
 	Query string
+}
+
+// notifyChoice is one radio of the tri-state.
+type notifyChoice struct {
+	Value    string
+	Label    string
+	Selected bool
 }
 
 type themeChoice struct {
@@ -365,6 +380,7 @@ func (u *UI) detail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := u.base(r, task.Title)
+	data.Status = r.URL.Query().Get("m")
 	data.Task = task
 	data.Done = task.Status == api.StatusDone
 	data.PriorityClass = priorityClass(task.Priority)
@@ -382,6 +398,19 @@ func (u *UI) detail(w http.ResponseWriter, r *http.Request) {
 		handle := firstWordLower(p.Name)
 		data.People = append(data.People, DetailPerson{
 			Role: p.Role, Label: "@" + handle, Query: "@" + handle,
+		})
+	}
+
+	if task.Priority != nil {
+		data.PriorityValue = itoa(int64(*task.Priority))
+	}
+	if task.DueAt != nil {
+		data.DueValue = query.LocalDate(*task.DueAt, u.Now().Location())
+	}
+	data.TagValue = strings.Join(task.Tags, " ")
+	for _, mode := range []string{api.NotifyAuto, api.NotifyOn, api.NotifyOff} {
+		data.NotifyChoices = append(data.NotifyChoices, notifyChoice{
+			Value: mode, Label: mode, Selected: task.Notify == mode,
 		})
 	}
 
@@ -489,9 +518,7 @@ func (u *UI) complete(w http.ResponseWriter, r *http.Request) {
 func (u *UI) reopen(r *http.Request, id string) string {
 	// Reopening is a status change rather than its own verb, and the state
 	// machine only allows done to todo.
-	patcher, ok := u.svc.(interface {
-		Patch(ctx context.Context, actor, id string, p api.TaskPatch, ifMatch string, now time.Time) (api.Task, error)
-	})
+	patcher, ok := u.svc.(taskPatcher)
 	if !ok {
 		return "reopening is not available"
 	}
@@ -514,6 +541,122 @@ func (u *UI) drop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u.after(w, r, "dropped "+itoa(task.Num)+", u undoes it")
+}
+
+// edit applies the detail page's form.
+//
+// Every field is present in the form, so every field is in the patch: an
+// empty priority means clear it rather than leave it, which is what the
+// person looking at an empty box expects.
+func (u *UI) edit(w http.ResponseWriter, r *http.Request) {
+	id, ok := u.resolve(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		u.after(w, r, "could not read the form")
+		return
+	}
+
+	patch := api.TaskPatch{Presence: map[string]bool{}}
+	title := r.PostFormValue("title")
+	notes := r.PostFormValue("notes")
+	patch.Title, patch.Notes = &title, &notes
+
+	patch.Presence["priority"] = true
+	if raw := strings.TrimSpace(r.PostFormValue("priority")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 4 {
+			u.redirectToTask(w, r, id, "priority is 1 to 4, or empty to clear")
+			return
+		}
+		patch.Priority = &n
+	}
+
+	patch.Presence["due_at"] = true
+	if raw := strings.TrimSpace(r.PostFormValue("due")); raw != "" {
+		// Keywords work here for the same reason they work in the filter bar:
+		// there is one date vocabulary.
+		resolved, err := query.ResolveDate(raw, u.Now())
+		if err != nil {
+			u.redirectToTask(w, r, id, "could not read that date")
+			return
+		}
+		patch.DueAt = &resolved
+	}
+
+	tags := []string{}
+	for _, tag := range strings.Fields(r.PostFormValue("tags")) {
+		if tag = strings.TrimPrefix(tag, "#"); tag != "" {
+			tags = append(tags, strings.ToLower(tag))
+		}
+	}
+	patch.Tags = &tags
+
+	if mode := r.PostFormValue("notify"); mode != "" {
+		patch.Presence["notify"] = true
+		patch.Notify = &mode
+	}
+
+	patcher, ok := u.svc.(taskPatcher)
+	if !ok {
+		u.redirectToTask(w, r, id, "editing is not available")
+		return
+	}
+	if _, err := patcher.Patch(r.Context(), u.actor(r), id, patch, "", u.Now()); err != nil {
+		u.redirectToTask(w, r, id, humanError(err))
+		return
+	}
+	u.redirectToTask(w, r, id, "")
+}
+
+// snooze hides a task for a while from the detail page.
+func (u *UI) snooze(w http.ResponseWriter, r *http.Request) {
+	id, ok := u.resolve(w, r)
+	if !ok {
+		return
+	}
+	d, err := time.ParseDuration(r.PostFormValue("duration"))
+	if err != nil || d <= 0 {
+		u.redirectToTask(w, r, id, "say how long")
+		return
+	}
+	snoozer, ok := u.svc.(taskSnoozer)
+	if !ok {
+		u.after(w, r, "snoozing is not available")
+		return
+	}
+	if _, err := snoozer.Snooze(r.Context(), u.actor(r), id, u.Now().Add(d), u.Now()); err != nil {
+		u.redirectToTask(w, r, id, humanError(err))
+		return
+	}
+	u.after(w, r, "snoozed")
+}
+
+// redirectToTask sends the browser back to the detail page it came from,
+// carrying a message when there is one.
+func (u *UI) redirectToTask(w http.ResponseWriter, r *http.Request, id, message string) {
+	task, err := u.svc.Get(r.Context(), id)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	target := "/t/" + itoa(task.Num)
+	if message != "" {
+		target += "?m=" + urlEncode(message)
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// taskPatcher and taskSnoozer are the parts of the store the edit routes use.
+// They are asserted rather than added to Service so a caller that only reads
+// can still satisfy the interface.
+type taskPatcher interface {
+	Patch(ctx context.Context, actor, id string, p api.TaskPatch, ifMatch string, now time.Time) (api.Task, error)
+}
+
+type taskSnoozer interface {
+	Snooze(ctx context.Context, actor, id string, until, now time.Time) (api.Task, error)
 }
 
 func (u *UI) undo(w http.ResponseWriter, r *http.Request) {

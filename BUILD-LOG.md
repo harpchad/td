@@ -444,3 +444,100 @@ the change-feed polling both UIs want.
 The `notify` tri-state has a control inventory entry already: it is three
 states, so it is radios rather than a toggle, and the toggle is reserved for
 persistent settings like quiet hours.
+
+---
+
+## Phase 5: reminders, the notify tri-state, and editing
+
+2026-07-31
+
+### What shipped
+
+Section 16 step 5, plus editing folded in on the author's call.
+
+`internal/notify` holds the policy, the firing rules, the ntfy sender, and
+the scheduler: a single goroutine on a 60 second tick, no job queue and no
+cron container. The policy is the `[notify]` block of a `config.toml` that is
+written commented on first start. `default_rule` is a filter query rather
+than a settings screen, so "*", "" and "p:<=2 -#someday" all mean what they
+look like.
+
+Editing landed in all three clients, all through the `PATCH` route that has
+existed since phase 1: `td edit`, `td note`, `td snooze`; the TUI's `e`, `p`,
+`t`, `s`, and `N`; and a form on the web detail page with the notify
+tri-state drawn as radios, because three states are not a toggle.
+
+The scheduler also picked up `PurgeExpiredSessions`, which has existed since
+phase 2 and had nothing to call it.
+
+### The bug that mattered most
+
+A `PATCH` that changed nothing deadlocked the entire server.
+
+`Store.Patch` returned the task by calling `Get` on the no-op path while its
+own transaction was still open. SQLite takes one writer so the pool is a
+single connection, and `Get` waited forever for the connection the
+transaction was holding. Every later request queued behind it. One no-op
+write from any authenticated client stopped the server until restart.
+
+It surfaced from a reminder test that patches a due date to the value it
+already has. The editing work would have hit it constantly: a form submitted
+with nothing changed is the most likely no-op patch there is, and the web
+edit form submits every field every time.
+
+Committed on its own, before the rest of the phase. An audit of the other
+transactions found no second instance.
+
+### What was learned
+
+**A correct check of the wrong surface still passes.** Phase 4 built the
+contrast floor section 12 specifies, which measures ink at `--td-dim`. It
+never looked at `--td-grey`, because the rule says that token is not for text
+at all, and the file then painted text with it anyway. The lesson generalises
+past CSS: a test that encodes the rule as written will not notice the rule
+being bypassed.
+
+**The flag package and the way people type are different.** `td show 103
+-json` printed the human form; `td note 103 -show` appended the literal
+string "-show" as a note. Go's flag package stops at the first positional.
+This is the third time it has bitten in this build, after `tdd -db X account
+create` and the subcommand dispatch. There is one helper now that separates
+flags from positionals wherever they appear.
+
+**Input needed the server's clock too.** Phase 4 made rendering resolve
+against `X-Td-Now`. Input was still local, so `td edit -due friday` typed on
+a Friday laptop landed on a different day than the same word typed into the
+web box against a Monday server. Two clients, one task, two answers. The
+clients sync the clock off the health check before resolving anything.
+
+**A test that cannot fail is worse than none.** The modal-contrast test
+written in phase 4 asked whether a `.td-modal` rule mentioned a class, which
+the `:focus` override satisfied by itself. Deleting the rule that mattered
+left it green. It checks per property now, and was verified by deleting the
+rule and watching it fail; on its first correct run it found a second
+instance nobody had reported.
+
+### What was deferred, and why
+
+- **Reminder delivery against a real topic.** Every test uses a recording
+  sender. `CLAUDE.md` says only the disposable dev topic may receive
+  anything, and the interface makes reaching a real one structurally
+  impossible rather than a rule to remember. Confirming a push actually
+  arrives on a phone is the one thing the soak has to do by hand.
+- **A catch-up bound.** A task whose fire time passed while the server was
+  down fires once, late, whenever the server comes back. That is what "one
+  push per task per due value" says. After a long outage it is a burst. Worth
+  watching during the two weeks rather than guessing a window now.
+- **TOTP replay inside a period**, still. Same as phase 2.
+- **`td export --json`.** Still unscheduled, and still a v1 done criterion.
+  It is the last one with no phase.
+
+### Notes for the soak
+
+Section 16 says to stop here and use it for two weeks before phase 6, because
+half the requirements will change. This is that point.
+
+Reminders are off until `notify.topic` is set in `config.toml`, which is
+written on first start. The action buttons need a token: `tdd token create
+-name ntfy -scopes write`, then `notify.action_token`. Without it the push is
+a click-through, which is a reasonable way to start.

@@ -29,6 +29,9 @@ const usage = `td - task manager
   td a <text>          add a task; #tag @person p:2 due:friday are read inline
   td ls [filter]       list tasks in the default order
   td show <ref>        show one task
+  td edit <ref>        change fields: -title -notes -priority -due -start -tags -notify
+  td note <ref> <text> append a note, or -replace it, or -show it
+  td snooze <ref> <t>  hide it for a while: 1h, 2d, friday
   td done <ref>        complete a task
   td drop <ref>        drop a task
   td undo              reverse your last change
@@ -75,11 +78,17 @@ func run(args []string) error {
 
 	switch cmd {
 	case "a", "add":
-		return add(ctx, c, cfg, rest)
+		return add(ctx, c, rest)
 	case "ls", "list":
 		return list(ctx, c, rest)
 	case "show":
 		return show(ctx, c, rest)
+	case "edit":
+		return edit(ctx, c, rest)
+	case "note":
+		return note(ctx, c, rest)
+	case "snooze":
+		return snooze(ctx, c, rest)
 	case "done":
 		return done(ctx, c, rest)
 	case "drop":
@@ -103,10 +112,10 @@ func run(args []string) error {
 // reachable: quick-add has to be faster than opening the app or it does not
 // get used, and a capture that fails because a container is restarting is a
 // capture you lose.
-func add(ctx context.Context, c *client.Client, cfg client.Config, args []string) error {
+func add(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("a", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the created task as JSON")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		return err
 	}
 	line := strings.TrimSpace(strings.Join(fs.Args(), " "))
@@ -114,16 +123,15 @@ func add(ctx context.Context, c *client.Client, cfg client.Config, args []string
 		return errors.New("say what to add")
 	}
 
-	loc := time.Local
-	if cfg.Timezone != "" {
-		l, err := time.LoadLocation(cfg.Timezone)
-		if err != nil {
-			return fmt.Errorf("timezone %q: %w", cfg.Timezone, err)
-		}
-		loc = l
+	// Inline dates resolve against the server's clock, not the laptop's:
+	// "due:friday" has to mean the same day whichever client typed it.
+	// Offline, the local clock stands in, which is the best available answer
+	// and is recorded with the queued capture either way.
+	if err := c.SyncClock(ctx); err != nil && !errors.Is(err, client.ErrOffline) {
+		return err
 	}
 
-	cap := query.ParseCapture(line, time.Now().In(loc))
+	cap := query.ParseCapture(line, c.Now())
 	if cap.Title == "" {
 		return errors.New("that is all tags and no task")
 	}
@@ -162,7 +170,7 @@ func list(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("ls", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the list as JSON")
 	limit := fs.Int("limit", 0, "stop after N tasks")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		return err
 	}
 	filter := strings.TrimSpace(strings.Join(fs.Args(), " "))
@@ -200,7 +208,7 @@ func list(ctx context.Context, c *client.Client, args []string) error {
 func show(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the task as JSON")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
@@ -220,7 +228,7 @@ func show(ctx context.Context, c *client.Client, args []string) error {
 func done(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("done", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the result as JSON")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -249,7 +257,7 @@ func done(ctx context.Context, c *client.Client, args []string) error {
 func drop(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("drop", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the task as JSON")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -274,7 +282,7 @@ func drop(ctx context.Context, c *client.Client, args []string) error {
 func undo(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("undo", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the result as JSON")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		return err
 	}
 	res, err := c.Undo(ctx)
@@ -295,7 +303,7 @@ func undo(ctx context.Context, c *client.Client, args []string) error {
 func people(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("people", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print people as JSON")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		return err
 	}
 	list, err := c.People(ctx)
@@ -314,7 +322,7 @@ func people(ctx context.Context, c *client.Client, args []string) error {
 func filters(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("filters", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print filters as JSON")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		return err
 	}
 	list, err := c.Filters(ctx)
@@ -333,7 +341,7 @@ func filters(ctx context.Context, c *client.Client, args []string) error {
 func whoami(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("whoami", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print as JSON")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		return err
 	}
 	me, err := c.WhoAmI(ctx)

@@ -78,6 +78,20 @@ func New(cfg Config) *Client {
 	}
 }
 
+// SyncClock learns the server's clock before anything is resolved against it.
+//
+// Date keywords have to resolve in the server's timezone, for the same reason
+// relative labels render against it: the server is what computed the order
+// and what will store the result. Without this, "due:friday" typed on a
+// laptop an hour ahead of the server lands on a different day than the same
+// word typed in the web box.
+//
+// The health check is the cheapest way to ask. It needs no credential, has no
+// side effects, and carries X-Td-Now like every other response.
+func (c *Client) SyncClock(ctx context.Context) error {
+	return c.do(ctx, http.MethodGet, "/healthz", nil, nil, nil)
+}
+
 // List runs a filter and returns the matching tasks in the default order.
 func (c *Client) List(ctx context.Context, filter string, limit int) (api.TaskList, error) {
 	q := url.Values{}
@@ -129,6 +143,14 @@ func (c *Client) Complete(ctx context.Context, ref string) (api.CompleteResult, 
 func (c *Client) Drop(ctx context.Context, ref string) (api.Task, error) {
 	var out api.Task
 	err := c.do(ctx, http.MethodDelete, "/api/v1/tasks/"+url.PathEscape(ref), nil, nil, &out)
+	return out, err
+}
+
+// Snooze hides a task until an instant. duration is relative ("1h"), until is
+// absolute; give one.
+func (c *Client) Snooze(ctx context.Context, ref string, req api.SnoozeRequest) (api.Task, error) {
+	var out api.Task
+	err := c.do(ctx, http.MethodPost, "/api/v1/tasks/"+url.PathEscape(ref)+"/snooze", req, nil, &out)
 	return out, err
 }
 

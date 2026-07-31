@@ -308,6 +308,40 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /api/v1/tasks/{id}/snooze:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [tasks]
+      summary: Snooze a task
+      description: >-
+        Hides the task until an instant. Does not change its status, and is
+        refused on a done or dropped task. Takes a relative duration as well
+        as an absolute time because the ntfy action button is composed when
+        the reminder is sent and clicked later, so "1h" has to mean an hour
+        from the tap.
+      operationId: snoozeTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SnoozeRequest" }
+      responses:
+        "200":
+          description: the snoozed task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
   /api/v1/people:
     get:
       tags: [people]
@@ -697,6 +731,17 @@ components:
           type: array
           nullable: true
           items: { type: string }
+
+    SnoozeRequest:
+      type: object
+      description: One of duration or until.
+      properties:
+        duration:
+          type: string
+          description: "relative, as 1h or 30m"
+        until:
+          type: string
+          description: an RFC3339 instant
 
     TaskList:
       type: object

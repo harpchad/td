@@ -216,6 +216,15 @@ func (p *TaskPatch) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// SnoozeRequest is the body of POST /tasks/{id}/snooze. Duration is relative
+// ("1h", "30m"); Until is an absolute instant. The relative form exists for
+// the ntfy action button, which is composed once and clicked later: the
+// server computes the instant at click time rather than at send time.
+type SnoozeRequest struct {
+	Duration string `json:"duration,omitempty"`
+	Until    string `json:"until,omitempty"`
+}
+
 // TaskList is the body of GET /tasks. There is no cursor: the task list does
 // not paginate, and Total reports the untruncated count so a caller passing
 // limit can tell a top N from the whole answer.

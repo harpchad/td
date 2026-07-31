@@ -18,6 +18,124 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  Editing shipped as part of phase 5
+Phase: 5
+
+Section 16 never scheduled editing a task, which the previous entry recorded
+as a gap. Confirmed with the author: it lands in phase 5 alongside reminders,
+because section 16 also says to stop after phase 5 and use the thing for two
+weeks, and two weeks without being able to change a due date is a thin
+experiment.
+
+All three clients, all through the `PATCH` route that already existed:
+
+- `td edit`, `td note`, `td snooze`
+- TUI `e`, `p`, `t`, `s`, and `N` for notes
+- the web detail page's form
+
+The TUI edits a task as one line in the capture grammar rather than as a
+form. The row already reads as the grammar, so editing it as the grammar is
+one thing to learn rather than two, and a token dropped from the line clears
+the field it set. Notes are the only multi-line thing in the product, so they
+are the only place with a textarea.
+
+`N` for notes is an addition to section 11's keymap, which has no notes key.
+Everything else uses the letter section 11 assigned.
+
+Reversible: yes.
+
+## 2026-07-31  Reminders are off until a topic is configured
+Phase: 5
+
+Section 13 specifies ntfy with one topic. `CLAUDE.md` says the dev topic is
+disposable and that nothing may be sent anywhere else.
+
+`notify.topic` defaults to empty, and empty means the scheduler logs once and
+returns without sending. A server that has not been told where to push does
+not guess.
+
+The `Sender` is an interface with an HTTP implementation and a recording fake
+that the tests use. That is not indirection for its own sake: a test that
+could reach a real topic is one environment variable away from doing it, and
+the interface makes that structurally impossible rather than a rule someone
+has to remember.
+
+Reversible: yes.
+
+## 2026-07-31  A failed push is retried rather than marked
+Phase: 5
+
+Section 13 says `notified_at` stops repeats: one push per task per due value.
+It does not say what happens when the push fails.
+
+`notified_at` is stamped only after the send succeeds. ntfy being down is
+therefore a delay rather than a lost reminder, and the next tick tries again.
+
+The alternative, marking before sending, would make a single network blip
+silently eat a reminder, which is the one failure this feature cannot afford:
+you would not know it happened.
+
+Reversible: yes.
+
+## 2026-07-31  The ntfy action token is write-scoped, not capture-scoped
+Phase: 5
+
+Section 13 says the Done and Snooze buttons hit the API "with a
+capture-scoped token".
+
+They carry a write-scoped one. Capture is the narrow scope that creates an
+inbox item; completing a task and snoozing one are writes, and the scope
+mapping in phase 2 puts them there. Making the capture scope able to complete
+tasks would weaken it everywhere it is used, including on the MCP token
+section 10 wants to hold read plus capture.
+
+The blast radius is controlled the way section 15 intends instead: the token
+is its own, named, and revocable on its own, so cutting it off is one revoke.
+
+Without a token configured the notification is a click-through with no
+buttons, rather than buttons that answer 401.
+
+Reversible: yes, and it would need the scope mapping to change with it.
+
+## 2026-07-31  Date keywords resolve against the server's clock, on input too
+Phase: 5
+
+Phase 1 decided that date keywords resolve at parse time against a supplied
+clock. Phase 4 made the server send `X-Td-Now` so clients render relative
+labels against the server's day rather than their own.
+
+Input was still using the local clock. `td edit 103 -due friday` on a laptop
+whose today was a Friday resolved to that day; the same word typed into the
+web box, against a server whose today was a Monday, resolved four days later.
+Two clients, one task, two answers.
+
+`Client.SyncClock` fetches the health check, which needs no credential and
+carries the header like every other response, before anything is resolved.
+Quick-add, edit, and snooze all use it. Offline, the local clock stands in,
+which is the best available answer and travels with the queued capture
+either way.
+
+Reversible: yes, at the cost of the two clients disagreeing again.
+
+## 2026-07-31  The CLI accepts flags in any position
+Phase: 5
+
+Go's flag package stops parsing at the first non-flag argument. Every
+one-shot command therefore ignored flags written after the task reference,
+which is where a person puts them: `td show 103 -json` printed the human
+form, `td ls "is:open" -json` folded `-json` into the filter, and `td note
+103 -show` appended the literal string "-show" as a note.
+
+`parseArgs` walks the arguments, separates flags from positionals, and hands
+the flag package the order it wants. Whether a flag consumes the next
+argument comes from the FlagSet, so it stays correct as flags are added.
+
+This is the third time this has bitten: `tdd -db X account create` had it in
+phase 2, and the subcommand dispatch had it again. Worth remembering that the
+flag package's rule and the way people type are simply different.
+
+Reversible: yes.
+
 ## 2026-07-31  A modal inverts its surface, and the controls have to come with it
 Phase: 4
 

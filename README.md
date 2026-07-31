@@ -6,8 +6,12 @@ the TUI.
 `BUILD-SPEC.md` is what is being built. `CLAUDE.md` is how. `testdata/` is
 the oracle: when the code and a fixture disagree, the code is wrong.
 
-**Status: phase 4 of 11.** Schema, event log, task CRUD, the filter grammar,
-the CLI one-shots, authentication, the TUI, and the web UI.
+**Status: phase 5 of 11.** Schema, event log, task CRUD, the filter grammar,
+the CLI one-shots, authentication, the TUI, the web UI, editing, and ntfy
+reminders.
+
+Section 16 says to stop here and use it for two weeks before phase 6, on the
+grounds that half the requirements will change.
 
 ## Build and check
 
@@ -65,9 +69,16 @@ td a 'renew wildcard cert #certs @stacey p:2 due:friday'
 td ls 'is:open src:local -is:inbox -is:snoozed -is:deferred'
 td show 101
 td done 104
+td edit 103 -priority 1 -due friday -tags certs,ops
+td note 103 "Discount tire quoted 780."   # appends; -replace or -show
+td snooze 103 2h                          # or a date: friday
 td undo
 td whoami                     # which credential is in use, and what it may do
 ```
+
+Flags work before or after the task number, and date keywords resolve against
+the server's clock rather than the laptop's, so `friday` means the same day
+whichever client typed it.
 
 ## The TUI
 
@@ -146,6 +157,29 @@ Drop a `[data-theme="name"]` block into `$XDG_CONFIG_HOME/td/themes/*.css` to
 add one. A palette that does not clear 4.5:1 for ink on paper, or 3:1 for ink
 at `--td-dim`, is logged and skipped rather than loaded unreadable.
 
+## Reminders
+
+Off until you set a topic. `config.toml` is written commented on first start
+at `$XDG_CONFIG_HOME/td/config.toml`:
+
+```toml
+[notify]
+topic        = "https://ntfy.example.com/td"
+default_rule = "p:<=2"        # resolves notify = "auto"; "*" always, "" never
+lead_minutes = 30             # before a datetime due
+quiet_hours  = "22:00-06:00"  # holds a push, does not drop it
+date_only_at = "08:00"        # when a date-only due fires
+action_token = ""             # tdd token create -name ntfy -scopes write
+```
+
+Only `due_at` fires. One push per task per due value: changing the due date
+makes it eligible again, and an overdue task is never pushed twice. Per task,
+`notify` is `auto`, `on`, or `off` — three states, because a checkbox cannot
+express "whatever the default says".
+
+Without an action token the push is a click-through. With one it carries Done
+and Snooze 1h buttons.
+
 ## Filter grammar
 
 Terms are space separated and AND by default. `-` negates, `|` is OR, and
@@ -182,6 +216,7 @@ internal/query    filter grammar, sort comparator, capture parser
 internal/auth     argon2id, TOTP, tokens, recovery codes  <- cmd/tdd only
 internal/tui      Bubble Tea v2                           <- cmd/td only
 internal/web      templates, htmx, the stylesheet         <- cmd/tdd only
+internal/notify   reminder policy, ntfy, the scheduler    <- cmd/tdd only
 internal/store    SQLite, migrations, FTS      <- cmd/tdd only
 internal/server   HTTP surface                 <- cmd/tdd only
 internal/client   HTTP client, config, offline queue

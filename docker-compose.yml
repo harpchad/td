@@ -26,8 +26,10 @@ services:
       # looks like it came from there and the per-IP login limit collapses
       # into one global limit.
       TD_TRUSTED_PROXIES: ${TD_TRUSTED_PROXIES:-}
-      # Disposable dev topic. Do not point this at any other topic.
-      TD_NTFY_TOPIC: ${TD_NTFY_TOPIC:-https://ntfy.sh/td-dev-scratch}
+      # Disposable dev topic, and only ever that one. Empty leaves reminders
+      # off, which is the default: a server that has not been told where to
+      # push does not guess.
+      TD_NTFY_TOPIC: ${TD_NTFY_TOPIC:-}
     volumes:
       - td-data:/data
     restart: unless-stopped

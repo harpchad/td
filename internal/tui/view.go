@@ -32,6 +32,13 @@ func (m *Model) View() tea.View {
 		return v
 	}
 
+	// The notes editor replaces the screen rather than sitting inside a mode,
+	// because it is the only multi-line thing in the product.
+	if m.editingNote {
+		v.SetContent(zone.Scan(m.renderNotes()))
+		return v
+	}
+
 	var body string
 	switch m.mode {
 	case modeHelp:
@@ -80,6 +87,11 @@ func (m *Model) renderList() string {
 	}
 	if m.mode == modeFilter {
 		lines[1] = m.boxed(inner, truncate(m.filterInput.View(), inner))
+	}
+	if m.prompt != promptNone {
+		// Every edit is one line in the same place, for the same reason the
+		// add line is: it is the fastest thing that can be undone with Escape.
+		lines[len(lines)-2] = m.boxed(inner, truncate(m.promptInput.View(), inner))
 	}
 
 	return strings.Join(lines, "\n")
@@ -418,7 +430,7 @@ func (m *Model) renderDetail() string {
 		lines = append(lines, m.boxed(inner, ""))
 	}
 	lines = append(lines, m.rule(width, "├", "┤"))
-	lines = append(lines, m.boxed(inner, " "+dim.Render("esc back  d done  x drop  u undo")))
+	lines = append(lines, m.boxed(inner, " "+dim.Render("esc back  e edit  N notes  d done  x drop  u undo")))
 	lines = append(lines, m.rule(width, "└", "┘"))
 	return strings.Join(lines, "\n")
 }
@@ -461,6 +473,32 @@ func (m *Model) renderHelp() string {
 	}
 	lines = append(lines, m.rule(width, "├", "┤"))
 	lines = append(lines, m.boxed(inner, " "+dim.Render("esc back")))
+	lines = append(lines, m.rule(width, "└", "┘"))
+	return strings.Join(lines, "\n")
+}
+
+// renderNotes is the only multi-line editor in the product, so it is the only
+// place with a textarea.
+func (m *Model) renderNotes() string {
+	width := max(m.width, 40)
+	inner := width - 2
+
+	m.notesInput.SetWidth(inner - 2)
+	m.notesInput.SetHeight(max(m.height-8, 3))
+
+	lines := []string{
+		m.renderTitleRule(width),
+		m.boxed(inner, " "+dim.Render("notes on ")+truncate(m.promptTask.Title, inner-12)),
+		m.rule(width, "├", "┤"),
+	}
+	for _, line := range strings.Split(m.notesInput.View(), "\n") {
+		lines = append(lines, m.boxed(inner, " "+truncate(line, inner-1)))
+	}
+	for len(lines) < m.height-2 {
+		lines = append(lines, m.boxed(inner, ""))
+	}
+	lines = append(lines, m.rule(width, "├", "┤"))
+	lines = append(lines, m.boxed(inner, " "+dim.Render("ctrl+s save  esc cancel")))
 	lines = append(lines, m.rule(width, "└", "┘"))
 	return strings.Join(lines, "\n")
 }

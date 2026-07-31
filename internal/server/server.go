@@ -102,6 +102,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/v1/tasks/{id}", s.patchTask)
 	mux.HandleFunc("DELETE /api/v1/tasks/{id}", s.dropTask)
 	mux.HandleFunc("POST /api/v1/tasks/{id}/complete", s.completeTask)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/snooze", s.snoozeTask)
 
 	mux.HandleFunc("GET /api/v1/people", s.listPeople)
 	mux.HandleFunc("GET /api/v1/filters", s.listFilters)
@@ -335,6 +336,51 @@ func (s *Server) completeTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// snoozeTask hides a task until an instant. It takes a relative duration as
+// well as an absolute time because the ntfy action button is composed when
+// the reminder is sent and clicked some time later: "1h" has to mean an hour
+// from the tap, not an hour from the push.
+func (s *Server) snoozeTask(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.resolve(w, r)
+	if !ok {
+		return
+	}
+	var req api.SnoozeRequest
+	if err := decode(r, &req); err != nil {
+		s.fail(w, err)
+		return
+	}
+
+	now := s.Now()
+	var until time.Time
+	switch {
+	case req.Until != "":
+		at, err := time.Parse(time.RFC3339, req.Until)
+		if err != nil {
+			s.fail(w, &api.Error{Code: api.ErrBadRequest, Message: "until must be an RFC3339 instant"})
+			return
+		}
+		until = at
+	case req.Duration != "":
+		d, err := time.ParseDuration(req.Duration)
+		if err != nil || d <= 0 {
+			s.fail(w, &api.Error{Code: api.ErrBadRequest, Message: `duration must be positive, like "1h" or "30m"`})
+			return
+		}
+		until = now.Add(d)
+	default:
+		s.fail(w, &api.Error{Code: api.ErrBadRequest, Message: "say how long, with duration or until"})
+		return
+	}
+
+	task, err := s.store.Snooze(r.Context(), s.actorOf(r), id, until, now)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
 }
 
 func (s *Server) listPeople(w http.ResponseWriter, r *http.Request) {

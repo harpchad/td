@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/harpchad/td/internal/api"
+	"github.com/harpchad/td/internal/notify"
 	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/server"
 	"github.com/harpchad/td/internal/store"
@@ -46,6 +47,10 @@ func run(args []string) error {
 		"comma separated CIDRs whose X-Forwarded-For is believed. Empty trusts nothing")
 	themeDir := fs.String("themes", envOr("TD_THEME_DIR", ""),
 		"directory of extra theme files. Defaults to <config>/themes")
+	configPath := fs.String("config", envOr("TD_CONFIG", ""),
+		"path to config.toml. Defaults to <config>/config.toml. A commented default is written if none exists")
+	ntfyTopic := fs.String("ntfy-topic", os.Getenv("TD_NTFY_TOPIC"),
+		"ntfy topic for reminders, overriding config.toml. Empty leaves reminders off")
 	showVersion := fs.Bool("version", false, "print the API version and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -131,6 +136,23 @@ func run(args []string) error {
 		return err
 	}
 
+	// Config resolves flags over environment over file, and a commented
+	// default is written on first start.
+	cfgPath := *configPath
+	if cfgPath == "" {
+		cfgPath = defaultConfigPath()
+	}
+	cfg, err := notify.LoadServerConfig(cfgPath)
+	if err != nil {
+		return err
+	}
+	if *ntfyTopic != "" {
+		cfg.Notify.Topic = *ntfyTopic
+	}
+	if err := cfg.Notify.Validate(); err != nil {
+		return err
+	}
+
 	if configured, err := st.HasAccount(context.Background()); err == nil && !configured {
 		log.Warn("no account configured, every route answers 503",
 			"fix", "run: tdd account create")
@@ -174,8 +196,27 @@ func run(args []string) error {
 		}
 	}()
 
+	// The scheduler is a single goroutine on a 60 second tick. No job queue,
+	// no cron container. It also carries the housekeeping that has been
+	// waiting for something that runs on a tick.
+	scheduler := &notify.Scheduler{
+		Policy: cfg.Notify, Store: st, Sender: notify.NewHTTPSender(cfg.Notify.Topic),
+		BaseURL: *baseURL, Loc: loc, Log: log,
+		Now:         func() time.Time { return time.Now().In(loc) },
+		ActionToken: cfg.Notify.ActionToken,
+	}
+	if pinned != nil {
+		at := *pinned
+		scheduler.Now = func() time.Time { return at }
+	}
+	if cfg.Notify.Enabled() && cfg.Notify.ActionToken == "" {
+		log.Warn("reminders have no action token, so the Done and Snooze buttons are omitted",
+			"fix", `tdd token create -name ntfy -scopes write, then set notify.action_token`)
+	}
+	go scheduler.Run(ctx)
+
 	log.Info("serving", "addr", *addr, "db", *dbPath, "tz", loc.String(),
-		"base_url", *baseURL, "api", api.Version)
+		"base_url", *baseURL, "config", cfgPath, "api", api.Version)
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -263,17 +304,32 @@ func isLoopback(addr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// defaultThemeDir is $XDG_CONFIG_HOME/td/themes, so a palette you like is a
-// file drop rather than a pull request.
-func defaultThemeDir() string {
+// defaultConfigPath is $XDG_CONFIG_HOME/td/config.toml.
+func defaultConfigPath() string {
+	if dir := configHome(); dir != "" {
+		return filepath.Join(dir, "td", "config.toml")
+	}
+	return ""
+}
+
+func configHome() string {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
-		return filepath.Join(dir, "td", "themes")
+		return dir
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "td", "themes")
+	return filepath.Join(home, ".config")
+}
+
+// defaultThemeDir is $XDG_CONFIG_HOME/td/themes, so a palette you like is a
+// file drop rather than a pull request.
+func defaultThemeDir() string {
+	if dir := configHome(); dir != "" {
+		return filepath.Join(dir, "td", "themes")
+	}
+	return ""
 }
 
 func envOr(key, fallback string) string {

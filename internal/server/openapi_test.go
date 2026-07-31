@@ -43,6 +43,7 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 		"/api/v1/tasks":               {"get", "post"},
 		"/api/v1/tasks/{id}":          {"get", "patch", "delete"},
 		"/api/v1/tasks/{id}/complete": {"post"},
+		"/api/v1/tasks/{id}/snooze":   {"post"},
 		"/api/v1/people":              {"get"},
 		"/api/v1/filters":             {"get", "post"},
 		"/api/v1/ui/folds":            {"get"},
@@ -75,7 +76,7 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 	// JSON API that clients and plugins program against; the server-rendered
 	// pages and their form posts are not an interface anything integrates
 	// with, and documenting them there would invite someone to try.
-	for _, page := range []string{"/", "/settings", "/help", "/t/{ref}", "/w/add"} {
+	for _, page := range []string{"/", "/settings", "/help", "/t/{ref}", "/w/add", "/w/edit/{id}"} {
 		if doc.Paths.Find(page) != nil {
 			t.Errorf("openapi.yaml documents the browser route %s", page)
 		}

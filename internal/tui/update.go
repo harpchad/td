@@ -111,6 +111,15 @@ func (m *Model) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// The text inputs own every key while they are open, except the two that
 	// close them.
+	// A prompt or the notes editor owns every key while it is open, except
+	// the two that close it.
+	if m.prompt != promptNone {
+		return m.updatePrompt(msg, key)
+	}
+	if m.editingNote {
+		return m.updateNotes(msg, key)
+	}
+
 	switch m.mode {
 	case modeAdd:
 		return m.updateAdd(msg, key)
@@ -210,6 +219,26 @@ func (m *Model) listKey(key string) (tea.Model, tea.Cmd) {
 		m.filterInput.CursorEnd()
 		m.status = ""
 
+	case "e":
+		m.openPrompt(promptEdit)
+	case "p":
+		m.openPrompt(promptPriority)
+	case "t":
+		m.openPrompt(promptTags)
+	case "s":
+		m.openPrompt(promptSnooze)
+
+	case "N":
+		// Notes are multi-line, so they get a textarea rather than the
+		// one-line prompt the other edits share.
+		if t, ok := m.currentTask(); ok {
+			m.editingNote = true
+			m.promptTask = t
+			m.notesInput.SetValue(t.Notes)
+			m.notesInput.Focus()
+			m.status = ""
+		}
+
 	case "u":
 		return m, m.undo()
 
@@ -230,6 +259,37 @@ func (m *Model) listKey(key string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) updatePrompt(msg tea.KeyPressMsg, key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.prompt = promptNone
+		m.promptInput.Blur()
+		return m, nil
+	case "enter":
+		return m, m.submitPrompt()
+	}
+	var cmd tea.Cmd
+	m.promptInput, cmd = m.promptInput.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) updateNotes(msg tea.KeyPressMsg, key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.editingNote = false
+		m.notesInput.Blur()
+		return m, nil
+	case "ctrl+s":
+		notes := m.notesInput.Value()
+		m.editingNote = false
+		m.notesInput.Blur()
+		return m, m.saveNotes(m.promptTask, notes)
+	}
+	var cmd tea.Cmd
+	m.notesInput, cmd = m.notesInput.Update(msg)
+	return m, cmd
 }
 
 func (m *Model) applySavedFilter(slot int) tea.Cmd {
