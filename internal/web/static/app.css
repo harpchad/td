@@ -30,17 +30,31 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
 /* everything else is list. Same as the TUI, because they are the    */
 /* same product.                                                     */
 
+/* Full width. An earlier version capped this at 120ch and centred it, which
+ * put a third of a wide display into empty gutters. A list is a thing you
+ * scan down, and the column it is scanned in is the title, which starts at
+ * the left edge either way. */
 .td-app {
   display: flex; flex-direction: column;
   height: 100dvh;
-  max-width: 120ch; margin: 0 auto;
-  border-left: var(--td-border) solid var(--td-rule);
-  border-right: var(--td-border) solid var(--td-rule);
 }
 .td-app__body { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
 
 /* The filter bar is a bar that happens to contain an input. */
 .td-bar--filter .td-input { flex: 1 1 auto; border-bottom: 0; }
+
+/* Quick-add sits directly under the filter, at the top with the list rather
+ * than pinned to the floor. It is the thing you reach for most and it should
+ * be where the eye already is.
+ *
+ * It gets its own height because a .td-btn is four pixels taller than a row
+ * plus its hard shadow, and a button that overflows its bar draws over the
+ * input beside it. */
+.td-bar--add {
+  height: calc(var(--td-row) + var(--td-shadow) + 6px);
+  padding-right: calc(var(--td-pad) + var(--td-shadow));
+}
+.td-bar--add .td-input { flex: 1 1 auto; border-bottom: 0; }
 
 /* ---------------------------------------------------------------- */
 /* list                                                             */

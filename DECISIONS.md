@@ -18,6 +18,86 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  tokens.css painted de-emphasis with a fixed grey, against its own rule
+Phase: 4
+
+`tokens.css` opens by saying "De-emphasis is opacity, never a grey token. A
+fixed grey is correct on one background and invisible on the other." Four
+rules in the same file then paint text with `--td-grey` or
+`--td-grey-faint`: the status bar, the counts, a completed row's title, the
+disabled button, and the input placeholder.
+
+`mockup.html`, which is the other authority for the look, uses
+`opacity: var(--td-dim)` for the same status bar. So the two artifacts
+disagreed, and the one that matched the stated rule was right.
+
+Measured, on `--td-grey` against `--td-paper`:
+
+    nord              1.69:1
+    solarized-light   2.48:1
+    tokyo-night       2.76:1
+    dracula           3.03:1
+    light             3.66:1
+    dark              5.49:1
+
+Nord at 1.69:1 is not text. That is what the reported unreadable footer was.
+For comparison, ink at `--td-dim` clears 3:1 on every palette, which is the
+floor section 12 sets and the reason the token exists.
+
+All text de-emphasis now uses opacity. `--td-grey` and `--td-grey-faint` are
+left for fills that are not text: the locked toggle knob and the scrollbar
+thumb. Two tests enforce it, one in each direction.
+
+Worth noting what the existing contrast test did not catch: it checks ink at
+`--td-dim`, which is the rule as written, and never looked at the grey token
+because the rule says the grey token is not for this. A correct check of the
+wrong surface.
+
+Reversible: yes, and the tests would fail first.
+
+## 2026-07-31  The default theme follows the system
+Phase: 4
+
+Section 12 ships light and dark built-ins and a picker. It does not say what
+a first visit gets.
+
+It was light, which means a browser set to dark got a light page until
+somebody went to settings. The default is now "auto": the page carries no
+`data-theme` attribute at all, and a generated
+`@media (prefers-color-scheme: dark)` rule scoped to `:root:not([data-theme])`
+applies the dark palette. An explicit pick still wins, because the attribute
+beats the media query.
+
+The media query is generated from `tokens.css`'s own dark block at assembly
+time rather than written out. There is one dark palette in this system and
+this makes the rule quote it instead of copying it.
+
+Rejected: detecting the preference in JavaScript, which flashes the wrong
+palette on every page load and needs a script to render a colour.
+
+Reversible: yes.
+
+## 2026-07-31  Full width, and quick-add at the top
+Phase: 4
+
+Two layout calls, both reversed after looking at the thing on a real screen.
+
+The app was capped at `120ch` and centred, which on a wide display puts a
+third of the screen into empty gutters either side. Removed. A list is
+scanned down its title column, and that column starts at the left edge
+whatever the width is.
+
+Quick-add was pinned above the status bar at the bottom, which put it a
+screen away from the list on anything taller than the content, and the Add
+button overflowed its bar: a `.td-btn` is four pixels taller than a row plus
+a four pixel hard shadow, so it drew over the input beside it. It now sits
+directly under the filter bar, in a row sized to hold a button.
+
+Neither of these is in the spec either way. Both were mine and both were
+wrong.
+
+Reversible: yes.
+
 ## 2026-07-31  Editing a task is not in the build order, and the keymap now says so
 Phase: 4
 

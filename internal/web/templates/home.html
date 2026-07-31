@@ -19,17 +19,17 @@
            placeholder="is:open p:&lt;=2 #certs @stacey due:&lt;=friday">
   </form>
 
-  <div class="td-app__body td-scroll" id="list">
-    {{template "list" .}}
-  </div>
-
-  <form class="td-bar" action="/w/add" method="post"
+  <form class="td-bar td-bar--add" action="/w/add" method="post"
         hx-post="/w/add" hx-target="#list" hx-swap="innerHTML" data-td-cancel>
     <span class="td-dim">add:</span>
     <input class="td-input" type="text" name="line" data-add-input aria-label="add a task"
-           placeholder="call the dealer  #truck @stacey p:2 due:friday" style="flex:1 1 auto">
+           placeholder="call the dealer  #truck @stacey p:2 due:friday">
     <button class="td-btn td-btn--primary" type="submit">Add</button>
   </form>
+
+  <div class="td-app__body td-scroll" id="list">
+    {{template "list" .}}
+  </div>
 
   {{template "statusbar" .}}
 </div>

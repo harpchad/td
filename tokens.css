@@ -34,7 +34,12 @@
   --td-alert-inv:    #e0654c;   /* the same role, on an inverted row */
 
   /* De-emphasis is opacity, never a grey token. A fixed grey is
-   * correct on one background and invisible on the other. */
+   * correct on one background and invisible on the other: on Nord,
+   * --td-grey on --td-paper measures 1.69:1, which is not text.
+   *
+   * --td-grey and --td-grey-faint are therefore for fills that are not
+   * text: the locked toggle knob and the scrollbar thumb. Nothing sets
+   * `color` from them. There is a test. */
   --td-dim:    0.58;
   --td-dimmer: 0.40;
 
@@ -96,10 +101,10 @@
 }
 .td-bar--status {
   border-bottom: 0; border-top: var(--td-border) solid var(--td-rule);
-  font-size: var(--td-size-small); color: var(--td-grey);
+  font-size: var(--td-size-small); opacity: var(--td-dim);
 }
 .td-bar__spacer { margin-left: auto; }
-.td-count { color: var(--td-grey); }
+.td-count { opacity: var(--td-dim); }
 .td-count b { font-weight: var(--td-weight-bold); color: var(--td-ink); }
 
 /* key hints in the status line: the letter is bold, the word is not */
@@ -180,11 +185,7 @@
 .td-btn:focus-visible {
   outline: none; background: var(--td-ink); color: var(--td-paper);
 }
-.td-btn[disabled] {
-  color: var(--td-grey-faint); border-color: var(--td-grey-faint);
-  box-shadow: var(--td-shadow) var(--td-shadow) 0 0 var(--td-grey-faint);
-  cursor: not-allowed;
-}
+.td-btn[disabled] { opacity: var(--td-dimmer); cursor: not-allowed; }
 
 /* ---------------------------------------------------------------- */
 /* toggle: the one rounded thing in the system                      */
@@ -243,7 +244,7 @@
 /* is indistinguishable from checking it */
 .td-done:focus-visible { outline: var(--td-border) solid currentColor; outline-offset: 2px; }
 
-.td-row--done .td-title { color: var(--td-grey); text-decoration: line-through; }
+.td-row--done .td-title { opacity: var(--td-dim); text-decoration: line-through; }
 
 /* ---------------------------------------------------------------- */
 /* form controls: checkbox, radio, input                            */
@@ -268,7 +269,7 @@
   caret-color: var(--td-ink);
 }
 .td-input:focus { outline: none; background: var(--td-ink); color: var(--td-paper); }
-.td-input::placeholder { color: var(--td-grey-faint); }
+.td-input::placeholder { color: inherit; opacity: var(--td-dimmer); }
 
 /* ---------------------------------------------------------------- */
 /* modal: double rule with the title inset into the top edge        */

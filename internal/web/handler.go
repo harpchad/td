@@ -19,6 +19,9 @@ import (
 // data, so it lives in a cookie rather than in the database.
 const ThemeCookie = "td_theme"
 
+// ThemeAuto is re-exported so the templates and the server agree on the name.
+const ThemeAuto = "auto"
+
 // Service is what the web UI needs from the rest of the server. The handlers
 // go through the same store every other client's requests do, so a bug shows
 // up everywhere at once instead of hiding in the path you use least.
@@ -200,10 +203,16 @@ func (u *UI) base(r *http.Request, title string) pageData {
 	}
 }
 
+// themeOf returns the picked theme, or auto.
+//
+// Auto renders no data-theme attribute at all, which is what lets the
+// prefers-color-scheme rule apply. Defaulting to light would mean a browser
+// set to dark gets a light page until someone visits settings, and the
+// system preference is the better first guess than either fixed palette.
 func (u *UI) themeOf(r *http.Request) string {
 	c, err := r.Cookie(ThemeCookie)
-	if err != nil || c.Value == "" {
-		return "light"
+	if err != nil || c.Value == "" || c.Value == ThemeAuto {
+		return ThemeAuto
 	}
 	for _, t := range u.assets.Themes {
 		if t.Name == c.Value {
@@ -212,7 +221,7 @@ func (u *UI) themeOf(r *http.Request) string {
 	}
 	// A cookie naming a theme that has since been removed or rejected falls
 	// back rather than rendering an undefined palette.
-	return "light"
+	return ThemeAuto
 }
 
 func (u *UI) home(w http.ResponseWriter, r *http.Request) {

@@ -138,3 +138,95 @@ func TestAThemeSetsColoursOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestAutoDarkIsDerivedFromTheDarkBlock covers the "follow the system"
+// default. The rule is generated from tokens.css rather than written out, so
+// there is exactly one dark palette and the media query cannot drift from it.
+func TestAutoDarkIsDerivedFromTheDarkBlock(t *testing.T) {
+	tokens := readCSS(t, "tokens.css")
+	got := web.AutoDarkCSS(tokens)
+
+	if !strings.Contains(got, "@media (prefers-color-scheme: dark)") {
+		t.Fatalf("no media query generated:\n%s", got)
+	}
+	if !strings.Contains(got, ":root:not([data-theme])") {
+		t.Error("the rule is not scoped to pages with no theme picked, so it would override an explicit choice")
+	}
+
+	// Every value the dark block sets has to appear, or a page following the
+	// system gets a half-applied palette.
+	var dark web.Theme
+	for _, theme := range web.ParseThemes(tokens) {
+		if theme.Name == "dark" {
+			dark = theme
+		}
+	}
+	if dark.Paper == "" || dark.Ink == "" {
+		t.Fatal("tokens.css defines no dark block")
+	}
+	for _, value := range []string{dark.Paper, dark.Ink} {
+		if !strings.Contains(got, value) {
+			t.Errorf("the generated rule is missing %s", value)
+		}
+	}
+}
+
+// TestDeEmphasisNeverUsesAFixedGrey covers the rule tokens.css states in its
+// own header and then broke: de-emphasis is opacity, never a grey token,
+// because a fixed grey is correct on one background and invisible on the
+// other.
+//
+// The status bar was set with color: var(--td-grey), which measures 1.69:1 on
+// Nord. --td-grey and --td-grey-faint are for fills that are not text.
+func TestDeEmphasisNeverUsesAFixedGrey(t *testing.T) {
+	tokens := readCSS(t, "tokens.css")
+
+	for _, line := range strings.Split(tokens, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "/*") {
+			continue
+		}
+		if !strings.Contains(trimmed, "--td-grey") {
+			continue
+		}
+		// A declaration that paints text.
+		for _, property := range []string{"color:", "-color:"} {
+			idx := strings.Index(trimmed, property)
+			if idx < 0 {
+				continue
+			}
+			// scrollbar-color and border-color paint a rule or a thumb, not
+			// text, and those are the fills the token is for.
+			if strings.Contains(trimmed, "scrollbar-color") || strings.Contains(trimmed, "border-color") {
+				continue
+			}
+			t.Errorf("tokens.css paints text from a fixed grey, which is unreadable on low-contrast palettes: %s", trimmed)
+		}
+	}
+}
+
+// TestFixedGreysAreOnlyEverFills is the other half: whatever --td-grey is
+// used for has to survive every palette, and a fill has no contrast floor.
+func TestFixedGreysAreOnlyEverFills(t *testing.T) {
+	tokens := readCSS(t, "tokens.css")
+
+	allowed := []string{"background:", "scrollbar-color:"}
+	for _, line := range strings.Split(tokens, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.Contains(trimmed, "var(--td-grey") || strings.HasPrefix(trimmed, "*") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "--td-grey") {
+			continue // the declaration itself
+		}
+		ok := false
+		for _, property := range allowed {
+			if strings.Contains(trimmed, property) {
+				ok = true
+			}
+		}
+		if !ok {
+			t.Errorf("--td-grey used somewhere other than a fill: %s", trimmed)
+		}
+	}
+}

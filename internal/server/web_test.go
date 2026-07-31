@@ -358,7 +358,7 @@ func TestSettingsListsThemesAndTokens(t *testing.T) {
 
 	_, html := page(t, ts, session, "/settings")
 
-	for _, theme := range []string{"nord", "dracula", "tokyo-night", "solarized-light", "light", "dark"} {
+	for _, theme := range []string{"auto", "nord", "dracula", "tokyo-night", "solarized-light", "light", "dark"} {
 		if !strings.Contains(html, `value="`+theme+`"`) {
 			t.Errorf("the theme picker does not offer %q", theme)
 		}
@@ -386,9 +386,13 @@ func TestThemeCookieSelectsThePalette(t *testing.T) {
 	ts := newServer(t)
 	session := login(t, ts)
 
+	// With nothing picked the page carries no data-theme at all, which is
+	// what lets the prefers-color-scheme rule apply. Forcing light here would
+	// mean a browser set to dark gets a light page until someone visits
+	// settings.
 	_, html := page(t, ts, session, "/")
-	if !strings.Contains(html, `data-theme="light"`) {
-		t.Error("the default page is not the light theme")
+	if strings.Contains(html, "data-theme=") {
+		t.Error("the default page pins a theme instead of following the system")
 	}
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/w/theme",

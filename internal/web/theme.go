@@ -58,6 +58,28 @@ func ParseThemes(css string) []Theme {
 	return out
 }
 
+// AutoDarkCSS derives the "follow the system" rule from tokens.css's own
+// dark block.
+//
+// With no theme picked the page carries no data-theme attribute, and this
+// rule applies the dark palette when the browser reports a dark preference.
+// It is generated rather than written out so the two cannot drift: there is
+// exactly one dark palette in the system and this is it.
+func AutoDarkCSS(tokens string) string {
+	var body string
+	for _, match := range themeBlockRE.FindAllStringSubmatch(tokens, -1) {
+		if match[1] == "dark" {
+			body = match[2]
+			break
+		}
+	}
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+	return "@media (prefers-color-scheme: dark) {\n  :root:not([data-theme]) {" +
+		body + "}\n}\n"
+}
+
 // parseRootTheme reads the default palette off :root, which is what a theme
 // that only overrides some tokens inherits.
 func parseRootTheme(css string) Theme {

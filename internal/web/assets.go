@@ -96,7 +96,10 @@ func build(userThemeDir string, log *slog.Logger) *Assets {
 	themes := mustRead("css/themes.css")
 	app := mustReadStatic("static/app.css")
 
-	all := BuiltInThemes()
+	// Auto is the default and the first entry in the picker. It sets no
+	// data-theme attribute, which is what lets the media query apply.
+	all := []Theme{{Name: ThemeAuto, Label: "Auto, match the system", BuiltIn: true}}
+	all = append(all, BuiltInThemes()...)
 	for _, t := range ParseThemes(themes) {
 		if err := t.CheckContrast(); err != nil {
 			// Fail the check, log the theme name, fall back to the built-in.
@@ -111,6 +114,10 @@ func build(userThemeDir string, log *slog.Logger) *Assets {
 
 	var css strings.Builder
 	css.WriteString(tokens)
+	css.WriteString("\n")
+	// Follow the system when nothing has been picked. Generated from the
+	// dark block above rather than written twice.
+	css.WriteString(AutoDarkCSS(tokens))
 	css.WriteString("\n")
 	css.WriteString(themes)
 	css.WriteString("\n")
