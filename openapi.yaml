@@ -353,6 +353,57 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
+  /api/v1/ui/folds:
+    get:
+      tags: [tasks]
+      summary: Which parents are folded
+      description: >-
+        View state, stored server-side so it follows you between clients. It
+        is deliberately not a field on Task: section 3 requires that it never
+        be exported, never synced, and never an event.
+      operationId: listFolds
+      responses:
+        "200":
+          description: the folded parents
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [collapsed]
+                properties:
+                  collapsed:
+                    type: array
+                    items: { type: string }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /api/v1/ui/folds/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [tasks]
+      summary: Fold or unfold one parent
+      operationId: setFold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [collapsed]
+              properties:
+                collapsed: { type: boolean }
+      responses:
+        "204":
+          description: done
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/events:
     get:
       tags: [history]

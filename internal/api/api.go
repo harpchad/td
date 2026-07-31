@@ -249,6 +249,21 @@ type SavedFilter struct {
 	Query string `json:"query"`
 }
 
+// Folds is the body of GET /ui/folds: the ids of every folded parent.
+//
+// Fold state is deliberately not a field on Task. It is view state, and
+// section 3 says it must never be exported, never synced, and never an
+// event. Keeping it out of the type that gets serialized into an export
+// makes that structural rather than a rule to remember.
+type Folds struct {
+	Collapsed []string `json:"collapsed"`
+}
+
+// FoldRequest is the body of POST /ui/folds/{id}.
+type FoldRequest struct {
+	Collapsed bool `json:"collapsed"`
+}
+
 // Error is the body every failing request returns. Message is written for a
 // human and says what to do about it; Code is what a client branches on.
 type Error struct {

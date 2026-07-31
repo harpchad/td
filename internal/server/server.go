@@ -89,6 +89,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/people", s.listPeople)
 	mux.HandleFunc("GET /api/v1/filters", s.listFilters)
 	mux.HandleFunc("POST /api/v1/filters", s.putFilter)
+	mux.HandleFunc("GET /api/v1/ui/folds", s.listFolds)
+	mux.HandleFunc("POST /api/v1/ui/folds/{id}", s.setFold)
 	mux.HandleFunc("GET /api/v1/events", s.listEvents)
 	mux.HandleFunc("POST /api/v1/undo", s.undo)
 
@@ -345,6 +347,35 @@ func (s *Server) putFilter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, saved)
+}
+
+// listFolds returns which parents are folded. It is per-task view state that
+// follows the user between clients, which is the whole reason it lives on the
+// server rather than in a dotfile.
+func (s *Server) listFolds(w http.ResponseWriter, r *http.Request) {
+	ids, err := s.store.CollapsedTasks(r.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, api.Folds{Collapsed: ids})
+}
+
+func (s *Server) setFold(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.resolve(w, r)
+	if !ok {
+		return
+	}
+	var req api.FoldRequest
+	if err := decode(r, &req); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.store.SetCollapsed(r.Context(), id, req.Collapsed); err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {

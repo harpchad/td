@@ -160,6 +160,20 @@ func (c *Client) WhoAmI(ctx context.Context) (api.SessionInfo, error) {
 	return out, err
 }
 
+// Folds returns the ids of every folded parent. Fold state is stored
+// server-side so it follows you between the TUI and the web UI.
+func (c *Client) Folds(ctx context.Context) (api.Folds, error) {
+	var out api.Folds
+	err := c.do(ctx, http.MethodGet, "/api/v1/ui/folds", nil, nil, &out)
+	return out, err
+}
+
+// SetFold folds or unfolds one parent.
+func (c *Client) SetFold(ctx context.Context, ref string, collapsed bool) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/ui/folds/"+url.PathEscape(ref),
+		api.FoldRequest{Collapsed: collapsed}, nil, nil)
+}
+
 // Events reads the change feed from seq onwards.
 func (c *Client) Events(ctx context.Context, since int64) ([]api.Event, error) {
 	var out []api.Event

@@ -246,3 +246,100 @@ write is refused.
 `Server.actor` is gone: a mutation now writes the calling token's actor, so
 an `mcp:claude` token's writes are already separable from your own and undo
 is already scoped correctly. The test for that uses those exact strings.
+
+---
+
+## Phase 3: the TUI
+
+2026-07-31
+
+### What shipped
+
+Section 16 step 3: list, detail, quick-add, complete, filters, and undo, plus
+fold and the full mouse surface from section 11. `internal/tui` is
+client-only and talks to the same HTTP API everything else does.
+
+The layout is section 11's: two chrome rows at the top, one at the bottom,
+everything else list, inside a box with the title inset into the top rule.
+Detail is a full-screen replacement rather than a split pane. `td` with no
+arguments opens it; the one-shot commands are unchanged.
+
+Fold state moved server-side into `ui_state`, reachable at
+`/api/v1/ui/folds`, so it follows you between the TUI and the web UI when
+phase 4 lands.
+
+### Checking the library before writing against it
+
+`CLAUDE.md` says to read the current documentation for Bubble Tea v2 rather
+than trusting training data. That was worth doing three times over.
+
+The module moved from `github.com/charmbracelet/bubbletea/v2` to
+`charm.land/bubbletea/v2`, and the old path does not resolve at all. Nothing
+in the warning mentioned that, and no amount of care about the *API* would
+have caught it.
+
+The two things the warning did name both checked out. `View` is a struct,
+not a string, and `MouseMode` and `AltScreen` are fields on it rather than
+program options. Mouse input is four separate message types. A test asserts
+the returned View carries `MouseModeCellMotion`, so a regression to the v1
+shape fails rather than compiling into something that quietly reports all
+motion.
+
+### What was learned
+
+**Stripping styles to invert a row also strips the mouse.** Selection is
+inverse video, and the natural implementation renders the row, strips its
+escape sequences, and inverts the result. bubblezone marks hit regions with
+escape sequences inside the rendered string, so stripping takes them with it.
+The selected row would have been the one row the mouse could not click, and
+the screen would have looked completely correct. A test that clicks a tag on
+the selected row is what caught it. Rows are now built flat when they are
+about to be inverted, and nothing is ever stripped.
+
+**A test can double-scan itself into failing.** `View` calls `zone.Scan` on
+the composed frame. The first mouse tests scanned the returned frame again,
+which consumes marks that are no longer there and leaves stale coordinates.
+The rule is that the render scans and the test only reads.
+
+**Columns beat a ragged edge.** The first cut right-aligned the whole
+metadata group, which left the tags ragged while the dates lined up. Section
+11 draws them as columns, and "everything lands on a character grid" is a
+rule about exactly this. Title, tokens, child count, and due date each get a
+fixed column now, and a test asserts the date column ends at the same cell on
+every row that has a date.
+
+**16ms is not close.** Keystroke to redraw measures 378µs mean and 762µs
+worst on the fixture list, and 849µs mean at 200x60. The budget has about
+twenty times the headroom it needs, which is what you would hope for from a
+render that is string concatenation.
+
+### What was deferred, and why
+
+- **`e`, `p`, `t` edit paths.** Phase 4, with the web UI, because the two
+  clients should get the same editing model at the same time rather than the
+  TUI inventing one first.
+- **`w`, `@`, and the person page.** Phase 6. `w wait` stays on the bottom
+  bar in the position section 11 draws it, and pressing it says so.
+- **`s` snooze.** Phase 5, with reminders, since snooze only means something
+  once something fires.
+- **Triage mode.** Phase 7. It is a mode rather than a view and wants the
+  single-key actions that phases 4 to 6 add.
+- **A live change feed.** The TUI reloads after its own writes and on `r`.
+  `GET /events` exists and nothing subscribes to it. That is the phase 5
+  scheduler's shape, and doing it now would mean inventing the polling loop
+  twice.
+- **Offline read cache.** Section 14 says reads fall back to cache. The TUI
+  keeps showing the list it already has and says it is offline, which is the
+  visible half. A cache that survives restart is a phase 4 concern once
+  there is somewhere to put it.
+
+### Notes for phase 4
+
+The web UI is at parity with this, so the shapes to reuse are the row
+columns, the empty states, and the keymap. `internal/query.Arrange` already
+produces display order for both, and the fold endpoints are shared.
+
+`tokens.css`, `themes.css`, and `mockup.html` are the authority for the web
+look, and outrank the prose. The TUI deliberately reads none of them: it
+renders through the terminal's own ANSI palette, so a theme file would only
+fight the terminal.

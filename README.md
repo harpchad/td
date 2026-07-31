@@ -6,8 +6,8 @@ the TUI.
 `BUILD-SPEC.md` is what is being built. `CLAUDE.md` is how. `testdata/` is
 the oracle: when the code and a fixture disagree, the code is wrong.
 
-**Status: phase 2 of 11.** Schema, event log, task CRUD, the filter grammar,
-the CLI one-shots, and authentication. No TUI and no web UI yet: there is a
+**Status: phase 3 of 11.** Schema, event log, task CRUD, the filter grammar,
+the CLI one-shots, authentication, and the TUI. No web UI yet: there is a
 `POST /login` that issues a session cookie, and no page to type into.
 
 ## Build and check
@@ -64,6 +64,30 @@ td done 104
 td undo
 td whoami                     # which credential is in use, and what it may do
 ```
+
+## The TUI
+
+`td` with no arguments opens it. `td 'is:waiting'` opens it on a filter.
+
+```text
+j k      move            a  add            z  fold      / search
+g G      top, bottom     d  done           Z  fold all  1-9 saved filters
+enter    detail          x  drop           u  undo      ?  keys
+space    toggle done     r  reload         esc back     q  quit
+```
+
+The mouse is on by default and does what the web pointer does: click a row to
+select, double-click to open, click the checkbox to toggle, click the fold
+cell to fold, click a `#tag` or `@person` to filter by it, click a hint in
+the bottom bar to run it. The wheel scrolls without moving the selection.
+
+Capturing the mouse takes the terminal's own text selection away. Most
+emulators hand it back while shift is held. `td --no-mouse` turns it off, as
+does `mouse = false` in `config.toml`.
+
+The TUI reads no theme file. It renders through the terminal's own ANSI
+palette, so if you run Tokyo Night in your terminal, the TUI is already Tokyo
+Night.
 
 `td a` exits immediately whether or not the server is reachable. If it is
 not, the capture queues locally and `td flush` sends it. Every command takes
@@ -135,6 +159,7 @@ cmd/tdd           server only
 internal/api      request and response types, API version constant
 internal/query    filter grammar, sort comparator, capture parser
 internal/auth     argon2id, TOTP, tokens, recovery codes  <- cmd/tdd only
+internal/tui      Bubble Tea v2                           <- cmd/td only
 internal/store    SQLite, migrations, FTS      <- cmd/tdd only
 internal/server   HTTP surface                 <- cmd/tdd only
 internal/client   HTTP client, config, offline queue

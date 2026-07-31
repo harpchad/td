@@ -25,6 +25,7 @@ func main() {
 
 const usage = `td - task manager
 
+  td                   open the TUI
   td a <text>          add a task; #tag @person p:2 due:friday are read inline
   td ls [filter]       list tasks in the default order
   td show <ref>        show one task
@@ -40,12 +41,12 @@ const usage = `td - task manager
 `
 
 func run(args []string) error {
-	if len(args) == 0 {
-		fmt.Print(usage)
-		return nil
+	var cmd string
+	rest := args
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		cmd, rest = args[0], args[1:]
 	}
 
-	cmd, rest := args[0], args[1:]
 	switch cmd {
 	case "-h", "--help", "help":
 		fmt.Print(usage)
@@ -60,6 +61,15 @@ func run(args []string) error {
 		return err
 	}
 	c := client.New(cfg)
+
+	// The TUI runs until the user quits, so it gets a cancellable context
+	// rather than the one-shot commands' deadline.
+	if cmd == "" {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		return runTUI(ctx, c, cfg, rest)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

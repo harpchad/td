@@ -90,6 +90,50 @@ terminal and into the scrollback. The command falls back to a plain read
 when stdin is not a terminal, which is what makes it testable.
 Binary impact: server only.
 
+## charm.land/bubbletea/v2@v2.0.8
+Phase: 3
+Used for: the TUI event loop.
+Considered instead: nothing. Section 11 names it.
+Note the module path. Bubble Tea v2 moved from `github.com/charmbracelet/`
+to `charm.land/`, and the old path no longer resolves. `CLAUDE.md` warns
+that most v2 example code in circulation is really v1; the path move is one
+more thing memory gets wrong. The API was read from the module before any of
+this was written, and the two things the warning names both checked out:
+`View` is a struct rather than a string, and `MouseMode` is a field on it
+rather than a program option.
+Binary impact: client only.
+
+## charm.land/lipgloss/v2@v2.0.5
+Phase: 3
+Used for: styling and display-width measurement.
+Considered instead: writing the escape sequences by hand, which is fine
+until the first CJK title and then silently misaligns every box border.
+Binary impact: client only.
+
+## charm.land/bubbles/v2@v2.1.1
+Phase: 3
+Used for: the text input behind quick-add and the filter bar.
+Considered instead: hand-rolling a single-line editor. It is more code than
+it looks like once you want kill-line, word motion, and paste.
+Binary impact: client only.
+
+## github.com/lrstanley/bubblezone/v2@v2.0.0
+Phase: 3
+Used for: mouse hit regions. Section 11 names it directly, and the reason is
+in the spec: recomputing columns in the input handler works until the first
+truncated title and then drifts silently. The renderer marks each region as
+it draws it and events are tested against those marks.
+Considered instead: column arithmetic, which the spec rules out. It requires
+the alt screen, which the TUI uses anyway.
+Binary impact: client only.
+
+## github.com/charmbracelet/x/ansi
+Phase: 3
+Used for: width-aware truncation of styled strings.
+Considered instead: `lipgloss.Width` alone, which measures but does not cut.
+It arrives transitively with lipgloss regardless.
+Binary impact: client only.
+
 ---
 
 ## Tools

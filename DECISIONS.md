@@ -18,6 +18,71 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  A selected row is built flat, not flattened afterwards
+Phase: 3
+
+Section 12 says focus and selection are inverse video, never a glow or an
+outline. The obvious way to do that is to render the row normally and then
+invert it, stripping the inner escape sequences first so the inversion
+applies to one run.
+
+That is wrong twice, and the second one is what matters.
+
+Inverting a string that already carries colors leaves the first inner reset
+cancelling the inversion for the rest of the line, so the row inverts up to
+its first tag and then stops. That is the visible bug.
+
+The invisible one: `lrstanley/bubblezone` marks hit regions with escape
+sequences embedded in the rendered string. Stripping a rendered row takes
+every clickable region on it away, so the selected row would have been the
+one row the mouse could not touch, and nothing about the screen would have
+looked wrong. A test that clicked a tag on the selected row is what found it.
+
+Rows are therefore built with a `paint` helper that applies a style or does
+not, depending on whether the row is about to be inverted. Nothing is ever
+stripped.
+
+The consequence worth stating: a selected overdue row shows no red. Inverse
+video is the selection treatment, and a second color inside an inverted run
+is the thing the rule exists to prevent.
+
+Reversible: yes, and the mouse test would catch a regression.
+
+## 2026-07-31  Auth events, fold state, and what the TUI is allowed to see
+Phase: 3
+
+Fold state persists per task and section 3 says it must never be exported,
+never synced, and never an event.
+
+It lives in `ui_state`, reachable at `GET /api/v1/ui/folds` and
+`POST /api/v1/ui/folds/{id}`, and it is deliberately not a field on
+`api.Task`. Adding a `collapsed` field would have been one fewer round trip
+and would have put view state inside the type that `td export --json`
+serializes, where the rule against exporting it becomes something someone
+has to remember. Keeping it off the type makes it structural.
+
+Writing a fold emits no event, for the same reason: an export or a sync must
+not be able to see that a row was folded on somebody's screen.
+
+Reversible: yes, but doing so would put the export rule back at risk.
+
+## 2026-07-31  Keys that are specified but not built say which phase
+Phase: 3
+
+Section 11 gives the complete keymap, and phase 3 builds list, detail, add,
+complete, filters, and undo. That leaves `e`, `w`, `s`, `p`, `t`, `@`, and
+`E` specified and inert.
+
+Pressing one puts a line in the status bar naming what it would do and which
+phase it lands in. `w wait` stays on the bottom bar in the position section
+11 draws it.
+
+A key that silently does nothing reads as a bug, and the person most likely
+to press it is the one who just read the spec. Saying "phase 6" costs one
+line and turns a apparent fault into a schedule.
+
+Reversible: the entries come out of the keymap as each phase lands.
+
 ## 2026-07-31  OAuth 2.1 is in scope, and "no OAuth" means no federation
 Phase: 1 (resolved for phase 9)
 
