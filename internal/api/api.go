@@ -212,11 +212,12 @@ func (p *TaskPatch) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// TaskList is the body of GET /tasks.
+// TaskList is the body of GET /tasks. There is no cursor: the task list does
+// not paginate, and Total reports the untruncated count so a caller passing
+// limit can tell a top N from the whole answer.
 type TaskList struct {
-	Tasks  []Task `json:"tasks"`
-	Total  int    `json:"total"`
-	Cursor string `json:"cursor,omitempty"`
+	Tasks []Task `json:"tasks"`
+	Total int    `json:"total"`
 }
 
 // CompleteResult is the body of POST /tasks/{id}/complete. ChildrenOpen is

@@ -95,19 +95,13 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The task list does not paginate. A filtered list is meant to be read
+	// whole, and an order computed in Go cannot produce a stable cursor
+	// without encoding sort position into it. limit truncates the top of the
+	// order for callers that want a top N, such as the MCP whats_next tool;
+	// total still reports the untruncated count, so a caller can always tell
+	// it got a slice rather than the answer.
 	total := len(tasks)
-	offset := 0
-	if c := r.URL.Query().Get("cursor"); c != "" {
-		n, err := strconv.Atoi(c)
-		if err != nil || n < 0 {
-			s.fail(w, &api.Error{Code: api.ErrBadRequest, Message: "cursor must be a non-negative integer"})
-			return
-		}
-		offset = min(n, total)
-	}
-	tasks = tasks[offset:]
-
-	next := ""
 	if l := r.URL.Query().Get("limit"); l != "" {
 		n, err := strconv.Atoi(l)
 		if err != nil || n <= 0 {
@@ -116,11 +110,10 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		if n < len(tasks) {
 			tasks = tasks[:n]
-			next = strconv.Itoa(offset + n)
 		}
 	}
 
-	writeJSON(w, http.StatusOK, api.TaskList{Tasks: tasks, Total: total, Cursor: next})
+	writeJSON(w, http.StatusOK, api.TaskList{Tasks: tasks, Total: total})
 }
 
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {

@@ -47,11 +47,11 @@ paths:
           schema: { type: string }
         - name: limit
           in: query
+          description: >-
+            Truncate to the top N of the order. This is not pagination: there
+            is no continuation token, and total still reports the untruncated
+            count.
           schema: { type: integer, minimum: 1 }
-        - name: cursor
-          in: query
-          description: Opaque continuation token returned by the previous page.
-          schema: { type: string }
       responses:
         "200":
           description: matching tasks in the default order
@@ -433,8 +433,10 @@ components:
         tasks:
           type: array
           items: { $ref: "#/components/schemas/Task" }
-        total: { type: integer }
-        cursor: { type: string }
+        total:
+          type: integer
+          description: >-
+            How many tasks matched, before any limit was applied.
 
     CompleteResult:
       type: object

@@ -71,6 +71,17 @@ A shared Go comparator and a SQL `ORDER BY` cannot both be the source of
 order. Filtering in SQL and ordering in Go resolves it and costs a full
 result-set load per query, which is nothing at the stated scale.
 
+**The cursor on `/tasks` was habit, not a requirement.** It shipped first as
+an offset, with a note admitting a concurrent write could shift rows between
+pages and arguing that was not yet worth fixing. That is the shape of an
+argument that should have ended a step earlier. Ordering in Go means a
+stable cursor has to encode sort position, and nothing wants one: a single
+user reading a filtered list wants the list. It was removed the same day.
+`limit` stays as a top-N truncation with `total` reporting the real count.
+Pagination now exists only on `/events`, where a monotonic `seq` over an
+append-only log makes `since` stable by construction. Worth remembering when
+the next endpoint gets query parameters by reflex.
+
 **Undo cannot be a forward move.** The state machine forbids `done ->
 inbox`, and the fixture allows `inbox -> done` as a quick-complete. Undoing
 that completion has to move a done task back to inbox. Undo therefore writes
@@ -110,7 +121,10 @@ one place.
   code behind them yet. They are in the first migration because adding a
   column to a live database is more work than shipping it empty, and
   `recurrence_cases.json` already fixes the behavior phase 7 has to hit.
-- **Keyset paging.** The cursor is an offset. See `DECISIONS.md`.
+- **`sort=` on the list endpoint.** Section 9 lists it and section 4 says
+  the default order applies "when the user has not picked one". Nothing can
+  pick one yet, since choosing a sort is a UI affordance and there is no UI.
+  It lands with the TUI in phase 3.
 - **Performance measurement.** The targets are stated against 5,000 tasks
   and 20,000 events. The seed is fourteen tasks. A generator and a benchmark
   belong with the first phase that could plausibly miss a target.

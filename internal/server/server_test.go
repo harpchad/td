@@ -341,30 +341,59 @@ func TestEventsAndUndoRoundTrip(t *testing.T) {
 	}
 }
 
-func TestPagingWithLimitAndCursor(t *testing.T) {
+// TestLimitTruncatesTheTopOfTheOrder covers what replaced pagination. limit
+// takes the top N and total keeps reporting the full count, so a caller can
+// always tell a slice from the whole answer.
+func TestLimitTruncatesTheTopOfTheOrder(t *testing.T) {
 	ts := newServer(t)
 
-	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks?q=is%3Aopen&limit=3", nil)
-	var page1 api.TaskList
-	decodeInto(t, body, &page1)
-	if len(page1.Tasks) != 3 {
-		t.Fatalf("page 1 has %d tasks, want 3", len(page1.Tasks))
-	}
-	if page1.Cursor == "" {
-		t.Fatal("a truncated page must return a cursor")
+	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks?q=is%3Aopen", nil)
+	var all api.TaskList
+	decodeInto(t, body, &all)
+	if len(all.Tasks) != all.Total || all.Total < 4 {
+		t.Fatalf("unfiltered read returned %d of %d", len(all.Tasks), all.Total)
 	}
 
-	_, body = do(t, ts, http.MethodGet, "/api/v1/tasks?q=is%3Aopen&limit=3&cursor="+page1.Cursor, nil)
-	var page2 api.TaskList
-	decodeInto(t, body, &page2)
-	if len(page2.Tasks) != 3 {
-		t.Fatalf("page 2 has %d tasks, want 3", len(page2.Tasks))
+	_, body = do(t, ts, http.MethodGet, "/api/v1/tasks?q=is%3Aopen&limit=3", nil)
+	var top api.TaskList
+	decodeInto(t, body, &top)
+
+	if len(top.Tasks) != 3 {
+		t.Fatalf("limit=3 returned %d tasks", len(top.Tasks))
 	}
-	if page1.Tasks[0].Num == page2.Tasks[0].Num {
-		t.Error("page 2 repeats page 1")
+	if top.Total != all.Total {
+		t.Errorf("total = %d under a limit, want the untruncated %d", top.Total, all.Total)
 	}
-	if page1.Total != page2.Total {
-		t.Errorf("total drifted between pages: %d then %d", page1.Total, page2.Total)
+	for i := range top.Tasks {
+		if top.Tasks[i].Num != all.Tasks[i].Num {
+			t.Errorf("position %d = %d, want %d: limit must take the top of the same order",
+				i, top.Tasks[i].Num, all.Tasks[i].Num)
+		}
+	}
+}
+
+// TestNoPaginationOnTheTaskList locks the decision that a filtered list is
+// read whole. An unknown query parameter must not silently slice the result.
+func TestNoPaginationOnTheTaskList(t *testing.T) {
+	ts := newServer(t)
+
+	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks?q=is%3Aopen", nil)
+	var all api.TaskList
+	decodeInto(t, body, &all)
+
+	if !bytes.Contains(body, []byte(`"total"`)) {
+		t.Fatal("the list body should report a total")
+	}
+	if bytes.Contains(body, []byte(`"cursor"`)) {
+		t.Error("the task list must not carry a cursor")
+	}
+
+	_, body = do(t, ts, http.MethodGet, "/api/v1/tasks?q=is%3Aopen&cursor=3", nil)
+	var withCursor api.TaskList
+	decodeInto(t, body, &withCursor)
+	if len(withCursor.Tasks) != len(all.Tasks) {
+		t.Errorf("a stray cursor parameter changed the result: %d vs %d",
+			len(withCursor.Tasks), len(all.Tasks))
 	}
 }
 

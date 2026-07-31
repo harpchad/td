@@ -18,6 +18,33 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  The task list does not paginate
+Phase: 1
+
+Section 9 writes the list endpoint as `GET /tasks?q=&sort=&limit=&cursor=`.
+
+`cursor` is not implemented and the endpoint returns the whole matched set.
+`limit` stays, as a truncation to the top N rather than a page: it makes no
+continuation promise, and `total` keeps reporting the untruncated count so a
+caller can tell a slice from the answer. Section 10's `whats_next(limit)` is
+what it exists for, and shipping 5,000 rows to an agent so it can take five
+is worse than a cap.
+
+This supersedes an earlier entry, made the same day, that shipped an
+offset-based cursor and argued the instability was not yet worth fixing.
+That argument stopped one step short. Ordering happens in Go, so a stable
+cursor would have to encode sort position, and nothing needs one: a single
+user reading a filtered list wants the list. The right move was to delete
+the parameter, not to budget for repairing it.
+
+What is left is the case that genuinely needs a cursor. `GET /events` is an
+append-only log with a monotonic `seq`, so `since` is stable by
+construction: a concurrent write appends past the cursor and can never shift
+a row across it. Pagination lives there and nowhere else.
+
+Reversible: adding a cursor back is easy, and would first require a reason
+that the events feed does not already cover.
+
 ## 2026-07-31  Pure-Go SQLite driver instead of the cgo one
 Phase: 1
 
@@ -55,16 +82,16 @@ opposite directions: a shared Go comparator and a SQL `ORDER BY` cannot both
 be the single source of order.
 
 Filtering compiles to SQL. Ordering runs in Go, in `query.Sorter`, over the
-full matched set. The list endpoint pages by offset into that ordered slice.
+full matched set, and the list endpoint returns that set whole.
 
 Rejected: an `ORDER BY` mirroring the comparator, which is the drift the
 "one function" rule exists to prevent, and would have to encode the
 `td_local_date` bucketing in SQL a second time.
 
-The cost is loading every matching row before paging. Against the stated
-target of 5,000 tasks that is a few milliseconds and well inside the 25ms
-p95 budget. If it stops being true, the fix is a keyset cursor over a
-materialized sort key, not a second comparator.
+The cost is loading every matching row. Against the stated target of 5,000
+tasks that is a few milliseconds and well inside the 25ms p95 budget. If it
+stops being true, the fix is a materialized sort key, not a second
+comparator.
 
 Reversible: yes, and the comparator's own test would catch a divergence.
 
@@ -340,22 +367,6 @@ and there is not one. 409 was rejected because nothing is in conflict, and
 success.
 
 Reversible: yes.
-
-## 2026-07-31  Paging is offset-based
-Phase: 1
-
-Section 9 gives the list endpoint an opaque `cursor` and does not say what
-is in it.
-
-The cursor is a decimal offset into the ordered result. That follows from
-sorting in Go over the full matched set: there is no key to seek on. It is
-opaque to clients by contract even though it happens to be readable.
-
-The known weakness is that a concurrent write can shift rows between pages.
-With one user and a list that fits on a screen, that is not yet worth a
-keyset cursor.
-
-Reversible: yes, because clients treat it as opaque.
 
 ## 2026-07-31  Default saved filters ship five, not four
 Phase: 1
