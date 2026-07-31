@@ -20,7 +20,7 @@
         </label>
         {{end}}
       </form>
-      <p class="td-dim" style="margin:var(--td-row) 0 0">
+      <p class="td-dim td-note">
         Drop a <code>[data-theme="name"]</code> block into
         <b>{{.ThemeDir}}</b> to add one. A palette that fails the contrast
         floor is logged and skipped.
@@ -47,9 +47,8 @@
           <td>
             {{if .Revoked}}<span class="td-dim">revoked</span>
             {{else}}
-            <form action="/w/tokens/{{.ID}}/revoke" method="post" style="display:inline">
-              <button class="td-link" type="submit"
-                      style="font:inherit;background:none;border:0;padding:0;cursor:pointer;color:inherit">revoke</button>
+            <form action="/w/tokens/{{.ID}}/revoke" method="post" class="td-inline">
+              <button class="td-linkbtn" type="submit">revoke</button>
             </form>
             {{end}}
           </td>

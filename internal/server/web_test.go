@@ -208,6 +208,16 @@ func TestNoInlineScriptAnywhere(t *testing.T) {
 				t.Errorf("%s carries an inline script body: %q", path, body)
 			}
 		}
+		// An inline style attribute is dropped by style-src 'self' just as
+		// silently as an inline script is. That is worse than it sounds: the
+		// markup looks right, the page renders, and every control that was
+		// hidden or laid out by one is simply wrong. It put a visible "drop"
+		// button on every row until this test existed.
+		if idx := strings.Index(html, "style=\""); idx >= 0 {
+			end := strings.Index(html[idx+7:], "\"")
+			t.Errorf("%s carries an inline style, which the CSP drops: style=%q",
+				path, html[idx+7:idx+7+end])
+		}
 		// Inline event handlers are the other way inline code gets in, and
 		// they need unsafe-inline just as much as a <script> block does.
 		for _, handler := range []string{"onclick=", "onchange=", "onsubmit=", "onload=", "oninput="} {

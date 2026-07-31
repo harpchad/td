@@ -57,6 +57,34 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
 .td-bar--add .td-input { flex: 1 1 auto; border-bottom: 0; }
 
 /* ---------------------------------------------------------------- */
+/* form wrappers                                                    */
+/*                                                                  */
+/* Every action is a real form, and a form is a block box. Inside a  */
+/* row or a bar it has to disappear as a box while its control stays */
+/* a flex item, which is display: contents.                          */
+/*                                                                  */
+/* These are classes rather than style attributes because the CSP is */
+/* style-src 'self' with no unsafe-inline, so the browser drops an   */
+/* inline style silently. The first cut used them throughout and the */
+/* hidden controls were visible on every row.                        */
+
+.td-contents { display: contents; }
+.td-hidden { display: none; }
+.td-inline { display: inline; }
+
+/* A button that has to read as a link: the status bar's undo, the
+ * settings page's revoke. Same shape as .td-link, driven by a form. */
+.td-linkbtn {
+  font: inherit; color: inherit; background: none;
+  border: 0; padding: 0; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+
+/* Prose blocks inside a modal or a section, on the vertical grid. */
+.td-prose { margin: 0 0 var(--td-row); }
+.td-note { margin: var(--td-row) 0 0; }
+
+/* ---------------------------------------------------------------- */
 /* list                                                             */
 
 .td-list { display: block; }

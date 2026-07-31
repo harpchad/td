@@ -46,6 +46,12 @@ type Assets struct {
 
 	// Themes is every palette that cleared the contrast floor.
 	Themes []Theme
+
+	// Version is a short hash of the assets themselves. It is the cache key,
+	// and it has to move when they do: the files are served immutable with a
+	// one year max-age, so a version that tracked anything else would leave a
+	// returning browser on a stale stylesheet until that other thing changed.
+	Version string
 }
 
 var (
@@ -128,12 +134,23 @@ func build(userThemeDir string, log *slog.Logger) *Assets {
 	htmx := mustReadStatic("static/htmx.min.js")
 	keymap := mustReadStatic("static/td.js")
 
-	return &Assets{
+	out := &Assets{
 		CSS:    []byte(css.String()),
 		HTMX:   []byte(htmx),
 		Script: []byte(keymap),
 		Themes: all,
 	}
+	out.Version = fingerprint(out.CSS, out.Script, out.HTMX)
+	return out
+}
+
+// fingerprint is the cache key: a short hash over everything served.
+func fingerprint(parts ...[]byte) string {
+	h := sha256.New()
+	for _, p := range parts {
+		_, _ = h.Write(p)
+	}
+	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))[:12]
 }
 
 // loadUserThemes reads $XDG_CONFIG_HOME/td/themes/*.css, so a palette you

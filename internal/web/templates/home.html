@@ -43,9 +43,9 @@
   <span class="td-key"><b>d</b> done</span>
   <span class="td-key"><b>z</b> fold</span>
   <span class="td-key"><b>/</b> search</span>
-  <form action="/w/undo" method="post" hx-post="/w/undo" hx-target="#list" hx-swap="innerHTML" style="display:contents">
-    <button class="td-key td-link" type="submit" data-undo
-            style="font:inherit;background:none;border:0;padding:0;cursor:pointer;color:inherit"><b>u</b> undo</button>
+  <form action="/w/undo" method="post" class="td-contents"
+        hx-post="/w/undo" hx-target="#list" hx-swap="innerHTML">
+    <button class="td-key td-linkbtn" type="submit" data-undo><b>u</b> undo</button>
   </form>
   <a class="td-key td-link" href="/help" data-help><b>?</b> keys</a>
 </div>

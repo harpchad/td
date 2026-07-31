@@ -53,7 +53,8 @@ type UI struct {
 	Now func() time.Time
 	// ThemeDir is shown on the settings page so a file drop is discoverable.
 	ThemeDir string
-	// AssetVersion busts the cache when the binary changes.
+	// AssetVersion busts the cache when the assets change. It is a hash of
+	// them rather than a build number, because they are served immutable.
 	AssetVersion string
 }
 
@@ -68,7 +69,7 @@ func New(svc Service, assets *Assets, log *slog.Logger, now func() time.Time) (*
 	}
 	return &UI{
 		svc: svc, assets: assets, tmpl: tmpl, log: log, Now: now,
-		AssetVersion: api.Version,
+		AssetVersion: assets.Version,
 	}, nil
 }
 

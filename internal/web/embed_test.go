@@ -1,10 +1,12 @@
 package web_test
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/web"
 )
 
@@ -49,5 +51,31 @@ func TestVendoredHTMXIsIntact(t *testing.T) {
 	const want = "sha256-YCMa5rqds4JesVomESLV9VkhxNU7Zr9jfcGLTuJ8efk="
 	if got := web.SRIHash(body); got != want {
 		t.Errorf("htmx.min.js hash = %s, want %s. The vendored bundle changed.", got, want)
+	}
+}
+
+// TestAssetVersionTracksTheAssets covers the cache key. The stylesheet and
+// the scripts are served immutable with a one year max-age, so a version that
+// did not move with them would leave a returning browser on a stale
+// stylesheet indefinitely. It was the API version, which changes for
+// unrelated reasons and might not change at all.
+func TestAssetVersionTracksTheAssets(t *testing.T) {
+	a := web.Load("", slog.New(slog.DiscardHandler))
+	if a.Version == "" {
+		t.Fatal("no asset version")
+	}
+	if a.Version == api.Version {
+		t.Error("the asset version is the API version, which does not move when the CSS does")
+	}
+
+	// The same inputs give the same key, or every deploy busts every cache.
+	if again := web.Load("", slog.New(slog.DiscardHandler)); again.Version != a.Version {
+		t.Errorf("version is not stable: %s then %s", a.Version, again.Version)
+	}
+
+	// And different content gives a different key.
+	other := web.SRIHash(append(a.CSS, '\n'))
+	if other == web.SRIHash(a.CSS) {
+		t.Error("the hash does not distinguish different content")
 	}
 }

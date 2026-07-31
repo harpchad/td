@@ -134,7 +134,11 @@
 .td-prio--4 { opacity: var(--td-dimmer); }
 .td-title { overflow: hidden; text-overflow: ellipsis; }
 .td-dim { opacity: var(--td-dim); }
-.td-due { margin-left: auto; opacity: var(--td-dim); }
+/* padding-left, not the row's gap: the tokens end where the text ends and
+ * the date is right-aligned, so without a reserved gutter a long tag list
+ * runs straight into the date. mockup.html has carried this since the
+ * beginning and this file had drifted from it. */
+.td-due { margin-left: auto; opacity: var(--td-dim); padding-left: 2ch; }
 .td-due--overdue { color: var(--td-alert); opacity: 1; font-weight: var(--td-weight-bold); }
 .td-children { opacity: var(--td-dim); }
 

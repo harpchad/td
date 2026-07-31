@@ -18,6 +18,67 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  The CSP silently dropped every inline style, and the markup relied on them
+Phase: 4
+
+Section 15 asks for a CSP with no inline script. The policy written in phase
+2 also carries `style-src 'self'`, which additionally forbids inline `style`
+attributes. The templates used them for layout: `display: contents` on the
+form wrappers, `display: none` on the drop control, and a handful of margins.
+
+The browser drops those silently. Nothing errors, the page renders, and every
+control that was hidden or laid out by one is simply wrong. The visible
+symptom was a "drop" button on every row, and the status bar's undo rendering
+as a grey default button. Neither shows up in a test that reads markup,
+because the markup is correct.
+
+Every inline style is now a class in the app layer, and a test fails on any
+`style=` attribute in any rendered page. That is the same test the inline
+script check should have been: written in phase 4, it looked for `<script>`
+bodies and `on*=` handlers and never thought about the other half of the
+policy.
+
+Worth stating the general shape, because it will recur: a Content-Security
+Policy failure is invisible from the server. The only thing that catches it
+is asserting the negative in the markup, which is cheap, or opening the page,
+which is not repeatable.
+
+Reversible: no reason to.
+
+## 2026-07-31  The asset cache key is a hash of the assets
+Phase: 4
+
+The stylesheet and scripts are served with `max-age=31536000, immutable` and
+a `?v=` carrying `api.Version`.
+
+Those two do not go together. The API version moves when the API changes,
+which is unrelated to the CSS, and might not move for a year. A returning
+browser would hold a stale stylesheet for as long as the cache entry lived.
+
+The key is now a twelve character hash over the CSS and both scripts,
+computed once at assembly. Same inputs, same key, so a redeploy that changes
+nothing busts nothing.
+
+Reversible: yes.
+
+## 2026-07-31  tokens.css had drifted from mockup.html on the due-date gutter
+Phase: 4
+
+Reported: the tags run into the due date.
+
+`mockup.html` has `.td-due { padding-left: 2ch }` and has since the
+beginning. `tokens.css` had the same rule without the padding, so the only
+separation was the row's 1ch flex gap, and a long tag list ended up against
+the date.
+
+Copied the mockup's value across. That is the third place the two authority
+artifacts have disagreed in this phase, after the status bar grey and this;
+in every case the mockup was right and tokens.css had the drift. Worth
+remembering which one to trust when they differ: the mockup is the rendered
+result, so a mistake in it is visible, and a mistake in tokens.css is not.
+
+Reversible: yes.
+
 ## 2026-07-31  tokens.css painted de-emphasis with a fixed grey, against its own rule
 Phase: 4
 

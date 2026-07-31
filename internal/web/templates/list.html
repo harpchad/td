@@ -24,7 +24,7 @@
 <div class="td-row{{if .Sub}} td-row--sub{{end}}{{if .Done}} td-row--done{{end}}"
      data-id="{{.Task.ID}}" data-num="{{.Task.Num}}"{{if .Sub}} id="sub-{{.Task.ParentID}}"{{end}}>
   {{if .HasChildren}}
-    <form action="/w/fold/{{.Task.ID}}" method="post" style="display:contents"
+    <form action="/w/fold/{{.Task.ID}}" method="post" class="td-contents"
           hx-post="/w/fold/{{.Task.ID}}" hx-target="#list" hx-swap="innerHTML">
       <button class="td-fold" type="submit" aria-expanded="{{if .Collapsed}}false{{else}}true{{end}}"
               aria-controls="sub-{{.Task.ID}}" aria-label="fold"></button>
@@ -33,7 +33,7 @@
     <span class="td-fold td-fold--leaf"></span>
   {{end}}
 
-  <form action="/w/complete/{{.Task.ID}}" method="post" style="display:contents"
+  <form action="/w/complete/{{.Task.ID}}" method="post" class="td-contents"
         hx-post="/w/complete/{{.Task.ID}}" hx-target="#list" hx-swap="innerHTML">
     <label class="td-box">
       <input type="checkbox" class="td-done" name="done"
@@ -55,7 +55,7 @@
   {{if .HasChildren}}<span class="td-children">{{.Task.ChildrenDone}}/{{.Task.ChildrenTotal}}</span>{{end}}
   <span class="td-due{{if .Overdue}} td-due--overdue{{end}}">{{.Due}}</span>
 
-  <form action="/w/drop/{{.Task.ID}}" method="post" style="display:none"
+  <form action="/w/drop/{{.Task.ID}}" method="post" class="td-hidden"
         hx-post="/w/drop/{{.Task.ID}}" hx-target="#list" hx-swap="innerHTML">
     <button type="submit" data-drop>drop</button>
   </form>

@@ -3,7 +3,7 @@
   <div class="td-modal">
     <div class="td-modal__title">td</div>
     {{if .NoAccount}}
-      <p style="margin:0 0 var(--td-row)">No account configured. Run
+      <p class="td-prose">No account configured. Run
       <b>tdd account create</b> on the server.</p>
     {{else}}
       <form action="/login" method="post">
@@ -20,7 +20,7 @@
           <input class="td-input" type="text" name="totp" inputmode="numeric"
                  autocomplete="one-time-code" spellcheck="false">
         </label>
-        {{if .Error}}<p class="td-notice--error" style="margin:0 0 var(--td-row)">{{.Error}}</p>{{end}}
+        {{if .Error}}<p class="td-notice--error td-prose">{{.Error}}</p>{{end}}
         <div class="td-form__actions">
           <button class="td-btn td-btn--primary" type="submit">Sign in</button>
         </div>
