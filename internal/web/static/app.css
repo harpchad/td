@@ -223,6 +223,24 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
 .td-help__what { opacity: var(--td-dim); }
 
 /* ---------------------------------------------------------------- */
+/* the OAuth consent screen                                         */
+/*                                                                  */
+/* Checkboxes rather than one Approve button, because the point of a    */
+/* consent screen is that it can grant less than was asked for. A       */
+/* screen you can only agree with is a notification.                */
+
+.td-consent__lede { margin-bottom: var(--td-row); }
+.td-consent__scopes { display: block; margin-bottom: var(--td-row); }
+.td-consent__scope {
+  display: flex; align-items: center; gap: var(--td-gap);
+  height: var(--td-row);
+}
+/* Write deserves more attention than read: one lets an agent look, the
+ * other lets it change what you are looking at. */
+.td-consent__scope--sensitive span { font-weight: var(--td-weight-bold); }
+.td-consent__foot { margin-top: var(--td-row); }
+
+/* ---------------------------------------------------------------- */
 /* triage: one task at a time, large                                */
 /*                                                                  */
 /* A dedicated screen rather than a filtered list. Getting from 20 to 0  */

@@ -758,3 +758,85 @@ means a claude.ai custom connector cannot complete a grant until phase 9.
 MCP resources and prompts are not implemented. Section 10 lists tools and
 nothing else, and a resource list is a second surface with its own injection
 questions.
+
+---
+
+## Phase 9: OAuth 2.1 authorization server
+
+2026-07-31
+
+### What shipped
+
+td is now its own authorization server as well as its own resource server.
+`/.well-known/oauth-authorization-server`, `/.well-known/jwks.json`,
+`/authorize`, `/token`, `/register`, and `/revoke`, all in the same binary
+behind the same hostname, which is the arrangement that removes a whole class
+of discovery failures.
+
+`internal/oauth` is the token format and the PKCE arithmetic. The JWT
+encoding is written by hand rather than imported: this code is both the only
+issuer and the only verifier, it accepts exactly one algorithm, and the whole
+family of algorithm-confusion bugs comes from being flexible about that.
+`Verify` reads `alg` to refuse, never to dispatch, so `none` and `HS256`
+against the public key are not rejected so much as unrepresentable. ES256, so
+two live keys and a JWKS stay small.
+
+The store holds clients, codes, grants, and keys. Codes are single use and
+enforced with one UPDATE that both marks and checks, so "exactly once" is
+true under two simultaneous exchanges rather than nearly true. Refresh tokens
+rotate on every use. Every secret is stored as its SHA-256, the same rule the
+session and token tables already follow.
+
+The consent screen is a form on the same origin behind the ordinary login,
+which is what makes this an authorization server without a second identity
+system. It is checkboxes, because a screen you can only agree with is a
+notification. Grants render on the settings page under the static tokens with
+the same revoke button.
+
+The end-to-end test does the sequence a claude.ai custom connector does:
+register, authorize, consent to two of three scopes, exchange the code with
+the verifier, then open an MCP session with the access token and call a tool.
+BUILD-SPEC says nothing short of that counts, so that is the test.
+
+### What was learned
+
+**The two bearer shapes have to be told apart, not tried in turn.** A `td_`
+token is opaque and an access token is a JWT with two dots. Trying both would
+mean a failed database lookup on every OAuth request and a failed signature
+check on every static-token one; the shape is enough.
+
+**Section 15's "no registration route" needed its own carve-out asserted.**
+The security test forbade `/register` outright, and section 15 says in the
+same breath that OAuth client registration is not user registration. Removing
+the path from the forbidden list would have weakened the test, so it was
+replaced with an assertion that `/register` creates no account and that
+neither the client id nor the client secret reaches the API.
+
+**A missing PKCE method is the interesting case.** RFC 7636 says it defaults
+to `plain`; OAuth 2.1 removes `plain`. Honouring the default would mean a
+refusal that can be bypassed by leaving a parameter out, so absent is an
+error.
+
+**The login form needed a `next`, and `next` needed a guard.** `/authorize`
+sends an unauthenticated browser to the login page and expects it back. An
+absolute URL there would be an open redirect on the login form, which is the
+exact thing the authorization server spends its own code avoiding, so only
+same-origin paths are accepted and `//evil.example` is refused along with the
+rest.
+
+### What was deferred
+
+Client ID Metadata Documents are advertised in the metadata but not
+implemented: the `oauth_client.source` column distinguishes `dcr` from `cimd`
+and nothing writes `cimd` yet. Fetching and caching a client's metadata
+document is the remaining work, and Dynamic Client Registration covers every
+client available to test against today.
+
+Key rotation is implemented and tested but not scheduled. `RotateSigningKey`
+promotes the standby and generates a new one; nothing calls it on a timer, so
+rotation is currently an operator action with no command in front of it.
+
+The consent screen does not show which client is asking beyond its
+self-declared name. A client registers its own `client_name`, so the screen is
+repeating a string an unauthenticated caller chose. That is worth stating on
+the page and is not stated yet.

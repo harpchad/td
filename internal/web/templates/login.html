@@ -7,6 +7,10 @@
       <b>tdd account create</b> on the server.</p>
     {{else}}
       <form action="/login" method="post">
+        {{/* Where to go back to. A login that interrupted something, such as
+             an OAuth consent screen, returns to it. Same-origin paths only:
+             the server refuses anything else. */}}
+        {{if .Next}}<input type="hidden" name="next" value="{{.Next}}">{{end}}
         <label class="td-login__field">
           <span class="td-login__label">username</span>
           <input class="td-input" type="text" name="username" autocomplete="username" autofocus>

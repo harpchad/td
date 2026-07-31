@@ -75,7 +75,10 @@ func New(svc Service, assets *Assets, log *slog.Logger, now func() time.Time) (*
 }
 
 func parseTemplates() (map[string]*template.Template, error) {
-	pages := []string{"home", "detail", "login", "help", "settings", "person", "triage"}
+	pages := []string{
+		"home", "detail", "login", "help", "settings", "person", "triage",
+		"consent", "oautherror",
+	}
 	out := map[string]*template.Template{}
 
 	for _, page := range pages {
@@ -145,6 +148,7 @@ func (u *UI) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /w/fold/{id}", u.fold)
 	mux.HandleFunc("POST /w/theme", u.setTheme)
 	mux.HandleFunc("POST /w/tokens/{id}/revoke", u.revokeToken)
+	mux.HandleFunc("POST /w/grants/{id}/revoke", u.RevokeGrant)
 
 	mux.HandleFunc("GET /static/td.css", u.asset(u.assets.CSS, "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /static/td.js", u.asset(u.assets.Script, "text/javascript; charset=utf-8"))
@@ -221,6 +225,15 @@ type pageData struct {
 	Tokens   []tokenRow
 	Keys     []keyRow
 
+	// The OAuth consent screen. The scopes are checkboxes because the point
+	// of a consent screen is that it can grant less than was asked for.
+	ClientName string
+	Request    string
+	// Next is where the login form returns to. Same-origin paths only.
+	Next          string
+	ConsentScopes []consentScope
+	Grants        []grantRow
+
 	NoAccount bool
 	Status    string
 	Error     string
@@ -261,6 +274,14 @@ type themeChoice struct {
 	Label    string
 	BuiltIn  bool
 	Selected bool
+}
+
+// grantRow is one OAuth grant on the settings page, next to the static
+// tokens and with the same revoke button. claude.ai holds a refresh token for
+// your task list and you want one place to cut it off.
+type grantRow struct {
+	ID, Client, Scopes, Resource, Created, LastUsed string
+	Revoked                                         bool
 }
 
 type tokenRow struct {
@@ -592,6 +613,7 @@ func (u *UI) settings(w http.ResponseWriter, r *http.Request) {
 		}
 		data.Tokens = append(data.Tokens, row)
 	}
+	data.Grants = u.GrantRows(r.Context())
 
 	u.render(w, "settings", data)
 }
@@ -932,6 +954,7 @@ func humanError(err error) string {
 func (u *UI) Login(w http.ResponseWriter, r *http.Request, message string) {
 	data := u.base(r, "Sign in")
 	data.Error = message
+	data.Next = safeNext(r.URL.Query().Get("next"))
 
 	if ok, err := u.svc.HasAccount(r.Context()); err == nil && !ok {
 		data.NoAccount = true
@@ -971,4 +994,17 @@ func keymap() []keyRow {
 		{Keys: "w", Help: "waiting on someone", When: "with people, in phase 6"},
 		{Keys: "@", Help: "people", When: "with people, in phase 6"},
 	}
+}
+
+// safeNext keeps the post-login redirect on this origin. An absolute URL here
+// would be an open redirect on the login form.
+func safeNext(raw string) string {
+	if raw == "" || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "" || u.Host != "" {
+		return ""
+	}
+	return u.String()
 }

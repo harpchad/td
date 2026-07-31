@@ -18,6 +18,84 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  The JWT encoding is written here, not imported
+Phase: 9
+
+Section 10 says to sign tokens with an asymmetric key and publish a JWKS. The
+obvious build takes a JWT library.
+
+Decided: `internal/oauth` encodes and verifies the token itself, about 200
+lines. This code is both the only issuer and the only verifier and it accepts
+exactly one algorithm, and the entire family of algorithm-confusion bugs that
+JWT libraries keep having comes from being flexible about that. `Verify` reads
+`alg` to refuse, never to dispatch: there is no code path where a header field
+selects a verification strategy, so `none`, `HS256` against the public key, and
+every other variant of that trick are not merely rejected but unrepresentable.
+
+ES256 rather than RS256, so the keys are 32 bytes, signatures are 64, and a
+JWKS with two live keys stays uninteresting.
+
+Rejected: `golang-jwt/jwt`, which is fine and widely used, and which would have
+brought a general-purpose parser to a problem with one input format. The
+dependency fence permits it; the reasoning above is why it was not taken.
+
+Reversible: one package with a test that would fail loudly if a replacement
+behaved differently.
+
+## 2026-07-31  The audience is one string, compared exactly
+Phase: 9
+
+RFC 7519 allows `aud` to be an array, and most libraries expose a `contains`
+style check for it.
+
+Decided: `Claims.Audience` is a single string and the comparison is `!=`. td
+issues tokens for exactly one resource. An array invites the check to be
+written as "contains", which is exactly the shape that lets a token minted for
+another server pass here, and the spec calls audience mismatch the failure
+people actually hit. A prefix comparison would let
+`https://td.example.com/mcp/evil` satisfy a check against the real resource;
+a trailing slash would too. The test enumerates all of those.
+
+Reversible in principle, but it should not be: this is the check the whole
+resource-indicator mechanism exists for.
+
+## 2026-07-31  A missing PKCE method is refused, not defaulted
+Phase: 9
+
+RFC 7636 says `code_challenge_method` defaults to `plain` when absent. OAuth
+2.1 removes `plain`. Both cannot be honoured.
+
+Decided: absent is an error. Inheriting the RFC's default would mean a client
+that simply omits the parameter gets the mode this server exists to reject,
+which is a refusal that can be bypassed by leaving something out.
+
+Reversible: `CheckChallenge` in `internal/oauth/pkce.go`.
+
+## 2026-07-31  The consent screen is checkboxes
+Phase: 9
+
+Section 10 says the consent screen lets you grant less than a client asked
+for. It does not say how.
+
+Decided: one checkbox per scope, all checked, with the write scope drawn
+heavier than the others. A screen with only an Approve button is a
+notification rather than a decision, and the whole reason to show one is that
+the answer can be "some of that". The granted set is intersected against the
+requested set on the server, so the form can only narrow.
+
+Reversible: one template and twenty lines of handler.
+
+## 2026-07-31  OAuth grants get the settings page, not a second one
+Phase: 9
+
+Decided: grants render in a table directly under the static tokens, same
+columns, same revoke button, same page. Section 10 asks for exactly this and
+the reason is worth restating: claude.ai will be holding a refresh token for
+your task list, and the moment you want to cut it off is not the moment to go
+looking for which of two screens has the button.
+
+Reversible: one section in `settings.html`.
+
 ## 2026-07-31  MCP tool failures are results, not transport errors
 Phase: 8
 

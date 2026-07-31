@@ -34,9 +34,15 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 
 	// The routes registered in Handler, written as OpenAPI paths.
 	want := map[string][]string{
-		"/healthz":                                  {"get"},
-		"/mcp":                                      {"post"},
-		"/.well-known/oauth-protected-resource":     {"get"},
+		"/healthz":                              {"get"},
+		"/mcp":                                  {"post"},
+		"/.well-known/oauth-protected-resource": {"get"},
+		"/.well-known/oauth-authorization-server":   {"get"},
+		"/.well-known/jwks.json":                    {"get"},
+		"/authorize":                                {"get"},
+		"/token":                                    {"post"},
+		"/register":                                 {"post"},
+		"/revoke":                                   {"post"},
 		"/login":                                    {"post"},
 		"/logout":                                   {"post"},
 		"/api/v1/whoami":                            {"get"},
@@ -89,7 +95,10 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 	// JSON API that clients and plugins program against; the server-rendered
 	// pages and their form posts are not an interface anything integrates
 	// with, and documenting them there would invite someone to try.
-	for _, page := range []string{"/", "/settings", "/help", "/t/{ref}", "/w/add", "/w/edit/{id}"} {
+	for _, page := range []string{
+		"/", "/settings", "/help", "/triage", "/t/{ref}", "/w/add",
+		"/w/edit/{id}", "/w/approve", "/w/grants/{id}/revoke",
+	} {
 		if doc.Paths.Find(page) != nil {
 			t.Errorf("openapi.yaml documents the browser route %s", page)
 		}

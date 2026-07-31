@@ -1,0 +1,37 @@
+{{define "body"}}
+<div class="td-login">
+  <form class="td-modal" action="/w/approve" method="post">
+    <div class="td-modal__title">Authorize {{.ClientName}}</div>
+
+    <p class="td-consent__lede">
+      {{.ClientName}} is asking for access to your task list. Uncheck anything
+      you would rather it did not have.
+    </p>
+
+    {{/* The original authorization request travels through the form so the
+         server validates the same parameters whichever direction they arrived
+         from, rather than trusting a round trip. */}}
+    <input type="hidden" name="request" value="{{.Request}}">
+
+    <div class="td-consent__scopes">
+      {{range .ConsentScopes}}
+      <label class="td-consent__scope{{if .Sensitive}} td-consent__scope--sensitive{{end}}">
+        <input class="td-check" type="checkbox" name="scope" value="{{.Value}}"
+               {{if .Checked}}checked{{end}}>
+        <span>{{.Label}}</span>
+      </label>
+      {{end}}
+    </div>
+
+    <div class="td-form__actions">
+      <button class="td-btn td-btn--primary" type="submit" name="decision" value="approve">Approve</button>
+      <button class="td-btn" type="submit" name="decision" value="deny">Deny</button>
+    </div>
+
+    <p class="td-consent__foot td-dim">
+      You can revoke this at any time from Settings. Revoking cuts off the
+      client immediately, including the refresh token it is holding.
+    </p>
+  </form>
+</div>
+{{end}}

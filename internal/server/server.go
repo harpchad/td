@@ -115,6 +115,21 @@ func (s *Server) Handler() http.Handler {
 	// no sessions.
 	mux.HandleFunc("POST "+MCPPath, s.mcpHandler)
 
+	// The OAuth 2.1 authorization server. td is its own AS because claude.ai's
+	// connector UI takes a client id and secret and has no field for a bearer
+	// token, so a static token cannot be used there at all.
+	//
+	// The metadata, the JWKS, and the token and registration endpoints are
+	// unauthenticated: a client reads them before it has anything. /authorize
+	// is not, and sends a browser through the ordinary login first.
+	mux.HandleFunc("GET "+ASMetadataPath, s.asMetadataDoc)
+	mux.HandleFunc("GET "+JWKSPath, s.jwks)
+	mux.HandleFunc("GET "+AuthorizePath, s.authorize)
+	mux.HandleFunc("POST "+TokenPath, s.token)
+	mux.HandleFunc("POST "+RegisterPath, s.register)
+	mux.HandleFunc("POST "+RevokePath, s.revokeGrant)
+	mux.HandleFunc("POST /w/approve", s.approve)
+
 	// The only routes an unauthenticated request reaches. There is no
 	// registration route and no password reset route: the one account is
 	// created by a command on the server, and nothing over HTTP makes another.

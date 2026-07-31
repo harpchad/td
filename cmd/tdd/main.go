@@ -152,6 +152,13 @@ func run(args []string) error {
 	// URL is what every discovery document is built from.
 	srv.AttachMCP(*baseURL)
 
+	// The OAuth signing keys. Two from the first start rather than one now
+	// and a second at the first rotation: a rotation path that has never run
+	// is a rotation path that does not work.
+	if _, err := st.EnsureSigningKeys(context.Background(), time.Now()); err != nil {
+		return fmt.Errorf("oauth signing keys: %w", err)
+	}
+
 	// Config resolves flags over environment over file, and a commented
 	// default is written on first start.
 	cfgPath := *configPath

@@ -217,7 +217,15 @@ func TestNoInlineScriptAnywhere(t *testing.T) {
 	ts := newServer(t)
 	session := login(t, ts)
 
-	for _, path := range []string{"/", "/login", "/help", "/settings", "/t/101", "/triage"} {
+	// The consent screen is included because it is a form a browser posts
+	// credentials-adjacent decisions through, and a control silently dropped
+	// by the CSP there is a control that grants the wrong thing.
+	clientID, _ := registerClient(t, ts, "td:read td:write")
+	consentPath := "/authorize?" + authorizeQuery(ts, clientID, "td:read td:write", newPKCE()).Encode()
+
+	for _, path := range []string{
+		"/", "/login", "/help", "/settings", "/t/101", "/triage", consentPath,
+	} {
 		_, html := page(t, ts, session, path)
 
 		// Go's regexp has no lookahead, so match every script element and

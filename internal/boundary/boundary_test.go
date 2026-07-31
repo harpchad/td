@@ -36,6 +36,8 @@ var forbidden = map[string][]string{
 		"github.com/harpchad/td/internal/mcpsrv",
 		"github.com/modelcontextprotocol/go-sdk/mcp",
 		"github.com/harpchad/td/internal/blob",
+		// The client is not an authorization server and holds no signing key.
+		"github.com/harpchad/td/internal/oauth",
 	},
 	// The server links no terminal UI.
 	"github.com/harpchad/td/cmd/tdd": {

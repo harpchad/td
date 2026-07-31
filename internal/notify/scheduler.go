@@ -27,6 +27,8 @@ type Store interface {
 	AdvanceDue(ctx context.Context, actor string, now time.Time) (int, error)
 	// ReferencedBlobs is every digest still pointed at by an attachment row.
 	ReferencedBlobs(ctx context.Context) (map[string]bool, error)
+	// PurgeExpiredCodes drops authorization codes past their window.
+	PurgeExpiredCodes(ctx context.Context, now time.Time) (int64, error)
 }
 
 // Blobs is the attachment store, as much of it as the sweep needs.
@@ -100,6 +102,11 @@ func (s *Scheduler) Once(ctx context.Context) {
 		s.Log.Error("purging sessions", "err", err)
 	} else if n > 0 {
 		s.Log.Info("purged expired sessions", "count", n)
+	}
+	if n, err := s.Store.PurgeExpiredCodes(ctx, now); err != nil {
+		s.Log.Error("purging authorization codes", "err", err)
+	} else if n > 0 {
+		s.Log.Info("purged expired authorization codes", "count", n)
 	}
 
 	// Recurrence fires before delivery, so an instance that materializes on

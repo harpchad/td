@@ -6,9 +6,10 @@ the TUI.
 `BUILD-SPEC.md` is what is being built. `CLAUDE.md` is how. `testdata/` is
 the oracle: when the code and a fixture disagree, the code is wrong.
 
-**Status: phase 8 of 11.** Schema, event log, task CRUD, the filter grammar,
+**Status: phase 9 of 11.** Schema, event log, task CRUD, the filter grammar,
 the CLI one-shots, authentication, the TUI, the web UI, editing, ntfy
-reminders, people, recurrence, subtasks, triage, attachments, and MCP.
+reminders, people, recurrence, subtasks, triage, attachments, MCP, and OAuth
+2.1.
 
 Section 16 says to stop after phase 5 and use it for two weeks before phase
 6, on the grounds that half the requirements will change. That was raised and
@@ -290,6 +291,68 @@ into prose the model takes as its own context, and no tool completes or
 transitions a task on the strength of content that came from somewhere else.
 The server states that rule in its instructions block as well as enforcing it
 in the shape of the output.
+
+## OAuth 2.1
+
+td is its own authorization server as well as its own resource server.
+
+That is not gold plating. claude.ai's custom connector UI takes an OAuth
+client id and secret and has no field for a bearer token or a custom header,
+so a static token cannot be used there at all. There is one user and no
+external identity provider, so `/authorize` reuses the password and TOTP
+login that already exists and the consent screen is a form on the same
+origin.
+
+```text
+GET  /.well-known/oauth-protected-resource   RFC 9728. resource is the MCP URL
+GET  /.well-known/oauth-authorization-server RFC 8414
+GET  /.well-known/jwks.json                  two live keys
+GET  /authorize    authorization code, PKCE S256 only
+POST /token        an ES256 JWT whose aud is the resource, plus a refresh token
+POST /register     Dynamic Client Registration
+POST /revoke       RFC 7009
+```
+
+Add it to claude.ai as a custom connector pointing at `https://<host>/mcp`.
+The redirect URI to allow is `https://claude.ai/api/mcp/auth_callback`. Scopes
+are `td:read`, `td:capture`, and `td:write`, and the consent screen is
+checkboxes rather than one Approve button, so you can grant less than was
+asked for.
+
+Grants appear on the settings page next to the static tokens with the same
+revoke button. Revoking cuts the client off immediately, including the
+refresh token it is holding.
+
+What is enforced, each of it a test:
+
+- PKCE `S256` only. `plain` is refused, and so is a missing
+  `code_challenge_method`: RFC 7636 says the default is `plain`, and
+  inheriting that default would hand a client the mode this server exists to
+  reject.
+- `resource` is required on the authorization request and must equal the MCP
+  URL exactly. The token's `aud` is that value, compared as an exact string.
+  An audience mismatch is the failure people hit, and it is what stops a token
+  minted for another server from being replayed here.
+- `redirect_uri` is matched exactly against what the client registered. An
+  unregistered one renders an error rather than redirecting anywhere.
+- Refresh tokens rotate on every use. A refresh may narrow the scopes and
+  never widen them.
+- `client_credentials` is not implemented and is not advertised. Every token
+  here acts as the one account holder, and that needs a person in the loop.
+- No token is ever accepted in a query string.
+- Signing keys are ES256 and two are live at once, so rotating does not
+  invalidate every session. `tdd` generates both on first start.
+
+The JWT encoding is written by hand in `internal/oauth` rather than taken
+from a library. This code is both the only issuer and the only verifier, it
+accepts exactly one algorithm, and the whole family of algorithm-confusion
+bugs that JWT libraries keep having comes from being flexible about that:
+`alg` is read to refuse, never to dispatch.
+
+`/register` is client registration, not user registration. It creates no
+account and grants no access; a registered client still has to send its user
+through `/authorize`. There is still no signup page and no password reset
+route.
 
 ## API
 

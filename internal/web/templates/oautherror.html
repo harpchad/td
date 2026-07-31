@@ -1,0 +1,21 @@
+{{define "body"}}
+<div class="td-login">
+  <div class="td-modal">
+    <div class="td-modal__title">Authorization failed</div>
+
+    {{/* Rendered here rather than redirected. Sending a code, or even an
+         error, to a redirect_uri nobody validated is how an authorization
+         code ends up somewhere it should not be. */}}
+    <p class="td-notice--error">{{.Error}}</p>
+
+    <p class="td-consent__foot td-dim">
+      Nothing was granted. If you were setting up a connector, check the
+      client id and the redirect URL it is configured with.
+    </p>
+
+    <div class="td-form__actions">
+      <a class="td-btn" href="/">Back to your tasks</a>
+    </div>
+  </div>
+</div>
+{{end}}

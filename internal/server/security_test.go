@@ -509,8 +509,11 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 func TestThereIsNoRegistrationOrPasswordResetRoute(t *testing.T) {
 	ts := newServer(t)
 
+	// /register is deliberately absent from this list. Section 15 states the
+	// carve-out itself: "OAuth client registration is not user registration
+	// and creates no account." What that route does is asserted below.
 	paths := []string{
-		"/register", "/signup", "/sign-up", "/account/create", "/accounts",
+		"/signup", "/sign-up", "/account/create", "/accounts",
 		"/reset", "/forgot", "/forgot-password", "/password/reset", "/password-reset",
 		"/api/v1/register", "/api/v1/signup", "/api/v1/accounts",
 		"/api/v1/password/reset", "/api/v1/account",
@@ -530,6 +533,62 @@ func TestThereIsNoRegistrationOrPasswordResetRoute(t *testing.T) {
 			if resp.StatusCode != http.StatusNotFound {
 				t.Errorf("authenticated %s %s = %d, want 404", method, path, resp.StatusCode)
 			}
+		}
+	}
+}
+
+// Assertion: OAuth client registration is not user registration and creates
+// no account.
+//
+// This is the other half of the rule above. /register exists because some MCP
+// clients speak nothing but Dynamic Client Registration, and the thing that
+// makes it safe is that a registered client has no access at all until the
+// one account holder approves a consent screen.
+func TestClientRegistrationCreatesNoAccount(t *testing.T) {
+	ts := newServer(t)
+
+	before, err := ts.store.TheAccount(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := doAnon(t, ts, http.MethodPost, "/register", map[string]any{
+		"client_name":   "a client",
+		"redirect_uris": []string{"https://claude.ai/api/mcp/auth_callback"},
+		"scope":         "td:read",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d: %s", resp.StatusCode, body)
+	}
+	var registered struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+	}
+	decodeInto(t, body, &registered)
+	if registered.ClientID == "" {
+		t.Fatal("no client_id came back")
+	}
+
+	// Still exactly one account, and the same one.
+	after, err := ts.store.TheAccount(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ID != before.ID || after.Username != before.Username {
+		t.Error("registering a client changed the account")
+	}
+
+	// And the registration bought no access. The client id and secret are
+	// not a credential for anything until a consent screen is approved.
+	for _, credential := range []string{registered.ClientID, registered.ClientSecret} {
+		if credential == "" {
+			continue
+		}
+		resp, out := request(t, ts, http.MethodGet, "/api/v1/tasks", nil, map[string]string{
+			"Authorization": "Bearer " + credential,
+		})
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("a registration credential reached the API: %d %s", resp.StatusCode, out)
 		}
 	}
 }

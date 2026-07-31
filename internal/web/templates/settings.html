@@ -60,6 +60,40 @@
     </div>
 
     <div class="td-section">
+      <div class="td-section__title">Connected apps</div>
+      {{if not .Grants}}
+        <p class="td-dim">Nothing has been authorized over OAuth.</p>
+      {{else}}
+      {{/* Next to the tokens with the same revoke button, because claude.ai
+           will be holding a refresh token for your task list and you want one
+           place to cut it off. */}}
+      <table class="td-tokens">
+        <thead><tr>
+          <th>client</th><th>scopes</th><th>resource</th><th>last used</th><th></th>
+        </tr></thead>
+        <tbody>
+        {{range .Grants}}
+        <tr>
+          <td>{{.Client}}</td>
+          <td class="td-dim">{{.Scopes}}</td>
+          <td class="td-dim">{{.Resource}}</td>
+          <td class="td-dim">{{.LastUsed}}</td>
+          <td>
+            {{if .Revoked}}<span class="td-dim">revoked</span>
+            {{else}}
+            <form action="/w/grants/{{.ID}}/revoke" method="post" class="td-inline">
+              <button class="td-linkbtn" type="submit">revoke</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{end}}
+    </div>
+
+    <div class="td-section">
       <div class="td-section__title">Session</div>
       <form action="/logout" method="post">
         <button class="td-btn" type="submit">Sign out</button>

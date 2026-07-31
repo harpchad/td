@@ -32,6 +32,7 @@ tags:
   - name: history
   - name: tokens
   - name: mcp
+  - name: oauth
   - name: attachments
   - name: series
 
@@ -71,6 +72,195 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ProtectedResourceMetadata" }
+
+  /.well-known/oauth-authorization-server:
+    get:
+      tags: [oauth]
+      summary: Authorization Server Metadata
+      description: >-
+        RFC 8414. td is its own OAuth 2.1 authorization server because
+        claude.ai's custom connector UI takes a client id and secret and has
+        no field for a bearer token, so a static token cannot be used there at
+        all. There is one user and no external IdP, so /authorize reuses the
+        password and TOTP login that already exists.
+
+        `client_credentials` is deliberately absent from
+        `grant_types_supported`: every token this server issues acts as the
+        one account holder, and that needs a person in the loop.
+      operationId: authorizationServerMetadata
+      responses:
+        "200":
+          description: the metadata document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthorizationServerMetadata" }
+
+  /.well-known/jwks.json:
+    get:
+      tags: [oauth]
+      summary: JSON Web Key Set
+      description: >-
+        The public halves of the live signing keys. Two are kept live at once
+        so a rotation does not invalidate every session: the newest signs, and
+        both verify until the older leaves the set.
+      operationId: jwks
+      responses:
+        "200":
+          description: the key set
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JWKS" }
+
+  /authorize:
+    get:
+      tags: [oauth]
+      summary: Authorization endpoint
+      description: >-
+        Authorization code with PKCE. S256 only: OAuth 2.1 removes `plain`,
+        and `plain` is not weak arithmetic, it is no arithmetic. A missing
+        `code_challenge_method` is refused rather than defaulting to `plain`,
+        which is what RFC 7636 says the default is.
+
+        `resource` is required (RFC 8707) and must equal the MCP URL exactly;
+        the access token's audience is that value. The response carries `iss`
+        (RFC 9207) on both the success and the error path, so a client talking
+        to two authorization servers can tell which one answered.
+
+        An unregistered `client_id` or `redirect_uri` renders an error page
+        rather than redirecting: sending a code, or even an error, to a URI
+        nobody validated is how an authorization code ends up somewhere else.
+        Every other failure goes back through the redirect as query
+        parameters.
+      operationId: authorize
+      parameters:
+        - { name: response_type, in: query, required: true, schema: { type: string, enum: [code] } }
+        - { name: client_id, in: query, required: true, schema: { type: string } }
+        - { name: redirect_uri, in: query, required: true, schema: { type: string } }
+        - { name: scope, in: query, required: false, schema: { type: string } }
+        - { name: state, in: query, required: false, schema: { type: string } }
+        - { name: resource, in: query, required: true, schema: { type: string } }
+        - { name: code_challenge, in: query, required: true, schema: { type: string } }
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema: { type: string, enum: [S256] }
+      responses:
+        "200":
+          description: the consent screen
+          content:
+            text/html:
+              schema: { type: string }
+        "303":
+          description: >-
+            back to the client's redirect_uri, carrying either code and state
+            or error and error_description, plus iss either way
+        "400":
+          description: >-
+            the client id or redirect_uri is not registered, so nothing is
+            redirected anywhere
+
+  /token:
+    post:
+      tags: [oauth]
+      summary: Token endpoint
+      description: >-
+        Exchanges an authorization code or a refresh token. Refresh tokens are
+        rotated on every use, so a stolen one is usable at most once and the
+        theft surfaces as the real client suddenly failing. A refresh may
+        narrow the granted scopes and never widen them.
+
+        `client_credentials` is refused by name rather than lumped in with the
+        unknown grants, because a client that tries it should be told this is
+        a decision.
+      operationId: token
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type]
+              properties:
+                grant_type: { type: string, enum: [authorization_code, refresh_token] }
+                code: { type: string }
+                code_verifier: { type: string }
+                redirect_uri: { type: string }
+                refresh_token: { type: string }
+                client_id: { type: string }
+                client_secret: { type: string }
+                scope: { type: string }
+                resource: { type: string }
+      responses:
+        "200":
+          description: the token, with Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "400":
+          description: the grant is not valid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OAuthError" }
+        "401":
+          description: client authentication failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OAuthError" }
+
+  /register:
+    post:
+      tags: [oauth]
+      summary: Dynamic Client Registration
+      description: >-
+        RFC 7591, deprecated by the 2026-07-28 MCP revision in favour of
+        Client ID Metadata Documents and kept because some clients speak
+        nothing else.
+
+        This is not user registration. It creates no account and grants no
+        access: a registered client still has to send its user through
+        /authorize, where the one account holder decides. A client that says
+        `token_endpoint_auth_method: none` gets no secret and relies on PKCE
+        alone, which is what OAuth 2.1 expects of anything that cannot keep
+        one.
+      operationId: registerClient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClientRegistration" }
+      responses:
+        "201":
+          description: the registered client. The secret appears exactly once
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClientRegistrationResponse" }
+        "400":
+          description: the metadata or a redirect_uri is not acceptable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OAuthError" }
+
+  /revoke:
+    post:
+      tags: [oauth]
+      summary: Revocation endpoint
+      description: >-
+        RFC 7009. Answers 200 whether or not the token existed: reporting the
+        difference would turn this into an oracle for guessing tokens.
+      operationId: revokeOAuthToken
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+                token_type_hint: { type: string }
+      responses:
+        "200":
+          description: revoked, or the token did not exist
 
   /mcp:
     post:
@@ -1060,6 +1250,116 @@ components:
     Role:
       type: string
       enum: [assigner, assignee, involved, waiting]
+
+    AuthorizationServerMetadata:
+      type: object
+      required: [issuer, authorization_endpoint, token_endpoint, jwks_uri]
+      properties:
+        issuer: { type: string }
+        authorization_endpoint: { type: string }
+        token_endpoint: { type: string }
+        registration_endpoint: { type: string }
+        revocation_endpoint: { type: string }
+        jwks_uri: { type: string }
+        scopes_supported:
+          type: array
+          items: { type: string, enum: [td:read, td:capture, td:write] }
+        grant_types_supported:
+          type: array
+          description: >-
+            authorization_code and refresh_token. client_credentials is not
+            supported and is deliberately absent.
+          items: { type: string }
+        response_types_supported:
+          type: array
+          items: { type: string }
+        code_challenge_methods_supported:
+          type: array
+          description: S256 only. plain is not weak arithmetic, it is no arithmetic.
+          items: { type: string, enum: [S256] }
+        token_endpoint_auth_methods_supported:
+          type: array
+          items: { type: string }
+        resource_indicators_supported: { type: boolean }
+        authorization_response_iss_parameter_supported: { type: boolean }
+        client_id_metadata_document_supported: { type: boolean }
+
+    JWKS:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            required: [kty, crv, kid, alg, use, x, y]
+            properties:
+              kty: { type: string, enum: [EC] }
+              crv: { type: string, enum: [P-256] }
+              kid: { type: string }
+              alg: { type: string, enum: [ES256] }
+              use: { type: string, enum: [sig] }
+              x: { type: string }
+              y: { type: string }
+
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in, scope]
+      properties:
+        access_token:
+          type: string
+          description: >-
+            An ES256 JWT whose aud is the resource exactly. The audience is
+            compared as an exact string, never a prefix and never a contains:
+            that is what stops a token minted for another server from being
+            replayed here.
+        token_type: { type: string, enum: [Bearer] }
+        expires_in: { type: integer }
+        refresh_token: { type: string }
+        scope: { type: string }
+
+    OAuthError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        error_description: { type: string }
+
+    ClientRegistration:
+      type: object
+      required: [redirect_uris]
+      properties:
+        client_name: { type: string }
+        redirect_uris:
+          type: array
+          description: >-
+            https, or http on loopback. Matched exactly at /authorize: a
+            prefix or hostname match is how open redirectors happen.
+          items: { type: string }
+        scope: { type: string }
+        grant_types:
+          type: array
+          items: { type: string }
+        response_types:
+          type: array
+          items: { type: string }
+        token_endpoint_auth_method:
+          type: string
+          description: none makes this a public client, which relies on PKCE alone.
+
+    ClientRegistrationResponse:
+      type: object
+      required: [client_id, client_name, redirect_uris, scope]
+      properties:
+        client_id: { type: string }
+        client_secret:
+          type: string
+          description: Absent for a public client. Shown exactly once.
+        client_name: { type: string }
+        redirect_uris:
+          type: array
+          items: { type: string }
+        scope: { type: string }
 
     ProtectedResourceMetadata:
       type: object

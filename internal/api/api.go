@@ -398,6 +398,20 @@ const (
 	KindAuthDenied         = "auth.denied"
 )
 
+// OAuth event kinds. They live alongside the auth kinds because they answer
+// the same question: what did somebody do with a credential, and when.
+const (
+	// KindOAuthRegistered is a client registering. It is not user
+	// registration and creates no account: a registered client still has to
+	// send its user through /authorize.
+	KindOAuthRegistered = "auth.oauth_registered"
+	// KindOAuthGranted is the account holder approving a consent screen.
+	KindOAuthGranted = "auth.oauth_granted"
+	// KindOAuthRevoked is a grant being cut off, from the settings page or by
+	// the client handing it back.
+	KindOAuthRevoked = "auth.oauth_revoked"
+)
+
 // Scopes a token may carry. A session from the login page carries all of
 // them; a token carries what it was minted with.
 const (

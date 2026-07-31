@@ -5,11 +5,13 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/auth"
+	"github.com/harpchad/td/internal/oauth"
 	"github.com/harpchad/td/internal/store"
 )
 
@@ -97,9 +99,18 @@ func isPublicPath(path string) bool {
 	switch path {
 	case "/healthz", "/login", "/logout":
 		return true
-	case PRMPath:
-		// RFC 9728 metadata. A client reads it precisely because it has no
-		// credential yet, so requiring one would make discovery impossible.
+	case PRMPath, ASMetadataPath, JWKSPath:
+		// Discovery documents. A client reads them precisely because it has
+		// no credential yet, so requiring one would make discovery
+		// impossible.
+		return true
+	case TokenPath, RegisterPath, RevokePath:
+		// The OAuth endpoints authenticate the client themselves, by secret
+		// or by PKCE. A session cookie has nothing to do with it.
+		//
+		// /register is client registration, not user registration: it creates
+		// no account and grants no access. A registered client still has to
+		// send its user through /authorize.
 		return true
 	}
 	// The stylesheet and the two scripts are needed to render the login page
@@ -114,6 +125,8 @@ func isPublicPath(path string) bool {
 func isBrowserPath(path string) bool {
 	switch {
 	case path == "/", path == "/settings", path == "/help":
+		return true
+	case path == AuthorizePath, path == "/triage":
 		return true
 	case strings.HasPrefix(path, "/t/"), strings.HasPrefix(path, "/w/"), strings.HasPrefix(path, "/p/"):
 		return true
@@ -197,6 +210,13 @@ func (s *Server) resolveCredential(r *http.Request) (*principal, error) {
 	now := s.Now()
 
 	if secret, ok := bearerToken(r); ok {
+		// Two shapes of bearer, told apart by shape rather than by trying
+		// both: a td_ token is opaque and a JWT has three dot-separated
+		// parts. Guessing would mean a failed database lookup on every OAuth
+		// request and a failed signature check on every token one.
+		if strings.Count(secret, ".") == 2 {
+			return s.principalFromJWT(r, secret, now)
+		}
 		tok, err := s.store.LookupToken(r.Context(), secret, now)
 		if err != nil {
 			return nil, err
@@ -214,6 +234,49 @@ func (s *Server) resolveCredential(r *http.Request) (*principal, error) {
 		return nil, err
 	}
 	return &principal{Actor: "me", Scopes: sessionScopes, Kind: "session"}, nil
+}
+
+// principalFromJWT validates an OAuth access token.
+//
+// Signature, issuer, expiry, not-before, and audience are all checked in
+// oauth.Verify. Audience is an exact match against this server's resource,
+// which is what stops a token minted for another server from being replayed
+// here, and it is the failure people actually hit.
+func (s *Server) principalFromJWT(r *http.Request, token string, now time.Time) (*principal, error) {
+	keys, err := s.store.SigningKeys(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	claims, err := oauth.Verifier{
+		Issuer: s.baseURL, Audience: s.ResourceURL(), Keys: keys,
+	}.Verify(token, now)
+	if err != nil {
+		// The reason goes to the log rather than to the client: "expired" and
+		// "wrong audience" send an operator to different places, and neither
+		// is something an attacker should be told.
+		s.log.Info("oauth token refused", "err", err, "path", r.URL.Path)
+		return nil, err
+	}
+
+	// The OAuth scopes are namespaced, the internal ones are not. An unknown
+	// scope maps to nothing rather than to read, so a token carrying junk
+	// gets less rather than more.
+	scopes := make([]string, 0, 3)
+	for _, scope := range claims.Scopes() {
+		if internal := api.ScopeFromMCP(scope); internal != "" {
+			scopes = append(scopes, internal)
+		}
+	}
+
+	// The actor is the client, so a bad agent batch stays separable from your
+	// own work and one /undo loop away from gone.
+	actor := "mcp:" + claims.ClientID
+	if name, err := s.store.OAuthClientByID(r.Context(), claims.ClientID); err == nil && name.Name != "" {
+		actor = "mcp:" + strings.ToLower(strings.Fields(name.Name)[0])
+	}
+	return &principal{
+		Actor: actor, Scopes: scopes, Kind: "oauth", TokenName: claims.ClientID,
+	}, nil
 }
 
 // wantsHTML reports whether the caller is a browser following a link, rather
@@ -364,13 +427,33 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.logAuth(r, api.KindAuthLogin, "me", nil)
 
 	if isFormPost(r) {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		// A login that interrupted something goes back to it. That is how
+		// /authorize gets a session without the authorization server needing
+		// a second identity system of its own.
+		http.Redirect(w, r, safeNext(r.PostFormValue("next")), http.StatusSeeOther)
 		return
 	}
 	writeJSON(w, http.StatusOK, api.SessionInfo{
 		Username: acct.Username, Scopes: sessionScopes,
 		Actor: "me", ExpiresAt: sess.ExpiresAt, Kind: "session",
 	})
+}
+
+// safeNext keeps a post-login redirect on this origin.
+//
+// An absolute URL here would be an open redirect on the login form, which is
+// exactly the thing the authorization server spends its own code avoiding. A
+// path is the only shape accepted, and a protocol-relative "//evil.example"
+// is a path to url.Parse but a different host to a browser.
+func safeNext(raw string) string {
+	if raw == "" || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
+		return "/"
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "" || u.Host != "" {
+		return "/"
+	}
+	return u.String()
 }
 
 // verifySecondFactor accepts either the authenticator code or a recovery
