@@ -45,6 +45,8 @@ func (m *Model) View() tea.View {
 		body = m.renderHelp()
 	case modeDetail:
 		body = m.renderDetail()
+	case modeTriage:
+		body = m.renderTriage()
 	default:
 		body = m.renderList()
 	}

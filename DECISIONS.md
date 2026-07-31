@@ -18,6 +18,108 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  Promotion is checked against the state after the patch
+Phase: 7
+
+`testdata/transition_cases.json` says the inbox-to-todo edge requires
+"priority is set OR due_at is set". It does not say when. The implementation
+was reading the task as it stood before the patch, so a single request that
+set a priority and promoted was refused with `inbox_incomplete`, and every
+client had to send two.
+
+Decided: the requirement is evaluated against the state the patch will leave
+behind. A key present in the pending write wins over what the row holds,
+including an explicit null, so promoting while clearing the priority is still
+refused. That last case is why the check is not "before OR after".
+
+Rejected: making the clients send two requests, which is the same write with
+a worse failure mode; and having the transition table look at the request
+body, which would put HTTP shapes inside the state machine.
+
+Reversible: it is one function, `promotable` in `internal/store/mutate.go`,
+and the fixture does not pin either reading.
+
+## 2026-07-31  Catch-up skips against the open instance, not the clock
+Phase: 7
+
+The fixture's skip case is six missed occurrences, six `recurrence.missed`
+events, and exactly one open instance. Two readings produce those numbers: log
+five and materialise the sixth, or log all six and leave the instance that was
+already sitting there.
+
+Decided: the second. A fixed series materialises an occurrence only when it has
+no open instance; every occurrence that arrives while one is still open is
+logged and dropped. This makes "exactly one open instance at a time" a property
+of the code rather than an outcome that happens to hold, and it makes the
+normal tick and a restart catch-up the same code path.
+
+The consequence worth stating: completing the instance on time means the next
+occurrence materialises normally, and ignoring it means the same one row stays
+in the list with a growing trail of `recurrence.missed` events behind it. That
+is the intent of `skip`, and the events are what make the roll-forward visible
+rather than silent.
+
+Rejected: rolling the due date of the open instance forward, which rewrites a
+task the user is looking at.
+
+Reversible: `AdvanceSeries` in `internal/store/series.go`, one loop.
+
+## 2026-07-31  Attachment bytes are never behind a static handler
+Phase: 7
+
+Section 15 requires the auth check on every attachment download and no
+guessable direct path under a static file handler. The easy build is a
+`http.FileServer` over `/data/blobs` and a middleware in front of it.
+
+Decided: the download route is an ordinary `/api/v1` handler that opens the
+blob by digest and copies it out. It inherits the same authentication as every
+other route rather than a second copy of it, which is the only version of this
+that cannot drift. The digest is validated as 64 lowercase hex characters
+before it becomes a path, and the response is always
+`Content-Disposition: attachment` so a stored HTML file cannot render in the
+origin with a live session attached.
+
+Orphaned bytes are collected weekly against the whole `attachment` table with
+no filter on task status: a dropped task is not deleted, and its file has to
+survive an undo.
+
+Rejected: reference counting on detach, which deletes the bytes out from under
+`/undo`.
+
+Reversible: `internal/blob` is 150 lines and knows nothing about tasks.
+
+## 2026-07-31  A small English front end to RRULE
+Phase: 7
+
+The spec says to use RFC 5545 rather than inventing a recurrence syntax, and
+that is right: no invented syntax expresses "the last weekday of the month".
+But nobody types `FREQ=WEEKLY;BYDAY=MO` at a prompt.
+
+Decided: `query.ParseRecurrence` reads the shapes people say ("every monday",
+"every 2 weeks", "monthly on the 1st") and passes anything that already looks
+like a rule straight through. The stored form is always RRULE. An input it does
+not recognise is an error naming the word it choked on, never a guess: a wrong
+guess repeats the wrong thing for a year before anyone notices.
+
+Rejected: a date-picker UI, which is a lot of surface for a rule you set once;
+and accepting free text and doing the best it can, for the reason above.
+
+Reversible: one file, and the RRULE passthrough means nothing is unreachable
+without it.
+
+## 2026-07-31  The scheduler tick runs with reminders off
+Phase: 7
+
+`Scheduler.Run` used to return immediately when no ntfy topic was configured.
+Recurrence now rides on the same tick, and so does session expiry.
+
+Decided: the tick always runs; only the delivery pass is gated on the policy.
+Tying recurrence to a push configuration would mean turning off notifications
+silently stops repeating tasks from repeating, which is the kind of bug nobody
+finds for a month.
+
+Reversible: three lines in `internal/notify/scheduler.go`.
+
 ## 2026-07-31  Building past the two-week soak, on the author's instruction
 Phase: 6 onward
 

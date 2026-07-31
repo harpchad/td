@@ -15,6 +15,7 @@ import (
 
 	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/auth"
+	"github.com/harpchad/td/internal/blob"
 	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/server"
 	"github.com/harpchad/td/internal/store"
@@ -76,6 +77,12 @@ func newServer(t *testing.T) *harness {
 	if err := srv.AttachWeb(web.Load("", slog.New(slog.DiscardHandler)), ""); err != nil {
 		t.Fatal(err)
 	}
+
+	blobs, err := blob.New(filepath.Join(t.TempDir(), "blobs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.AttachBlobs(blobs)
 
 	h := &harness{store: st, srv: srv, now: now, username: testUsername, password: testPassword}
 

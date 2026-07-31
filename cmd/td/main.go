@@ -27,6 +27,7 @@ const usage = `td - task manager
 
   td                   open the TUI
   td a <text>          add a task; #tag @person p:2 due:friday are read inline
+  td sub <ref> <text>  add a subtask under an existing task
   td ls [filter]       list tasks in the default order
   td show <ref>        show one task
   td edit <ref>        change fields: -title -notes -priority -due -start -tags -notify
@@ -34,6 +35,9 @@ const usage = `td - task manager
   td snooze <ref> <t>  hide it for a while: 1h, 2d, friday
   td done <ref>        complete a task
   td drop <ref>        drop a task
+  td repeat <ref> [rule]  make it recur: every monday, every 2 weeks, monthly on the 1st
+  td attach <ref> <file>  attach a file; -list, -get <id>, -rm <id>
+  td triage            work the inbox one task at a time
   td undo              reverse your last change
   td people            list people
   td person <handle>   the person page: what they owe you, what you owe them
@@ -80,6 +84,18 @@ func run(args []string) error {
 	switch cmd {
 	case "a", "add":
 		return add(ctx, c, rest)
+	case "sub":
+		return sub(ctx, c, rest)
+	case "repeat", "recur":
+		return repeat(ctx, c, rest)
+	case "attach":
+		return attach(ctx, c, rest)
+	case "triage":
+		// Triage runs until you quit, so it gets the TUI's cancellable
+		// context rather than the one-shot deadline.
+		tctx, tcancel := context.WithCancel(context.Background())
+		defer tcancel()
+		return runTUI(tctx, c, cfg, append([]string{"-triage"}, rest...))
 	case "ls", "list":
 		return list(ctx, c, rest)
 	case "show":

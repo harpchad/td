@@ -1,0 +1,90 @@
+{{define "body"}}
+<div class="td-app" data-td-app>
+  <div class="td-bar">
+    <span><b>td</b></span>
+    <span class="td-dim">triage</span>
+    {{if not .InboxZero}}
+    <span class="td-count"><b>{{add .TriageIndex 1}}</b> of <b>{{.TriageTotal}}</b></span>
+    {{end}}
+    <span class="td-bar__spacer"></span>
+    <a class="td-link" href="/" data-back>back</a>
+  </div>
+
+  <div class="td-app__body td-scroll">
+    {{if .Status}}<div class="td-notice td-dim">{{.Status}}</div>{{end}}
+
+    {{if .InboxZero}}
+    <div class="td-empty">
+      <div>Inbox zero.</div>
+      <div class="td-empty__line">Nothing is waiting to be sorted. <a class="td-link" href="/">Back to the list.</a></div>
+    </div>
+    {{else}}
+    {{/* One task, large. Deciding about something you cannot read is the
+         thing triage exists to stop, so the title is not truncated. */}}
+    <div class="td-triage">
+      <div class="td-triage__title">{{.Task.Title}}</div>
+
+      <div class="td-triage__meta td-dim">
+        {{if .Due}}<span{{if .Overdue}} class="td-due--overdue"{{end}}>due {{.Due}}</span>{{end}}
+        {{range .Tags}}<a class="td-token td-link" href="/?q={{.Query | urlquery}}">{{.Label}}</a>{{end}}
+        {{range .People}}<a class="td-token td-link" href="{{.Href}}">{{.Label}}</a>{{end}}
+      </div>
+
+      {{if .Task.Notes}}<div class="td-triage__notes">{{.Task.Notes}}</div>{{end}}
+
+      {{/* Promote carries the priority, the due date and the tags, because a
+           priority or a due date is exactly what lets a task leave the inbox
+           and pressing two buttons that always go together is a wasted step. */}}
+      <form class="td-triage__form" action="/w/triage/{{.Task.ID}}" method="post">
+        <input type="hidden" name="at" value="{{.TriageIndex}}">
+
+        <div class="td-form__row">
+          <span class="td-form__label">priority</span>
+          <span class="td-triage__prios">
+            {{range .Priorities}}
+            <label class="td-notify__choice">
+              <input class="td-radio" type="radio" name="priority" value="{{.Value}}"
+                     {{if .Selected}}checked{{end}}>
+              <span>{{.Label}}</span>
+            </label>
+            {{end}}
+          </span>
+        </div>
+
+        <label class="td-form__row">
+          <span class="td-form__label">due</span>
+          <input class="td-input" type="text" name="due" value="{{.DueValue}}"
+                 placeholder="a date, or friday">
+        </label>
+
+        <label class="td-form__row">
+          <span class="td-form__label">tags</span>
+          <input class="td-input td-edit__wide" type="text" name="tags" value="{{.TagValue}}"
+                 placeholder="certs ops">
+        </label>
+
+        <div class="td-form__actions">
+          <button class="td-btn td-btn--primary" type="submit" name="do" value="promote">Promote</button>
+          <button class="td-btn" type="submit" name="do" value="skip">Skip</button>
+          <button class="td-btn" type="submit" name="do" value="done">Done</button>
+          <button class="td-btn" type="submit" name="do" value="drop">Drop</button>
+        </div>
+      </form>
+
+      <div class="td-triage__nav">
+        {{if gt .TriageIndex 0}}<a class="td-link" href="/triage?i={{.TriagePrev}}">back one</a>{{end}}
+        <a class="td-link" href="/t/{{.Task.Num}}">open the full task</a>
+      </div>
+    </div>
+    {{end}}
+  </div>
+
+  <div class="td-bar td-bar--status">
+    <span class="td-key"><b>1-4</b> priority</span>
+    <span class="td-key"><b>P</b> promote</span>
+    <span class="td-key"><b>n</b> next</span>
+    <span class="td-key"><b>x</b> drop</span>
+    <span class="td-key"><b>esc</b> back</span>
+  </div>
+</div>
+{{end}}

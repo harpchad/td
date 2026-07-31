@@ -45,6 +45,7 @@ type fakeServer struct {
 	patched   []map[string]any
 	snoozed   []api.SnoozeRequest
 	linked    []personLink
+	series    []map[string]any
 }
 
 type personLink struct{ person, role string }
@@ -151,6 +152,25 @@ func newFake(t *testing.T) *fakeServer {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.linked = append(f.linked, personLink{person: body.Person, role: body.Role})
 		writeJSON(w, api.Task{ID: r.PathValue("id")})
+	})
+	mux.HandleFunc("POST /api/v1/series", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.series = append(f.series, body)
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, map[string]any{"series": body})
+	})
+	mux.HandleFunc("GET /api/v1/series/{id}", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"series": map[string]any{
+			"id": r.PathValue("id"), "rrule": "FREQ=WEEKLY;BYDAY=MO",
+			"mode": "fixed", "catchup": "skip",
+		}})
+	})
+	mux.HandleFunc("PATCH /api/v1/series/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.series = append(f.series, body)
+		writeJSON(w, map[string]any{"series": body})
 	})
 	mux.HandleFunc("POST /api/v1/undo", func(w http.ResponseWriter, _ *http.Request) {
 		f.undos++
@@ -296,6 +316,15 @@ func (h *harness) send(msg tea.Msg) {
 func (h *harness) key(k string) {
 	h.t.Helper()
 	h.send(keyPress(k))
+}
+
+// typeText sends a string one keystroke at a time, which is the only way a
+// text input ever receives one.
+func (h *harness) typeText(s string) {
+	h.t.Helper()
+	for _, r := range s {
+		h.key(string(r))
+	}
 }
 
 // keyPress builds the v2 key message. Keys are their own message type in

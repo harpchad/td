@@ -151,6 +151,24 @@ Binary impact: server only, embedded.
 
 ---
 
+## github.com/teambition/rrule-go v1.8.2
+
+RFC 5545 recurrence expansion, named by `BUILD-SPEC.md` section 3.
+Replaced: nothing. Recurrence had no implementation before phase 7.
+Considered instead: writing the expansion by hand, which is a bad trade. RRULE
+has BYSETPOS, BYDAY with ordinals, and month-end semantics that are easy to get
+almost right, and "almost right" in recurrence means a task appears on the
+wrong day months later.
+
+One caveat worth recording: rrule-go builds its results with `time.Date`, which
+normalises a nonexistent local time backwards. `testdata/recurrence_cases.json`
+requires forward. `internal/recur` corrects this rather than patching the
+library, and `TestAGapInARuleShiftsForward` is the test that would catch the
+library changing its mind.
+Binary impact: server only.
+
+---
+
 ## Tools
 
 Pinned in the `Makefile` and installed by `make tools`. Not modules of this

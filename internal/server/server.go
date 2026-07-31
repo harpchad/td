@@ -17,6 +17,7 @@ import (
 
 	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/auth"
+	"github.com/harpchad/td/internal/blob"
 	"github.com/harpchad/td/internal/query"
 	"github.com/harpchad/td/internal/store"
 	"github.com/harpchad/td/internal/web"
@@ -46,7 +47,17 @@ type Server struct {
 	// ui serves the browser interface. Nil leaves the server API-only, which
 	// is what the API tests use.
 	ui *web.UI
+
+	// blobs holds attachment bytes. Nil turns the attachment routes into a
+	// refusal rather than a panic, so a deployment with no writable data
+	// directory still serves everything else.
+	blobs *blob.Store
 }
+
+// AttachBlobs mounts the attachment store. The bytes never go behind a static
+// file handler: every download runs through the same authentication as the
+// rest of /api/v1.
+func (s *Server) AttachBlobs(b *blob.Store) { s.blobs = b }
 
 // AttachWeb mounts the browser UI. The web routes go through the same store
 // every other client's requests do.
@@ -103,6 +114,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/tasks/{id}", s.dropTask)
 	mux.HandleFunc("POST /api/v1/tasks/{id}/complete", s.completeTask)
 	mux.HandleFunc("POST /api/v1/tasks/{id}/snooze", s.snoozeTask)
+
+	mux.HandleFunc("GET /api/v1/tasks/{id}/attachments", s.listAttachments)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/attachments", s.addAttachment)
+	mux.HandleFunc("GET /api/v1/tasks/{id}/attachments/{att}", s.getAttachment)
+	mux.HandleFunc("DELETE /api/v1/tasks/{id}/attachments/{att}", s.deleteAttachment)
+
+	mux.HandleFunc("POST /api/v1/series", s.createSeries)
+	mux.HandleFunc("GET /api/v1/series/{id}", s.getSeries)
+	mux.HandleFunc("PATCH /api/v1/series/{id}", s.updateSeries)
 
 	mux.HandleFunc("GET /api/v1/people", s.listPeople)
 	mux.HandleFunc("POST /api/v1/people", s.createPerson)

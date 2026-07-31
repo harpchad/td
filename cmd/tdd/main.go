@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/harpchad/td/internal/api"
+	"github.com/harpchad/td/internal/blob"
 	"github.com/harpchad/td/internal/notify"
 	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/server"
@@ -51,6 +52,8 @@ func run(args []string) error {
 		"path to config.toml. Defaults to <config>/config.toml. A commented default is written if none exists")
 	ntfyTopic := fs.String("ntfy-topic", os.Getenv("TD_NTFY_TOPIC"),
 		"ntfy topic for reminders, overriding config.toml. Empty leaves reminders off")
+	blobDir := fs.String("blobs", envOr("TD_BLOB_DIR", ""),
+		"directory for attachment bytes. Defaults to <db directory>/blobs")
 	showVersion := fs.Bool("version", false, "print the API version and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -136,6 +139,15 @@ func run(args []string) error {
 		return err
 	}
 
+	// Attachments are content-addressed files next to the database. They are
+	// never served from a static handler: every download goes through the
+	// same authentication as the rest of /api/v1.
+	blobs, err := blob.New(blobRoot(*blobDir, *dbPath))
+	if err != nil {
+		return err
+	}
+	srv.AttachBlobs(blobs)
+
 	// Config resolves flags over environment over file, and a commented
 	// default is written on first start.
 	cfgPath := *configPath
@@ -204,6 +216,7 @@ func run(args []string) error {
 		BaseURL: *baseURL, Loc: loc, Log: log,
 		Now:         func() time.Time { return time.Now().In(loc) },
 		ActionToken: cfg.Notify.ActionToken,
+		Blobs:       blobs,
 	}
 	if pinned != nil {
 		at := *pinned
@@ -221,6 +234,19 @@ func run(args []string) error {
 		return err
 	}
 	return nil
+}
+
+// blobRoot resolves where attachment bytes live. Next to the database by
+// default, since the two are one backup unit: a dump with no blobs restores a
+// list of files that are not there.
+func blobRoot(configured, dbPath string) string {
+	if configured != "" {
+		return configured
+	}
+	if dbPath == ":memory:" {
+		return filepath.Join(os.TempDir(), "td-blobs")
+	}
+	return filepath.Join(filepath.Dir(dbPath), "blobs")
 }
 
 // parseClock reads the -now flag. An empty value means the real clock. A

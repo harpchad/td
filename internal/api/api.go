@@ -88,6 +88,22 @@ type Task struct {
 	ChildrenDone  int `json:"children_done"`
 }
 
+// Attachment is one file on a task.
+//
+// SHA256 is the blob's address, not a checksum for verification: the same
+// file attached to four tasks is four rows and one file on disk. The bytes
+// are never served from a static handler, because a guessable path under one
+// is a download that skipped the auth check.
+type Attachment struct {
+	ID        string `json:"id"`
+	TaskID    string `json:"task_id"`
+	SHA256    string `json:"sha256"`
+	Filename  string `json:"filename"`
+	Bytes     int64  `json:"bytes"`
+	Mime      string `json:"mime"`
+	CreatedAt string `json:"created_at"`
+}
+
 // TaskPerson is one person link on a task, carrying the role that link plays.
 type TaskPerson struct {
 	PersonID string `json:"person_id"`
@@ -342,6 +358,28 @@ const (
 	KindTaskTagged   = "task.tagged"
 	KindTaskPeople   = "task.people"
 	KindUndo         = "undo"
+)
+
+// ActorScheduler is the actor on events nobody typed: a series firing, a
+// reminder going out. It reads as "who did this" in the activity feed, and
+// "the scheduler" is a truer answer than the account name.
+const ActorScheduler = "scheduler"
+
+// Recurrence event kinds. A generated instance is an ordinary task.created
+// on the new task; these two record what the series itself did.
+const (
+	// KindRecurrenceMissed is one occurrence that catchup=skip rolled past.
+	// The skipped work never becomes a task, so without this event the roll
+	// forward is invisible.
+	KindRecurrenceMissed = "recurrence.missed"
+	// KindRecurrenceFired is the series materializing an instance.
+	KindRecurrenceFired = "recurrence.fired"
+)
+
+// Attachment event kinds.
+const (
+	KindTaskAttached = "task.attached"
+	KindTaskDetached = "task.detached"
 )
 
 // Auth event kinds. Every one of these carries the source IP in Patch.Meta.

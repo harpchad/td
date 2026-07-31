@@ -30,13 +30,57 @@
         {{if .Tags}}<span class="td-detail__label">tags</span><span>{{range .Tags}}<a class="td-token td-link" href="/?q={{.Query | urlquery}}">{{.Label}}</a> {{end}}</span>{{end}}
         {{range .People}}<span class="td-detail__label">{{.Role}}</span><span><a class="td-token td-link" href="{{.Href}}">{{.Label}}</a></span>{{end}}
         {{if .Task.ChildrenTotal}}<span class="td-detail__label">subtasks</span><span>{{.Task.ChildrenDone}} of {{.Task.ChildrenTotal}} done</span>{{end}}
-        {{if .Task.Attachments}}<span class="td-detail__label">files</span><span>{{.Task.Attachments}}</span>{{end}}
+        {{if .Repeats}}<span class="td-detail__label">repeats</span><span>{{.Repeats}}</span>{{end}}
         <span class="td-detail__label">notify</span><span>{{.Task.Notify}}</span>
         <span class="td-detail__label">source</span><span>{{.Task.Source}}</span>
         <span class="td-detail__label">id</span><span class="td-dim">{{.Task.ID}}</span>
       </div>
 
       {{if .Task.Notes}}<div class="td-detail__notes">{{.Task.Notes}}</div>{{end}}
+
+      {{/* Subtasks. The parent is the commitment: completing it never
+           cascades, and each child is finished or dropped on its own. */}}
+      <div class="td-section">
+        <div class="td-section__title">Subtasks</div>
+        {{range .Children}}
+        <div class="td-row td-row--sub{{if .Done}} td-row--done{{end}}">
+          <form action="/w/complete/{{.Task.ID}}" method="post">
+            <button class="td-btn td-btn--link" type="submit">{{if .Done}}[x]{{else}}[ ]{{end}}</button>
+          </form>
+          <span class="td-num">{{.Task.Num}}</span>
+          <span class="td-title"><a class="td-link" href="/t/{{.Task.Num}}">{{.Task.Title}}</a></span>
+        </div>
+        {{else}}
+        <div class="td-dim">None yet.</div>
+        {{end}}
+
+        <form class="td-upload" action="/w/sub/{{.Task.ID}}" method="post">
+          <input class="td-input td-edit__wide" type="text" name="line"
+                 placeholder="draft the email  #certs p:2 due:friday">
+          <button class="td-btn" type="submit">Add subtask</button>
+        </form>
+      </div>
+
+      {{/* Files. Every href goes through /api/v1, which runs the auth check
+           on every download. Nothing is served from a static handler. */}}
+      <div class="td-section">
+        <div class="td-section__title">Files</div>
+        {{if .Attachments}}
+        <table class="td-files">
+          <tr><th>name</th><th>size</th><th>type</th><th></th></tr>
+          {{range .Attachments}}
+          <tr>
+            <td><a class="td-link" href="{{.Href}}">{{.Filename}}</a></td>
+            <td class="td-files__size">{{.Size}}</td>
+            <td class="td-files__size">{{.Mime}}</td>
+            <td></td>
+          </tr>
+          {{end}}
+        </table>
+        {{else}}
+        <div class="td-dim">None yet. <code>td attach {{.Task.Num}} &lt;file&gt;</code> adds one.</div>
+        {{end}}
+      </div>
 
       <form class="td-edit" action="/w/edit/{{.Task.ID}}" method="post">
         <div class="td-section__title">Edit</div>

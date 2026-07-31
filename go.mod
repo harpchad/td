@@ -14,6 +14,7 @@ require (
 	github.com/lrstanley/bubblezone/v2 v2.0.0
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/pquerna/otp v1.5.0
+	github.com/teambition/rrule-go v1.8.2
 	golang.org/x/crypto v0.54.0
 	golang.org/x/term v0.45.0
 	modernc.org/sqlite v1.55.0

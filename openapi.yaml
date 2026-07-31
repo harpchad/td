@@ -31,6 +31,8 @@ tags:
   - name: filters
   - name: history
   - name: tokens
+  - name: attachments
+  - name: series
 
 paths:
   /healthz:
@@ -341,6 +343,167 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+
+  /api/v1/tasks/{id}/attachments:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [attachments]
+      summary: List a task's attachments
+      operationId: listAttachments
+      responses:
+        "200":
+          description: the files on the task
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Attachment" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [attachments]
+      summary: Attach a file
+      description: >-
+        The request body is the file itself rather than a multipart form:
+        there is one field, and the filename rides in X-Td-Filename. Content
+        is addressed by SHA-256, so the same file on four tasks is four rows
+        and one file on disk. The cap is 25 MB and is enforced while
+        streaming, not from Content-Length.
+      operationId: addAttachment
+      parameters:
+        - name: X-Td-Filename
+          in: header
+          required: false
+          description: the name to show and to send back on download
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "201":
+          description: the stored attachment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Attachment" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: the file is larger than 25 MB
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/tasks/{id}/attachments/{att}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+      - name: att
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [attachments]
+      summary: Download an attachment
+      description: >-
+        Served through the same authentication as every other route. There is
+        no static handler over the blob directory, because a guessable path
+        under one is a download that skipped the auth check. The response is
+        always Content-Disposition: attachment.
+      operationId: getAttachment
+      responses:
+        "200":
+          description: the file
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [attachments]
+      summary: Detach a file
+      description: >-
+        Removes the row. The bytes stay until the weekly sweep, since another
+        task may point at the same blob.
+      operationId: deleteAttachment
+      responses:
+        "204":
+          description: detached
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/series:
+    post:
+      tags: [series]
+      summary: Create a recurring series
+      description: >-
+        Stores an RFC 5545 rule plus the template its instances are made from,
+        and materialises the first instance. Exactly one open instance exists
+        at a time; generating a year up front makes every query slower and
+        every edit ambiguous.
+      operationId: createSeries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Series" }
+      responses:
+        "201":
+          description: the series and its first instance
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SeriesResponse" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/series/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [series]
+      summary: Get a series
+      operationId: getSeries
+      responses:
+        "200":
+          description: the series
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SeriesResponse" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [series]
+      summary: Edit a series
+      description: >-
+        The explicit series edit. Editing an instance edits that instance;
+        this is the separate action that changes the rule and the template,
+        and it never rewrites an instance already in the list.
+      operationId: updateSeries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Series" }
+      responses:
+        "200":
+          description: the updated series
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SeriesResponse" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/people:
     get:
@@ -835,6 +998,89 @@ components:
     Role:
       type: string
       enum: [assigner, assignee, involved, waiting]
+
+    Attachment:
+      type: object
+      required: [id, task_id, sha256, filename, bytes, mime, created_at]
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        sha256:
+          type: string
+          description: >-
+            The blob's address, not a checksum for verification. Two rows with
+            the same digest are one file on disk.
+          pattern: "^[0-9a-f]{64}$"
+        filename: { type: string }
+        bytes: { type: integer, format: int64 }
+        mime: { type: string }
+        created_at: { type: string, format: date-time }
+
+    Series:
+      type: object
+      required: [rrule]
+      properties:
+        id: { type: string }
+        rrule:
+          type: string
+          description: "An RFC 5545 RRULE, with or without the RRULE: prefix."
+          example: "FREQ=WEEKLY;BYDAY=MO"
+        mode:
+          type: string
+          enum: [fixed, after_completion]
+          default: fixed
+          description: >-
+            fixed takes the next occurrence from the rule regardless of when
+            the last one was completed. after_completion takes completion time
+            plus the rule's interval, so completing early pulls the whole
+            series earlier.
+        catchup:
+          type: string
+          enum: [skip, pile]
+          default: skip
+          description: >-
+            What happens to occurrences that passed while an instance sat
+            open. skip logs each as a recurrence.missed event and leaves the
+            one open instance alone; pile creates the backlog.
+        anchor:
+          type: string
+          enum: [due, start]
+          default: due
+        tz:
+          type: string
+          description: IANA zone the rule's wall clock is read in.
+          example: America/Chicago
+        template: { $ref: "#/components/schemas/TaskCreate" }
+        next_at:
+          type: string
+          format: date-time
+          nullable: true
+        ends_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_fired_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Where the catch-up walk starts. Without it a restart cannot tell a
+            missed occurrence from one that never came due.
+        current_task_id:
+          type: string
+          nullable: true
+
+    SeriesResponse:
+      type: object
+      required: [series]
+      properties:
+        series: { $ref: "#/components/schemas/Series" }
+        task:
+          allOf:
+            - $ref: "#/components/schemas/Task"
+          description: >-
+            On creation, the instance that was materialised. Saves a second
+            request to find out what appeared in the list.
 
     Task:
       type: object

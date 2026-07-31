@@ -373,24 +373,49 @@ func TestDetailIsAFullScreenReplacement(t *testing.T) {
 	}
 }
 
-// TestDeferredKeysSayWhereTheyLand covers the choice that a specified key
-// which is not built yet reports itself rather than doing nothing, because a
-// key that silently does nothing reads as a bug. It also guards against the
-// message naming a phase that has already shipped.
-//
-// Only the series key is left: everything else in section 11's keymap is
-// implemented. When phase 7 lands, this test loses its subject, and the right
-// answer then is to delete it rather than invent a key for it.
-func TestDeferredKeysSayWhereTheyLand(t *testing.T) {
-	h, _ := open(t)
+// TestEditingTheSeriesIsItsOwnAction covers section 3's rule that editing an
+// instance edits that instance and editing the series needs an explicit
+// action. E is that action, and nothing else in the keymap reaches the rule.
+func TestEditingTheSeriesIsItsOwnAction(t *testing.T) {
+	h, f := open(t)
 
 	h.key("E")
-	view := plain(h.view())
-	if !strings.Contains(view, "phase 7") {
-		t.Errorf("E did nothing visible:\n%s", view)
+	if !strings.Contains(plain(h.view()), "repeats:") {
+		t.Fatalf("E did not open the series prompt:\n%s", plain(h.view()))
 	}
-	if !strings.Contains(view, "series") {
-		t.Error("the message does not say what the key would do")
+
+	h.typeText("every 2 weeks")
+	h.key("enter")
+
+	if len(f.series) != 1 {
+		t.Fatalf("%d series calls, want 1", len(f.series))
+	}
+	if got := f.series[0]["rrule"]; got != "FREQ=WEEKLY;INTERVAL=2" {
+		t.Errorf("rrule = %v", got)
+	}
+
+	// The instance itself was not patched. That is the whole distinction.
+	for _, patch := range f.patched {
+		if _, ok := patch["title"]; ok {
+			t.Error("editing the series patched the instance")
+		}
+	}
+}
+
+// TestARuleThatDoesNotParseSaysSo keeps a typo from becoming a year of the
+// wrong thing repeating.
+func TestARuleThatDoesNotParseSaysSo(t *testing.T) {
+	h, f := open(t)
+
+	h.key("E")
+	h.typeText("every fortnight")
+	h.key("enter")
+
+	if len(f.series) != 0 {
+		t.Errorf("an unparseable rule was sent: %v", f.series)
+	}
+	if !strings.Contains(plain(h.view()), "fortnight") {
+		t.Errorf("the error does not name the word:\n%s", plain(h.view()))
 	}
 }
 
@@ -776,6 +801,82 @@ func TestEscapeCancelsAnEdit(t *testing.T) {
 	}
 	// And the list is showing again.
 	if !strings.Contains(plain(h.view()), "Send Q3 numbers") {
+		t.Error("escape did not return to the list")
+	}
+}
+
+// TestTriageIsOneTaskAtATime covers section 7's requirement that triage is a
+// dedicated mode rather than a view. Getting from 20 to 0 should take two
+// minutes, and that only works if one decision is on screen at a time.
+func TestTriageIsOneTaskAtATime(t *testing.T) {
+	h, f := open(t)
+
+	h.key("T")
+	view := plain(h.view())
+	// The card's own footer, not the word in the toolbar hint.
+	if !strings.Contains(view, "1-4 priority") {
+		t.Fatalf("T did not open triage:\n%s", view)
+	}
+	// The inbox is what triage works, and it asked for exactly that.
+	if f.lastQuery != "is:inbox" {
+		t.Errorf("triage queried %q, want is:inbox", f.lastQuery)
+	}
+
+	// Only one task's title is showing, not the list.
+	titles := 0
+	for _, task := range f.tasks {
+		if strings.Contains(view, task.Title) {
+			titles++
+		}
+	}
+	if titles > 1 {
+		t.Errorf("%d tasks on screen at once in triage", titles)
+	}
+}
+
+// TestTriagePriorityPromotesInOneKeystroke is the reason triage is fast: a
+// priority is one of the two things that lets a task leave the inbox, so
+// setting one both sets it and promotes.
+func TestTriagePriorityPromotesInOneKeystroke(t *testing.T) {
+	h, f := open(t)
+
+	h.key("T")
+	h.key("2")
+
+	if len(f.patched) == 0 {
+		t.Fatal("no patch was sent")
+	}
+	last := f.patched[len(f.patched)-1]
+	if last["priority"] != float64(2) {
+		t.Errorf("priority = %v, want 2", last["priority"])
+	}
+	if last["status"] != "todo" {
+		t.Errorf("status = %v, want the task out of the inbox", last["status"])
+	}
+}
+
+// TestTriageSaysWhenItIsEmpty, because a blank screen at the end of a queue
+// reads as a crash.
+func TestTriageSaysWhenItIsEmpty(t *testing.T) {
+	h, f := open(t)
+	f.tasks = nil
+
+	h.key("T")
+	if !strings.Contains(plain(h.view()), "Inbox zero") {
+		t.Errorf("an empty triage queue says nothing:\n%s", plain(h.view()))
+	}
+}
+
+// TestEscapeLeavesTriage keeps the mode from being a trap.
+func TestEscapeLeavesTriage(t *testing.T) {
+	h, _ := open(t)
+
+	h.key("T")
+	h.key("esc")
+	if strings.Contains(plain(h.view()), "1-4 priority") {
+		t.Error("escape did not leave triage")
+	}
+	if !strings.Contains(plain(h.view()), "Follow up on monday forms") {
 		t.Error("escape did not return to the list")
 	}
 }

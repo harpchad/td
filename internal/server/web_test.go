@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/harpchad/td/internal/api"
 )
 
 // The web UI is rendered HTML, so these read the markup. Every case is a rule
@@ -78,6 +80,28 @@ func page(t *testing.T, ts *harness, session, path string) (respMeta, string) {
 		}
 	}
 	return respMeta{StatusCode: resp.StatusCode, Header: resp.Header}, string(body[:n])
+}
+
+// postForm submits an HTML form as a signed-in browser.
+func postForm(t *testing.T, ts *harness, session, path string, form url.Values) respMeta {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		ts.URL+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "td_session", Value: session})
+
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	return respMeta{StatusCode: resp.StatusCode, Header: resp.Header}
 }
 
 // TestHomeRendersTheFixtureOrder covers parity with the TUI: the same filter
@@ -193,7 +217,7 @@ func TestNoInlineScriptAnywhere(t *testing.T) {
 	ts := newServer(t)
 	session := login(t, ts)
 
-	for _, path := range []string{"/", "/login", "/help", "/settings", "/t/101"} {
+	for _, path := range []string{"/", "/login", "/help", "/settings", "/t/101", "/triage"} {
 		_, html := page(t, ts, session, path)
 
 		// Go's regexp has no lookahead, so match every script element and
@@ -627,5 +651,106 @@ func TestNotifyIsRadiosNotAToggle(t *testing.T) {
 	// And a textarea for notes, which is the one multi-line field.
 	if !strings.Contains(html, "<textarea") {
 		t.Error("the detail page has no notes editor")
+	}
+}
+
+// TestTriageIsItsOwnScreen covers section 7: triage is a dedicated mode, not
+// a view. A filtered list cannot get you from 20 to 0 in two minutes because
+// every decision makes the eye hunt for the next row.
+func TestTriageIsItsOwnScreen(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	resp, html := page(t, ts, session, "/triage")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	// The fixture's inbox has tasks, so one card is showing with the actions
+	// on it.
+	for _, want := range []string{"Promote", "Skip", "Drop", `name="do"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the triage card has no %q", want)
+		}
+	}
+
+	// One task, not the list. The home view shows eight rows; triage shows
+	// one title.
+	if n := strings.Count(html, `class="td-row`); n > 0 {
+		t.Errorf("triage rendered %d list rows; it is one card", n)
+	}
+}
+
+// TestTriagePromoteTakesTheTaskOutOfTheInbox is the action that makes triage
+// worth having. A priority is what lets a task leave the inbox, so setting
+// one and promoting is one request rather than two.
+func TestTriagePromoteTakesTheTaskOutOfTheInbox(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	inbox, err := ts.store.List(t.Context(), "is:inbox", ts.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inbox) == 0 {
+		t.Fatal("the fixture has no inbox tasks")
+	}
+	target := inbox[0]
+
+	form := url.Values{"do": {"promote"}, "priority": {"2"}, "at": {"0"}}
+	resp := postForm(t, ts, session, "/w/triage/"+target.ID, form)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want a redirect back into the queue", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); !strings.HasPrefix(loc, "/triage") {
+		t.Errorf("Location = %q, want to stay in triage", loc)
+	}
+
+	after, err := ts.store.Get(t.Context(), target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != api.StatusTodo {
+		t.Errorf("status = %s, want the task out of the inbox", after.Status)
+	}
+	if after.Priority == nil || *after.Priority != 2 {
+		t.Errorf("priority = %v, want 2", after.Priority)
+	}
+}
+
+// TestASubtaskIsCreatedUnderItsParent covers the web half of subtasks. The
+// parent is the commitment; completing it never cascades.
+func TestASubtaskIsCreatedUnderItsParent(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	parent, err := ts.store.GetByNum(t.Context(), 103)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{"line": {"call the dealer #truck p:2"}}
+	resp := postForm(t, ts, session, "/w/sub/"+parent.ID, form)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+
+	children, err := ts.store.Children(t.Context(), parent.ID, ts.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(children) != 1 {
+		t.Fatalf("%d children, want 1", len(children))
+	}
+	if children[0].Title != "call the dealer" {
+		t.Errorf("title = %q", children[0].Title)
+	}
+	if children[0].ParentID == nil || *children[0].ParentID != parent.ID {
+		t.Error("the subtask is not linked to its parent")
+	}
+
+	// And the detail page shows it.
+	_, html := page(t, ts, session, "/t/103")
+	if !strings.Contains(html, "call the dealer") {
+		t.Error("the parent's detail page does not list the subtask")
 	}
 }

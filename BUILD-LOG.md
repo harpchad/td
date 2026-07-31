@@ -595,3 +595,93 @@ invent a key to keep it alive.
 - **Group editing in the clients.** The API creates groups and replaces
   membership. Neither UI has a screen for it, because groups are static and
   rarely change; `curl` or a future settings section covers it.
+
+---
+
+## Phase 7: recurrence, subtasks, triage mode, attachments
+
+2026-07-31
+
+### What shipped
+
+`internal/recur` turns an RRULE into instants. It wraps `teambition/rrule-go`
+rather than replacing it, and adds the one thing that library gets wrong for
+this purpose: a local time inside a spring-forward gap. Go's `time.Date`
+normalises 02:30 on a transition day backwards to 01:30 CST; the fixture
+requires 03:30 CDT, and rrule-go inherits the standard library's behaviour
+because it builds its results with `time.Date`. `ResolveLocal` detects the gap
+by comparing the wall clock it asked for against the one it got back, and
+`atWallClock` re-imposes the anchor's time of day on every occurrence. That is
+what makes "09:00 every Monday" stay 09:00 across a DST change instead of
+drifting an hour. All 15 cases in `testdata/recurrence_cases.json` pass,
+including the two `dst_edges` and both catch-up policies.
+
+`internal/store/series.go` is the storage side. A series is a rule plus the
+`TaskCreate` its instances are made from, and exactly one instance is open at a
+time. `after_completion` generates from `Patch` the moment a status lands on
+done; `fixed` generates from the scheduler tick. Catch-up is the interesting
+half: a fixed series materialises an occurrence only when it has no open
+instance, so ignoring a daily chore for six days produces six
+`recurrence.missed` events and still one row. `pile` materialises every
+occurrence. `last_fired_at` is where the walk starts, which is what makes a
+restart pick up exactly where it left off rather than firing twice or not at
+all.
+
+Attachments are content-addressed. `internal/blob` is a two-level sharded
+directory named by SHA-256, with a 25 MB cap enforced while streaming rather
+than from `Content-Length`, an atomic rename into place so a crash leaves a
+temp file and never a truncated blob under a hash it does not have, and a weekly
+sweep against the whole `attachment` table. Downloads go through an ordinary
+`/api/v1` handler, so they inherit the same authentication as everything else;
+there is no static file handler over the blob directory at all.
+
+Triage is a dedicated mode in both clients. `T` in the TUI, `/triage` in the
+browser. One task, large, with the same key letters they are everywhere else.
+Priority `1` through `4` sets the priority and promotes in one keystroke,
+because a priority is exactly what lets a task leave the inbox and pressing two
+buttons that always go together is a wasted step.
+
+`E` edits the series rather than the instance, which closes the last deferred
+key in section 11's keymap. `td sub`, `td repeat`, and `td attach` are the CLI
+half; the browser gets a subtask form and a file list on the detail page.
+
+### What was learned
+
+**The fixture's catch-up numbers have two readings and only one of them is a
+rule.** Six missed and one open can mean "log five, materialise the sixth" or
+"log all six, leave the one that is already there". The second makes "exactly
+one open instance" structural instead of coincidental, and collapses the
+restart path and the normal tick into the same loop. Written up in
+`DECISIONS.md`.
+
+**Promotion was checked against the wrong state.** Triage set a priority and
+promoted in one request and got `inbox_incomplete` back, because
+`applyTransition` was reading the task as it stood before the patch. The
+fixture says "priority is set OR due_at is set" without saying when, and the
+answer has to be "after", or every client sends two requests for one write.
+Found by a UI feature, not by a test, which is the argument for building the
+screens.
+
+**The scheduler's early return was hiding a future bug.** `Run` bailed out
+when no ntfy topic was configured. Recurrence now rides the same tick, so
+turning off push would have silently stopped repeating tasks from repeating.
+The tick always runs; only delivery is gated.
+
+**`PatchTyped` only carried four fields.** The TUI had never needed priority
+through it, so triage's one-keystroke promote sent a patch with no priority in
+it and the server did exactly what it was told. Everything the client can set,
+it can now set through the typed path.
+
+### What was deferred
+
+`td export --json` and its import are a v1 done-criterion with no phase in
+section 16. They are not part of any of 1 through 9 and are still unbuilt.
+
+The web triage screen has no keyboard bindings yet: the bottom bar advertises
+`1-4`, `P`, `n`, `x` and `esc`, and only the buttons work. The TUI has the
+keys; the browser has the buttons. Wiring the same letters into `td.js` is a
+small job and belongs with whatever else touches that file next.
+
+Attachments have no drag-and-drop and no upload progress. The form posts a
+file and the page comes back. At 25 MB on a LAN that is fine, and anything
+better needs script the CSP would have to be widened for.

@@ -75,7 +75,7 @@ func New(svc Service, assets *Assets, log *slog.Logger, now func() time.Time) (*
 }
 
 func parseTemplates() (map[string]*template.Template, error) {
-	pages := []string{"home", "detail", "login", "help", "settings", "person"}
+	pages := []string{"home", "detail", "login", "help", "settings", "person", "triage"}
 	out := map[string]*template.Template{}
 
 	for _, page := range pages {
@@ -103,6 +103,7 @@ func parseTemplates() (map[string]*template.Template, error) {
 // partial can be handed a title and a list without a named type per section.
 func templateFuncs() template.FuncMap {
 	return template.FuncMap{
+		"add": func(a, b int) int { return a + b },
 		"dict": func(pairs ...any) (map[string]any, error) {
 			if len(pairs)%2 != 0 {
 				return nil, errors.New("dict takes pairs")
@@ -131,6 +132,7 @@ func (u *UI) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /help", u.help)
 	mux.HandleFunc("GET /settings", u.settings)
 	mux.HandleFunc("GET /p/{ref}", u.person)
+	mux.HandleFunc("GET /triage", u.triage)
 
 	mux.HandleFunc("POST /w/add", u.add)
 	mux.HandleFunc("POST /w/complete/{id}", u.complete)
@@ -138,6 +140,8 @@ func (u *UI) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /w/edit/{id}", u.edit)
 	mux.HandleFunc("POST /w/snooze/{id}", u.snooze)
 	mux.HandleFunc("POST /w/undo", u.undo)
+	mux.HandleFunc("POST /w/triage/{id}", u.triageAction)
+	mux.HandleFunc("POST /w/sub/{id}", u.addSubtask)
 	mux.HandleFunc("POST /w/fold/{id}", u.fold)
 	mux.HandleFunc("POST /w/theme", u.setTheme)
 	mux.HandleFunc("POST /w/tokens/{id}/revoke", u.revokeToken)
@@ -170,6 +174,21 @@ type pageData struct {
 	Counts     Counts
 	Rows       []Row
 	InboxZero  bool
+
+	// Triage is a dedicated screen rather than a filter preset. The position
+	// lives in the URL so reloading lands in the same place and the back
+	// button walks back through the queue.
+	TriageTotal int
+	TriageIndex int
+	TriageNext  int
+	TriagePrev  int
+	Priorities  []notifyChoice
+
+	// Attachments on the detail page. Every download goes through the API's
+	// auth check; there is no static handler over the blob directory.
+	Attachments []attachmentRow
+	Children    []Row
+	Repeats     string
 
 	Task        api.Task
 	Done        bool
@@ -230,6 +249,11 @@ type waitingRow struct {
 	// Stale marks the ones that have been waiting long enough to chase. The
 	// spec calls "waiting more than 7 days" a view worth building on day one.
 	Stale bool
+}
+
+// attachmentRow is one file on the detail page.
+type attachmentRow struct {
+	ID, Filename, Size, Mime, Href string
 }
 
 type themeChoice struct {
@@ -442,6 +466,12 @@ func (u *UI) detail(w http.ResponseWriter, r *http.Request) {
 		data.People = append(data.People, DetailPerson{
 			Role: p.Role, Label: "@" + handle, Query: "@" + handle, Href: "/p/" + handle,
 		})
+	}
+
+	data.Attachments = u.attachmentRows(r.Context(), task.ID)
+	data.Children = u.childRows(r.Context(), task, u.Now())
+	if task.SeriesID != nil && *task.SeriesID != "" {
+		data.Repeats = u.repeatRule(r.Context(), *task.SeriesID)
 	}
 
 	if task.Priority != nil {

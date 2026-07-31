@@ -223,6 +223,43 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
 .td-help__what { opacity: var(--td-dim); }
 
 /* ---------------------------------------------------------------- */
+/* triage: one task at a time, large                                */
+/*                                                                  */
+/* A dedicated screen rather than a filtered list. Getting from 20 to 0  */
+/* in two minutes only works when one decision is on screen and the     */
+/* eye never has to hunt for the next row.                          */
+
+.td-triage { padding: var(--td-row) var(--td-pad); max-width: 80ch; }
+.td-triage__title {
+  font-weight: var(--td-weight-bold);
+  line-height: calc(var(--td-row) * 1.4);
+  font-size: calc(var(--td-size) * 1.4);
+  margin-bottom: var(--td-row);
+}
+.td-triage__meta { display: flex; flex-wrap: wrap; gap: 2ch; min-height: var(--td-row); }
+.td-triage__notes { margin-top: var(--td-row); white-space: pre-wrap; opacity: var(--td-dim); }
+.td-triage__form { margin-top: calc(var(--td-row) * 1.5); }
+.td-triage__prios { display: flex; gap: 2ch; align-items: center; }
+.td-triage__nav { display: flex; gap: 3ch; margin-top: var(--td-row); }
+
+/* ---------------------------------------------------------------- */
+/* attachments and subtasks on the detail page                      */
+/*                                                                  */
+/* Every download href points at /api/v1, which is behind the same auth  */
+/* as everything else. There is no static handler over the blob         */
+/* directory: a guessable path under one is a download that skipped     */
+/* the check.                                                       */
+
+.td-files { width: 100%; border-collapse: collapse; }
+.td-files th, .td-files td {
+  text-align: left; height: var(--td-row); padding: 0 var(--td-gap) 0 0;
+  white-space: nowrap;
+}
+.td-files th { opacity: var(--td-dim); font-weight: var(--td-weight); }
+.td-files__size { opacity: var(--td-dim); }
+.td-upload { display: flex; gap: var(--td-gap); align-items: center; margin-top: var(--td-gap); }
+
+/* ---------------------------------------------------------------- */
 /* mobile: same grid, bigger targets                                */
 
 @media (max-width: 60ch) {

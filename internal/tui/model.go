@@ -25,6 +25,7 @@ const (
 	modeAdd
 	modeFilter
 	modeHelp
+	modeTriage
 )
 
 // Model is the whole TUI.
@@ -54,6 +55,12 @@ type Model struct {
 	offset int
 
 	detail api.Task
+
+	// triage is the inbox queue, and triageIndex is where in it we are.
+	// Triage is a dedicated mode rather than a filter preset: one task at a
+	// time, large, so getting from 20 to 0 takes two minutes.
+	triage      []api.Task
+	triageIndex int
 
 	addInput    textinput.Model
 	filterInput textinput.Model
@@ -96,6 +103,8 @@ type Options struct {
 	Filter string
 	// Mouse enables pointer input. Default on.
 	Mouse bool
+	// Triage opens straight into triage mode, which is what `td triage` does.
+	Triage bool
 }
 
 // New builds the TUI model.
@@ -120,9 +129,14 @@ func New(ctx context.Context, c *client.Client, opts Options) *Model {
 	// one.
 	notes.SetVirtualCursor(false)
 
+	mode := modeList
+	if opts.Triage {
+		mode = modeTriage
+	}
 	return &Model{
 		client:       c,
 		ctx:          ctx,
+		mode:         mode,
 		filter:       opts.Filter,
 		collapsed:    map[string]bool{},
 		addInput:     add,
@@ -138,6 +152,9 @@ func New(ctx context.Context, c *client.Client, opts Options) *Model {
 
 // Init loads the saved filters, the fold state, and the first list.
 func (m *Model) Init() tea.Cmd {
+	if m.mode == modeTriage {
+		return tea.Batch(m.loadFilters(), m.loadFolds(), m.reload(), m.loadTriage())
+	}
 	return tea.Batch(m.loadFilters(), m.loadFolds(), m.reload())
 }
 
@@ -172,11 +189,16 @@ type actionMsg struct {
 func (m *Model) reload() tea.Cmd {
 	filter := m.filter
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
-		defer cancel()
-		out, err := m.client.List(ctx, filter, 0)
+		out, err := m.fetch(filter, 0)
 		return tasksMsg{filter: filter, tasks: out.Tasks, err: err}
 	}
+}
+
+// fetch runs one list query with the standard timeout.
+func (m *Model) fetch(filter string, limit int) (api.TaskList, error) {
+	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+	defer cancel()
+	return m.client.List(ctx, filter, limit)
 }
 
 func (m *Model) loadFilters() tea.Cmd {

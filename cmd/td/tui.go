@@ -18,6 +18,7 @@ func runTUI(ctx context.Context, c *client.Client, cfg client.Config, args []str
 	fs := flag.NewFlagSet("td", flag.ContinueOnError)
 	noMouse := fs.Bool("no-mouse", false,
 		"turn off mouse reporting. Capturing the mouse takes the terminal's own text selection away")
+	triage := fs.Bool("triage", false, "open straight into triage mode")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -47,7 +48,7 @@ func runTUI(ctx context.Context, c *client.Client, cfg client.Config, args []str
 	zone.NewGlobal()
 	defer zone.Close()
 
-	model := tui.New(ctx, c, tui.Options{Filter: filter, Mouse: mouse})
+	model := tui.New(ctx, c, tui.Options{Filter: filter, Mouse: mouse, Triage: *triage})
 	_, err := tea.NewProgram(model, tea.WithContext(ctx)).Run()
 	return err
 }

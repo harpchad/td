@@ -48,6 +48,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case seriesMsg:
+		// The rule arrived after the prompt opened. Only fill it if the user
+		// has not started typing over it.
+		if m.prompt == promptRepeat && m.promptInput.Value() == "" {
+			m.promptInput.SetValue(msg.rrule)
+			m.promptInput.CursorEnd()
+		}
+		return m, nil
+
+	case triageMsg:
+		m.triage = msg.tasks
+		if m.triageIndex > len(m.triage) {
+			m.triageIndex = len(m.triage)
+		}
+		if msg.status != "" {
+			m.status = msg.status
+		}
+		return m, nil
+
 	case actionMsg:
 		return m, m.onAction(msg)
 
@@ -125,6 +144,8 @@ func (m *Model) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updateAdd(msg, key)
 	case modeFilter:
 		return m.updateFilter(msg, key)
+	case modeTriage:
+		return m.triageKey(key)
 	case modeHelp, modeDetail:
 		if key == "esc" || key == "q" || key == "enter" {
 			m.mode = modeList
@@ -231,6 +252,10 @@ func (m *Model) listKey(key string) (tea.Model, tea.Cmd) {
 		m.openPrompt(promptWaiting)
 	case "@":
 		m.openPrompt(promptPerson)
+	case "E":
+		// The series, not the instance. Editing an instance edits that
+		// instance; the rule behind it needs its own action.
+		return m, m.openRepeat()
 
 	case "N":
 		// Notes are multi-line, so they get a textarea rather than the
@@ -249,6 +274,9 @@ func (m *Model) listKey(key string) (tea.Model, tea.Cmd) {
 	case "r":
 		m.loading = true
 		return m, tea.Batch(m.reload(), m.loadFolds())
+
+	case "T":
+		return m, m.enterTriage()
 
 	case "?":
 		m.mode = modeHelp

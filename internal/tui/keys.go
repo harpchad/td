@@ -39,6 +39,7 @@ var bindings = []binding{
 	// Listed here rather than with the other deferred keys so the bottom bar
 	// reads in the order section 11 draws it.
 	{keys: []string{"w"}, help: "waiting on someone", hint: "w wait"},
+	{keys: []string{"T"}, help: "triage the inbox", hint: "T triage"},
 	{keys: []string{"/"}, help: "edit the filter", hint: "/ search"},
 	{keys: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, help: "saved filters"},
 	{keys: []string{"u"}, help: "undo", hint: "u undo"},
@@ -49,7 +50,7 @@ var bindings = []binding{
 
 	// Specified in section 11, not built yet. Each says where it lands.
 	{keys: []string{"@"}, help: "link a person"},
-	{keys: []string{"E"}, help: "edit the series", when: "with recurrence, in phase 7"},
+	{keys: []string{"E"}, help: "edit the series"},
 }
 
 // deferredKeys maps a key to where it lands, so pressing one says so instead

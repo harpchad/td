@@ -22,7 +22,23 @@ type Store interface {
 	MarkNotified(ctx context.Context, taskID string, now time.Time) error
 	// PurgeExpiredSessions drops sessions past their expiry.
 	PurgeExpiredSessions(ctx context.Context, now time.Time) (int64, error)
+	// AdvanceDue materializes the instances of every fixed series whose next
+	// occurrence has arrived, and reports how many it made.
+	AdvanceDue(ctx context.Context, actor string, now time.Time) (int, error)
+	// ReferencedBlobs is every digest still pointed at by an attachment row.
+	ReferencedBlobs(ctx context.Context) (map[string]bool, error)
 }
+
+// Blobs is the attachment store, as much of it as the sweep needs.
+type Blobs interface {
+	// Sweep deletes every blob whose digest is not in keep.
+	Sweep(keep map[string]bool) (int, error)
+}
+
+// SweepEvery is how often orphaned attachment bytes are collected. Weekly,
+// per section 17: a detached file is not urgent, and collecting on delete
+// would take the bytes out from under an undo.
+const SweepEvery = 7 * 24 * time.Hour
 
 // Scheduler fires reminders.
 type Scheduler struct {
@@ -39,16 +55,28 @@ type Scheduler struct {
 	// ActionToken authenticates the Done and Snooze buttons. Empty leaves the
 	// notification a click-through.
 	ActionToken string
+
+	// Blobs is the attachment store the weekly sweep runs against. Nil skips
+	// the sweep.
+	Blobs Blobs
+
+	// sweptAt is when the last orphan collection ran. Zero means never, and
+	// the first tick after start does one.
+	sweptAt time.Time
 }
 
 // Run ticks until the context is cancelled.
+//
+// The tick runs whether or not reminders are configured. Recurrence and
+// session expiry are not optional, and tying them to an ntfy topic would mean
+// a repeating task silently stops repeating when push is turned off.
 func (s *Scheduler) Run(ctx context.Context) {
-	if !s.Policy.Enabled() {
+	if s.Policy.Enabled() {
+		s.Log.Info("reminders on", "topic", s.Policy.Topic,
+			"rule", s.Policy.DefaultRule, "lead_minutes", s.Policy.LeadMinutes)
+	} else {
 		s.Log.Info("reminders are off, no notify.topic configured")
-		return
 	}
-	s.Log.Info("reminders on", "topic", s.Policy.Topic,
-		"rule", s.Policy.DefaultRule, "lead_minutes", s.Policy.LeadMinutes)
 
 	ticker := time.NewTicker(Tick)
 	defer ticker.Stop()
@@ -74,6 +102,19 @@ func (s *Scheduler) Once(ctx context.Context) {
 		s.Log.Info("purged expired sessions", "count", n)
 	}
 
+	// Recurrence fires before delivery, so an instance that materializes on
+	// this tick can be reminded about on the same one.
+	if n, err := s.Store.AdvanceDue(ctx, api.ActorScheduler, now); err != nil {
+		s.Log.Error("advancing series", "err", err)
+	} else if n > 0 {
+		s.Log.Info("recurring instances created", "count", n)
+	}
+
+	s.sweepBlobs(ctx, now)
+
+	if !s.Policy.Enabled() {
+		return
+	}
 	sent, err := s.Deliver(ctx, now)
 	if err != nil {
 		s.Log.Error("reminder pass", "err", err)
@@ -81,6 +122,33 @@ func (s *Scheduler) Once(ctx context.Context) {
 	}
 	if sent > 0 {
 		s.Log.Info("reminders sent", "count", sent)
+	}
+}
+
+// sweepBlobs collects attachment bytes nothing points at, at most weekly.
+//
+// The keep set is read first and the sweep runs against it, so a file
+// attached between the two survives: an upload that lands mid-sweep is not
+// yet in the set but is also not yet on disk under a name the walk reaches
+// before the rename. Getting the order backwards would delete a live file.
+func (s *Scheduler) sweepBlobs(ctx context.Context, now time.Time) {
+	if s.Blobs == nil || now.Sub(s.sweptAt) < SweepEvery {
+		return
+	}
+	s.sweptAt = now
+
+	keep, err := s.Store.ReferencedBlobs(ctx)
+	if err != nil {
+		s.Log.Error("reading attachment references", "err", err)
+		return
+	}
+	n, err := s.Blobs.Sweep(keep)
+	if err != nil {
+		s.Log.Error("sweeping orphaned attachments", "err", err)
+		return
+	}
+	if n > 0 {
+		s.Log.Info("swept orphaned attachments", "count", n, "kept", len(keep))
 	}
 }
 

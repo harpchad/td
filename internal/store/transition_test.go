@@ -621,3 +621,55 @@ func TestANoOpPatchDoesNotDeadlock(t *testing.T) {
 		t.Fatalf("the store is unusable: %v", err)
 	}
 }
+
+// TestPromotingWithThePriorityInTheSamePatch covers the fixture's wording:
+// the inbox transition requires "priority is set OR due_at is set", and the
+// state that has to satisfy it is the state after the patch. Setting a
+// priority and promoting in one request is the ordinary move, and refusing it
+// would make every client send two.
+func TestPromotingWithThePriorityInTheSamePatch(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	inbox, err := s.List(ctx, "is:inbox", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inbox) == 0 {
+		t.Fatal("the fixture has no inbox tasks")
+	}
+	task := inbox[0]
+	if task.Priority != nil || task.DueAt != nil {
+		t.Fatalf("task %d already satisfies the requirement, so this proves nothing", task.Num)
+	}
+
+	p := 2
+	todo := api.StatusTodo
+	got, err := s.Patch(ctx, actor, task.ID, api.TaskPatch{
+		Priority: &p, Status: &todo,
+		Presence: map[string]bool{"priority": true},
+	}, "", now)
+	if err != nil {
+		t.Fatalf("one patch that sets a priority and promotes: %v", err)
+	}
+	if got.Status != api.StatusTodo {
+		t.Errorf("status = %s", got.Status)
+	}
+
+	// The requirement still bites when the patch supplies neither.
+	other := inbox[len(inbox)-1]
+	if other.ID == task.ID {
+		return
+	}
+	if _, err := s.Patch(ctx, actor, other.ID, api.TaskPatch{Status: &todo}, "", now); err == nil {
+		t.Error("promoting with no priority and no due date was allowed")
+	}
+
+	// And clearing the priority in the same patch that promotes is refused,
+	// which is the case a "before or after" check would let through.
+	if _, err := s.Patch(ctx, actor, other.ID, api.TaskPatch{
+		Status: &todo, Presence: map[string]bool{"priority": true},
+	}, "", now); err == nil {
+		t.Error("promoting while clearing the priority was allowed")
+	}
+}

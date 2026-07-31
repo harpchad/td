@@ -186,6 +186,27 @@ func (c *Client) PatchTyped(ctx context.Context, ref string, patch api.TaskPatch
 	if patch.Presence["notify"] && patch.Notify != nil {
 		body["notify"] = *patch.Notify
 	}
+	// The pointer-plus-presence pair is what keeps an absent key and an
+	// explicit null different: absent leaves the field alone, null clears it.
+	// A nil pointer with presence set is how a field is cleared.
+	if patch.Presence["priority"] {
+		body["priority"] = patch.Priority
+	}
+	if patch.Presence["effort"] {
+		body["effort"] = patch.Effort
+	}
+	if patch.Presence["due_at"] {
+		body["due_at"] = patch.DueAt
+	}
+	if patch.Presence["start_at"] {
+		body["start_at"] = patch.StartAt
+	}
+	if patch.Presence["snooze_until"] {
+		body["snooze_until"] = patch.SnoozeUntil
+	}
+	if patch.Tags != nil {
+		body["tags"] = *patch.Tags
+	}
 	return c.Patch(ctx, ref, body, ifMatch)
 }
 

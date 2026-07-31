@@ -26,6 +26,7 @@ const (
 	promptSnooze
 	promptWaiting
 	promptPerson
+	promptRepeat
 )
 
 func (p prompt) label() string {
@@ -42,6 +43,8 @@ func (p prompt) label() string {
 		return "waiting on: "
 	case promptPerson:
 		return "person: "
+	case promptRepeat:
+		return "repeats: "
 	default:
 		return ""
 	}
@@ -59,6 +62,8 @@ func (p prompt) placeholder() string {
 		return "a handle, or empty to stop waiting"
 	case promptPerson:
 		return "handle, or handle:role"
+	case promptRepeat:
+		return "every monday, every 2 weeks, monthly on the 1st"
 	default:
 		return ""
 	}
@@ -92,6 +97,12 @@ func (m *Model) openPrompt(kind prompt) {
 	if !ok {
 		return
 	}
+	m.openPromptFor(kind, t)
+}
+
+// openPromptFor starts the editor on a named task. Triage has no cursor into
+// the list, so it names the task it is showing.
+func (m *Model) openPromptFor(kind prompt, t api.Task) {
 	m.prompt = kind
 	m.promptTask = t
 	m.status = ""
@@ -138,6 +149,8 @@ func (m *Model) submitPrompt() tea.Cmd {
 		return m.applyWaiting(t, value)
 	case promptPerson:
 		return m.applyPerson(t, value)
+	case promptRepeat:
+		return m.applyRepeat(t, value)
 	}
 	return nil
 }

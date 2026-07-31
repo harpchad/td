@@ -278,3 +278,40 @@ func (s *Store) hydrate(ctx context.Context, tasks []api.Task) error {
 	}
 	return nil
 }
+
+// Children returns a task's subtasks in the default order.
+//
+// The detail page needs them by parent, which the filter grammar has no
+// token for on purpose: `parent:` would be a filter nobody types at a prompt,
+// and inventing one to serve one screen is how a grammar rots.
+func (s *Store) Children(ctx context.Context, parentID string, now time.Time) ([]api.Task, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id FROM task WHERE parent_id = ?`, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]api.Task, 0, len(ids))
+	for _, id := range ids {
+		task, err := s.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, task)
+	}
+	query.NewSorter(now.In(s.loc)).Sort(out)
+	return out, nil
+}

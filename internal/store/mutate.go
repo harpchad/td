@@ -12,6 +12,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/harpchad/td/internal/api"
+	"github.com/harpchad/td/internal/recur"
 )
 
 // NewID returns a fresh ULID. Clients generate their own so quick-add can
@@ -213,7 +214,7 @@ func (s *Store) Patch(ctx context.Context, actor, id string, p api.TaskPatch, if
 		if p.Presence["waiting_on"] {
 			waitingOn = p.WaitingOn
 		}
-		effects, err := applyTransition(ctx, tx, &before, *p.Status, waitingOn, now)
+		effects, err := applyTransition(ctx, tx, &before, *p.Status, waitingOn, sets, now)
 		if err != nil {
 			return api.Task{}, err
 		}
@@ -290,7 +291,41 @@ func (s *Store) Patch(ctx context.Context, actor, id string, p api.TaskPatch, if
 	if err := tx.Commit(); err != nil {
 		return api.Task{}, err
 	}
+	if kind == api.KindTaskComplete {
+		// After the commit, not inside it: generating the next instance runs
+		// its own transactions, and the pool is one connection.
+		if err := s.afterCompletion(ctx, actor, &after, now); err != nil {
+			return api.Task{}, err
+		}
+	}
 	return s.Get(ctx, id)
+}
+
+// afterCompletion generates the next instance of a series whose mode counts
+// from completion. Fixed series generate nothing here: the scheduler does it
+// when the rule fires, which is the whole difference between the two modes.
+func (s *Store) afterCompletion(ctx context.Context, actor string, done *api.Task, now time.Time) error {
+	if done.SeriesID == nil || *done.SeriesID == "" {
+		return nil
+	}
+	series, err := s.Series(ctx, *done.SeriesID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	if series.Mode != recur.ModeAfterCompletion {
+		return nil
+	}
+	completedAt := now
+	if done.CompletedAt != nil {
+		if at, err := time.Parse(time.RFC3339, *done.CompletedAt); err == nil {
+			completedAt = at
+		}
+	}
+	_, err = s.NextAfterCompletion(ctx, actor, series, completedAt, now)
+	return err
 }
 
 // Complete moves a task to done. It reports how many children are still open
@@ -317,15 +352,49 @@ func (s *Store) Drop(ctx context.Context, actor, id string, now time.Time) (api.
 	return s.Patch(ctx, actor, id, api.TaskPatch{Status: &status}, "", now)
 }
 
+// promotable reports whether a task will have a priority or a due date once
+// this patch lands. A key present in pending overrides what the task has,
+// including a nil value, which is how a field gets cleared.
+func promotable(before *api.Task, pending map[string]any) bool {
+	has := func(column string, current any) bool {
+		if v, ok := pending[column]; ok {
+			return !isNil(v)
+		}
+		return !isNil(current)
+	}
+	return has("priority", before.Priority) || has("due_at", before.DueAt)
+}
+
+// isNil covers an untyped nil and a nil pointer inside an interface, which is
+// what a cleared field looks like once it is in a map[string]any.
+func isNil(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case *int:
+		return t == nil
+	case *string:
+		return t == nil
+	default:
+		return false
+	}
+}
+
 // applyTransition validates a status move against the state machine and
 // returns the extra column writes the move implies.
-func applyTransition(ctx context.Context, tx *sql.Tx, before *api.Task, to string, waitingOn *string, now time.Time) (map[string]any, error) {
+//
+// pending is what the rest of this same patch is already writing. The fixture
+// says the inbox transition requires "priority is set OR due_at is set", and
+// the state that has to satisfy it is the state after the patch, not before
+// it: setting a priority and promoting in one request is the ordinary move,
+// and refusing it would make every client send two.
+func applyTransition(ctx context.Context, tx *sql.Tx, before *api.Task, to string, waitingOn *string, pending map[string]any, now time.Time) (map[string]any, error) {
 	tr, apiErr := lookupTransition(before.Status, to)
 	if apiErr != nil {
 		return nil, apiErr
 	}
 
-	if tr.needsPromotable && before.Priority == nil && before.DueAt == nil {
+	if tr.needsPromotable && !promotable(before, pending) {
 		return nil, &api.Error{
 			Code:    api.ErrInboxIncomplete,
 			Message: "set a priority or a due date before promoting",
