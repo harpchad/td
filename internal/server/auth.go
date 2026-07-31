@@ -111,7 +111,7 @@ func isBrowserPath(path string) bool {
 	switch {
 	case path == "/", path == "/settings", path == "/help":
 		return true
-	case strings.HasPrefix(path, "/t/"), strings.HasPrefix(path, "/w/"):
+	case strings.HasPrefix(path, "/t/"), strings.HasPrefix(path, "/w/"), strings.HasPrefix(path, "/p/"):
 		return true
 	}
 	return false

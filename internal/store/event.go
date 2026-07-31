@@ -24,6 +24,7 @@ var undoableKinds = map[string]bool{
 	api.KindTaskComplete: true,
 	api.KindTaskDropped:  true,
 	api.KindTaskTagged:   true,
+	api.KindTaskPeople:   true,
 	api.KindTaskSnoozed:  true,
 }
 
@@ -217,6 +218,18 @@ func reverseFields(ctx context.Context, tx *sql.Tx, e api.Event, now time.Time) 
 				return err
 			}
 			if err := setTags(ctx, tx, e.TaskID, restored); err != nil {
+				return err
+			}
+			continue
+		}
+		if name == peopleField {
+			// Person links live in another table too, so they come back the
+			// same way tags do rather than through the UPDATE below.
+			restored, err := stringList(e.Patch.Fields[name].From)
+			if err != nil {
+				return err
+			}
+			if err := setPeopleLinks(ctx, tx, e.TaskID, restored); err != nil {
 				return err
 			}
 			continue

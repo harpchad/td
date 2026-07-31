@@ -377,23 +377,72 @@ func TestDetailIsAFullScreenReplacement(t *testing.T) {
 // which is not built yet reports itself rather than doing nothing, because a
 // key that silently does nothing reads as a bug. It also guards against the
 // message naming a phase that has already shipped.
+//
+// Only the series key is left: everything else in section 11's keymap is
+// implemented. When phase 7 lands, this test loses its subject, and the right
+// answer then is to delete it rather than invent a key for it.
 func TestDeferredKeysSayWhereTheyLand(t *testing.T) {
 	h, _ := open(t)
 
-	h.key("w")
+	h.key("E")
 	view := plain(h.view())
-	if !strings.Contains(view, "phase 6") {
-		t.Errorf("w did nothing visible:\n%s", view)
+	if !strings.Contains(view, "phase 7") {
+		t.Errorf("E did nothing visible:\n%s", view)
 	}
-	if !strings.Contains(view, "waiting") {
+	if !strings.Contains(view, "series") {
 		t.Error("the message does not say what the key would do")
 	}
+}
 
-	// The people keys are still ahead, and say which phase.
+// TestWaitingNeedsAPerson covers the rule that waiting needs the person link.
+func TestWaitingNeedsAPerson(t *testing.T) {
+	h, f := open(t)
+
+	h.key("w")
+	if !strings.Contains(plain(h.view()), "waiting on:") {
+		t.Fatal("w did not open the waiting editor")
+	}
+	for _, r := range "mikah" {
+		h.key(string(r))
+	}
+	h.key("enter")
+
+	if len(f.patched) != 1 {
+		t.Fatalf("%d patches, want 1", len(f.patched))
+	}
+	if got := f.patched[0]["status"]; got != "waiting" {
+		t.Errorf("status = %v, want waiting", got)
+	}
+	if f.patched[0]["waiting_on"] == nil {
+		t.Error("the task moved to waiting with nobody attached")
+	}
+}
+
+// TestLinkingAPersonTakesARole covers @ and its optional role.
+func TestLinkingAPersonTakesARole(t *testing.T) {
+	h, f := open(t)
+
 	h.key("@")
-	view = plain(h.view())
-	if !strings.Contains(view, "phase 6") {
-		t.Errorf("@ did nothing visible:\n%s", view)
+	for _, r := range "stacey:assignee" {
+		h.key(string(r))
+	}
+	h.key("enter")
+
+	if len(f.linked) != 1 {
+		t.Fatalf("%d links, want 1", len(f.linked))
+	}
+	if f.linked[0].person != "stacey" || f.linked[0].role != "assignee" {
+		t.Errorf("link = %+v", f.linked[0])
+	}
+
+	// A bare handle is an involved link, which is the softest one.
+	h.key("@")
+	for _, r := range "mikah" {
+		h.key(string(r))
+	}
+	h.key("enter")
+	if len(f.linked) != 2 || f.linked[1].role != "involved" {
+		t.Errorf("a bare handle linked as %+v", f.linked)
 	}
 }
 

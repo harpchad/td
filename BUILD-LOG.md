@@ -541,3 +541,57 @@ Reminders are off until `notify.topic` is set in `config.toml`, which is
 written on first start. The action buttons need a token: `tdd token create
 -name ntfy -scopes write`, then `notify.action_token`. Without it the push is
 a click-through, which is a reasonable way to start.
+
+---
+
+## Phase 6: people, groups, identity mapping
+
+2026-07-31
+
+Built past the point section 16 says to stop at, on the author's
+instruction. Recorded in `DECISIONS.md` rather than re-argued.
+
+### What shipped
+
+Person and group CRUD, identity mapping, person links on tasks with roles,
+and the person page in all three clients: `td person`, `/p/{handle}` in the
+browser, and the `w` and `@` keys in the TUI.
+
+The page's sections are section 5's, in its order: assigned to them, what you
+owe them, what you are waiting on with its age, the agenda, involved, then
+their groups' tasks. The order is the point rather than the contents.
+
+`person_identity` maps a Jira account, a monday user, and an Entra object
+onto one person row. A test links three sources to one person and checks each
+resolves back, because the failure this prevents is silent: without it you
+get three Brandisses and every cross-system query is wrong in a way that
+looks like missing data.
+
+### What was learned
+
+**The agenda needed no new storage.** Section 5 asks for a free-text agenda
+section per person. It is `is:open #agenda @handle`, which is one line and
+composes with everything else the grammar does. Anything else would have been
+a second place tasks live.
+
+**Person links needed the same treatment as tags.** They are in another table
+so the field diff cannot see them, and the undo contract lists them. They
+travel in the event patch under a pseudo-field and come back through
+`setPeopleLinks`, exactly as tags do. The phase 1 note that this was deferred
+"until there is something to reverse" turned out to be the right shape: the
+mechanism was already there to copy.
+
+**Every key in section 11's keymap is now implemented except one.** The
+deferred-key test has a single subject left, `E` for editing a series, and
+phase 7 takes it. The right move then is to delete the test rather than
+invent a key to keep it alive.
+
+### What was deferred
+
+- **The pending list for unmatched external users.** Section 5 says unmatched
+  external users go into a list you can merge from. Nothing produces
+  unmatched users until a sync plugin runs, which is phase 11. The mapping
+  side is built and tested; the queue is empty by construction.
+- **Group editing in the clients.** The API creates groups and replaces
+  membership. Neither UI has a screen for it, because groups are static and
+  rarely change; `curl` or a future settings section covers it.

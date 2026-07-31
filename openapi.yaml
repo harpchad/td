@@ -355,6 +355,236 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/Person" }
+    post:
+      tags: [people]
+      summary: Add a person
+      operationId: createPerson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Person" }
+      responses:
+        "201":
+          description: the person
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/people/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: an id or a handle
+        schema: { type: string }
+    get:
+      tags: [people]
+      summary: Get one person
+      operationId: getPerson
+      responses:
+        "200":
+          description: the person
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [people]
+      summary: Update a person
+      description: The handle is not editable; saved filters refer to it.
+      operationId: updatePerson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Person" }
+      responses:
+        "200":
+          description: the person
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/people/{id}/tasks:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [people]
+      summary: The person page
+      description: >-
+        A first-class screen rather than a filter preset. The sections come in
+        the order section 5 fixes: assigned to them, what you owe them, what
+        you are waiting on with its age, involved, the agenda, then their
+        groups' tasks.
+      operationId: personTasks
+      responses:
+        "200":
+          description: the page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PersonPage" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/people/{id}/identities:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [people]
+      summary: Map an external account onto a person
+      description: >-
+        A Jira account id, a monday user id, and an Entra object id all
+        resolve to one person row, so a query spans systems instead of finding
+        three of the same person.
+      operationId: linkIdentity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Identity" }
+      responses:
+        "200":
+          description: the person's identities
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Identity" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/groups:
+    get:
+      tags: [people]
+      summary: List groups
+      description: Static membership, not saved searches.
+      operationId: listGroups
+      responses:
+        "200":
+          description: the groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Group" }
+    post:
+      tags: [people]
+      summary: Add a group
+      operationId: createGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Group" }
+      responses:
+        "201":
+          description: the group
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/groups/{id}/members:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      tags: [people]
+      summary: Replace a group's membership
+      operationId: setGroupMembers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [members]
+              properties:
+                members:
+                  type: array
+                  items: { type: string }
+      responses:
+        "204":
+          description: done
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /api/v1/tasks/{id}/people:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [people]
+      summary: Link a person to a task
+      operationId: linkPerson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [person, role]
+              properties:
+                person: { type: string, description: "an id or a handle" }
+                role: { $ref: "#/components/schemas/Role" }
+      responses:
+        "200":
+          description: the task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/tasks/{id}/people/{person}/{role}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+      - name: person
+        in: path
+        required: true
+        schema: { type: string }
+      - name: role
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/Role" }
+    delete:
+      tags: [people]
+      summary: Remove one person link
+      operationId: unlinkPerson
+      responses:
+        "200":
+          description: the task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/filters:
     get:
@@ -775,6 +1005,65 @@ components:
         handle: { type: string, description: "the @handle the filter grammar matches" }
         email: { type: string }
         notes: { type: string }
+
+    Group:
+      type: object
+      required: [handle, name]
+      description: Static membership, not a saved search. Kept dumb on purpose.
+      properties:
+        id: { type: string }
+        handle: { type: string, description: "what grp: matches" }
+        name: { type: string }
+        members:
+          type: array
+          description: person ids
+          items: { type: string }
+
+    Identity:
+      type: object
+      required: [source, external_id]
+      properties:
+        person_id: { type: string }
+        source: { type: string }
+        external_id: { type: string }
+
+    PersonPage:
+      type: object
+      required: [person]
+      description: >-
+        The sections are ordered, and the order is the point: what they owe
+        you, what you owe them, what you are waiting on and for how long, then
+        the softer links.
+      properties:
+        person: { $ref: "#/components/schemas/Person" }
+        assigned:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        owed:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        waiting:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        waiting_days:
+          type: array
+          description: parallel to waiting, in whole days
+          items: { type: integer }
+        involved:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        agenda:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        groups:
+          type: array
+          items: { type: string }
+        group_tasks:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        identities:
+          type: array
+          items: { $ref: "#/components/schemas/Identity" }
 
     SavedFilter:
       type: object

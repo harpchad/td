@@ -38,7 +38,7 @@ var bindings = []binding{
 	{keys: []string{"N"}, help: "edit notes"},
 	// Listed here rather than with the other deferred keys so the bottom bar
 	// reads in the order section 11 draws it.
-	{keys: []string{"w"}, help: "waiting on someone", hint: "w wait", when: "with people, in phase 6"},
+	{keys: []string{"w"}, help: "waiting on someone", hint: "w wait"},
 	{keys: []string{"/"}, help: "edit the filter", hint: "/ search"},
 	{keys: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, help: "saved filters"},
 	{keys: []string{"u"}, help: "undo", hint: "u undo"},
@@ -48,7 +48,7 @@ var bindings = []binding{
 	{keys: []string{"q", "ctrl+c"}, help: "quit"},
 
 	// Specified in section 11, not built yet. Each says where it lands.
-	{keys: []string{"@"}, help: "people", when: "with people, in phase 6"},
+	{keys: []string{"@"}, help: "link a person"},
 	{keys: []string{"E"}, help: "edit the series", when: "with recurrence, in phase 7"},
 }
 

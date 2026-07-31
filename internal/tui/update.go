@@ -227,6 +227,10 @@ func (m *Model) listKey(key string) (tea.Model, tea.Cmd) {
 		m.openPrompt(promptTags)
 	case "s":
 		m.openPrompt(promptSnooze)
+	case "w":
+		m.openPrompt(promptWaiting)
+	case "@":
+		m.openPrompt(promptPerson)
 
 	case "N":
 		// Notes are multi-line, so they get a textarea rather than the

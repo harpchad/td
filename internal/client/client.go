@@ -146,6 +146,49 @@ func (c *Client) Drop(ctx context.Context, ref string) (api.Task, error) {
 	return out, err
 }
 
+// Person looks someone up by id or handle.
+func (c *Client) Person(ctx context.Context, ref string) (api.Person, error) {
+	var out api.Person
+	err := c.do(ctx, http.MethodGet, "/api/v1/people/"+url.PathEscape(ref), nil, nil, &out)
+	return out, err
+}
+
+// PersonPage is the screen you open before a 1:1.
+func (c *Client) PersonPage(ctx context.Context, ref string) (api.PersonPage, error) {
+	var out api.PersonPage
+	err := c.do(ctx, http.MethodGet, "/api/v1/people/"+url.PathEscape(ref)+"/tasks", nil, nil, &out)
+	return out, err
+}
+
+// LinkPerson attaches a person to a task in a role.
+func (c *Client) LinkPerson(ctx context.Context, ref, person, role string) (api.Task, error) {
+	var out api.Task
+	body := map[string]string{"person": person, "role": role}
+	err := c.do(ctx, http.MethodPost, "/api/v1/tasks/"+url.PathEscape(ref)+"/people", body, nil, &out)
+	return out, err
+}
+
+// PatchTyped is Patch with the typed body, for callers that have one.
+func (c *Client) PatchTyped(ctx context.Context, ref string, patch api.TaskPatch, ifMatch string) (api.Task, error) {
+	body := map[string]any{}
+	if patch.Title != nil {
+		body["title"] = *patch.Title
+	}
+	if patch.Notes != nil {
+		body["notes"] = *patch.Notes
+	}
+	if patch.Status != nil {
+		body["status"] = *patch.Status
+	}
+	if patch.Presence["waiting_on"] {
+		body["waiting_on"] = patch.WaitingOn
+	}
+	if patch.Presence["notify"] && patch.Notify != nil {
+		body["notify"] = *patch.Notify
+	}
+	return c.Patch(ctx, ref, body, ifMatch)
+}
+
 // Snooze hides a task until an instant. duration is relative ("1h"), until is
 // absolute; give one.
 func (c *Client) Snooze(ctx context.Context, ref string, req api.SnoozeRequest) (api.Task, error) {

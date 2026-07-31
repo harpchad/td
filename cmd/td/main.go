@@ -36,6 +36,7 @@ const usage = `td - task manager
   td drop <ref>        drop a task
   td undo              reverse your last change
   td people            list people
+  td person <handle>   the person page: what they owe you, what you owe them
   td filters           list saved filters
   td whoami            show which credential is in use and what it may do
   td flush             send anything queued while offline
@@ -97,6 +98,8 @@ func run(args []string) error {
 		return undo(ctx, c, rest)
 	case "people":
 		return people(ctx, c, rest)
+	case "person":
+		return person(ctx, c, rest)
 	case "filters":
 		return filters(ctx, c, rest)
 	case "whoami":
@@ -374,5 +377,69 @@ func flush(ctx context.Context, c *client.Client) error {
 		return err
 	}
 	fmt.Printf("sent %d\n", sent)
+	return nil
+}
+
+// person renders the screen you open before a 1:1, in section 5's order.
+func person(ctx context.Context, c *client.Client, args []string) error {
+	fs := flag.NewFlagSet("person", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "print the page as JSON")
+	if err := parseArgs(fs, args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("person takes one handle or id")
+	}
+
+	page, err := c.PersonPage(ctx, strings.TrimPrefix(fs.Arg(0), "@"))
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return printJSON(page)
+	}
+
+	now := c.Now()
+	fmt.Printf("%s  @%s\n", page.Person.Name, page.Person.Handle)
+	if len(page.Identities) > 0 {
+		var ids []string
+		for _, i := range page.Identities {
+			ids = append(ids, i.Source+":"+i.ExternalID)
+		}
+		fmt.Printf("also  %s\n", strings.Join(ids, "  "))
+	}
+
+	section := func(title string, tasks []api.Task) {
+		fmt.Printf("\n%s\n", title)
+		if len(tasks) == 0 {
+			fmt.Println("  nothing")
+			return
+		}
+		for _, t := range tasks {
+			fmt.Println("  " + formatRow(t, now))
+		}
+	}
+
+	section("assigned to them", page.Assigned)
+	section("you owe them", page.Owed)
+
+	// Waiting carries its age, which is what makes the section actionable.
+	fmt.Printf("\nwaiting on them\n")
+	if len(page.Waiting) == 0 {
+		fmt.Println("  nothing")
+	}
+	for i, t := range page.Waiting {
+		days := 0
+		if i < len(page.WaitingDays) {
+			days = page.WaitingDays[i]
+		}
+		fmt.Printf("  %s  %d days\n", formatRow(t, now), days)
+	}
+
+	section("agenda", page.Agenda)
+	section("involved", page.Involved)
+	if len(page.Groups) > 0 {
+		section(strings.Join(page.Groups, ", "), page.GroupTasks)
+	}
 	return nil
 }

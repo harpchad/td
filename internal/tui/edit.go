@@ -24,6 +24,8 @@ const (
 	promptPriority
 	promptTags
 	promptSnooze
+	promptWaiting
+	promptPerson
 )
 
 func (p prompt) label() string {
@@ -36,6 +38,10 @@ func (p prompt) label() string {
 		return "tags: "
 	case promptSnooze:
 		return "snooze: "
+	case promptWaiting:
+		return "waiting on: "
+	case promptPerson:
+		return "person: "
 	default:
 		return ""
 	}
@@ -49,6 +55,10 @@ func (p prompt) placeholder() string {
 		return "certs ops"
 	case promptSnooze:
 		return "1h, 2d, or friday"
+	case promptWaiting:
+		return "a handle, or empty to stop waiting"
+	case promptPerson:
+		return "handle, or handle:role"
 	default:
 		return ""
 	}
@@ -124,8 +134,82 @@ func (m *Model) submitPrompt() tea.Cmd {
 		return m.applyTags(t, value)
 	case promptSnooze:
 		return m.applySnooze(t, value)
+	case promptWaiting:
+		return m.applyWaiting(t, value)
+	case promptPerson:
+		return m.applyPerson(t, value)
 	}
 	return nil
+}
+
+// applyWaiting moves a task to waiting on someone, or back out of it.
+//
+// waiting needs the person link: "waiting on Mikah since the 12th" is the
+// state you actually live in, and a waiting task with nobody attached cannot
+// answer the question the state exists for.
+func (m *Model) applyWaiting(t api.Task, handle string) tea.Cmd {
+	handle = strings.TrimPrefix(strings.TrimSpace(handle), "@")
+
+	if handle == "" {
+		if t.Status != api.StatusWaiting {
+			return nil
+		}
+		// Leaving waiting clears the link and the age with it.
+		todo := api.StatusTodo
+		return m.patchTyped(t, api.TaskPatch{Status: &todo}, "back to todo")
+	}
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+		defer cancel()
+
+		person, err := m.client.Person(ctx, handle)
+		if err != nil {
+			return actionMsg{status: "no person @" + handle}
+		}
+		waiting := api.StatusWaiting
+		patch := api.TaskPatch{
+			Status: &waiting, WaitingOn: &person.ID,
+			Presence: map[string]bool{"waiting_on": true},
+		}
+		if _, err := m.client.PatchTyped(ctx, t.ID, patch, ""); err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{status: "waiting on @" + person.Handle, reload: true}
+	}
+}
+
+// applyPerson links a person to the task, optionally in a named role.
+func (m *Model) applyPerson(t api.Task, value string) tea.Cmd {
+	value = strings.TrimPrefix(strings.TrimSpace(value), "@")
+	if value == "" {
+		return nil
+	}
+	handle, role, ok := strings.Cut(value, ":")
+	if !ok {
+		role = api.RoleInvolved
+	}
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+		defer cancel()
+		if _, err := m.client.LinkPerson(ctx, t.ID, handle, role); err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{status: "@" + handle + " is " + role, reload: true}
+	}
+}
+
+// patchTyped is the common shape for a typed patch.
+func (m *Model) patchTyped(t api.Task, patch api.TaskPatch, status string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+		defer cancel()
+		if _, err := m.client.PatchTyped(ctx, t.ID, patch, ""); err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{status: status, reload: true}
+	}
 }
 
 // applyCapture parses the edited line with the capture grammar and patches

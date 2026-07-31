@@ -105,6 +105,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/snooze", s.snoozeTask)
 
 	mux.HandleFunc("GET /api/v1/people", s.listPeople)
+	mux.HandleFunc("POST /api/v1/people", s.createPerson)
+	mux.HandleFunc("GET /api/v1/people/{id}", s.getPerson)
+	mux.HandleFunc("PATCH /api/v1/people/{id}", s.updatePerson)
+	mux.HandleFunc("GET /api/v1/people/{id}/tasks", s.personTasks)
+	mux.HandleFunc("POST /api/v1/people/{id}/identities", s.linkIdentity)
+	mux.HandleFunc("GET /api/v1/groups", s.listGroups)
+	mux.HandleFunc("POST /api/v1/groups", s.createGroup)
+	mux.HandleFunc("PUT /api/v1/groups/{id}/members", s.setGroupMembers)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/people", s.linkPerson)
+	mux.HandleFunc("DELETE /api/v1/tasks/{id}/people/{person}/{role}", s.unlinkPerson)
 	mux.HandleFunc("GET /api/v1/filters", s.listFilters)
 	mux.HandleFunc("POST /api/v1/filters", s.putFilter)
 	mux.HandleFunc("GET /api/v1/ui/folds", s.listFolds)
@@ -390,6 +400,179 @@ func (s *Server) listPeople(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, people)
+}
+
+func (s *Server) createPerson(w http.ResponseWriter, r *http.Request) {
+	var in api.Person
+	if err := decode(r, &in); err != nil {
+		s.fail(w, err)
+		return
+	}
+	person, err := s.store.CreatePerson(r.Context(), in, s.Now())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, person)
+}
+
+func (s *Server) getPerson(w http.ResponseWriter, r *http.Request) {
+	person, err := s.store.ResolvePerson(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, person)
+}
+
+func (s *Server) updatePerson(w http.ResponseWriter, r *http.Request) {
+	person, err := s.store.ResolvePerson(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	var in api.Person
+	if err := decode(r, &in); err != nil {
+		s.fail(w, err)
+		return
+	}
+	updated, err := s.store.UpdatePerson(r.Context(), person.ID, in)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// personTasks is the person page: a first-class screen rather than a filter
+// preset, in the order section 5 fixes.
+func (s *Server) personTasks(w http.ResponseWriter, r *http.Request) {
+	person, err := s.store.ResolvePerson(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	page, err := s.store.PersonPage(r.Context(), person.ID, s.Now())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+// linkIdentity maps an external account onto a person, which is what lets a
+// query span Jira, monday, and Planner instead of finding three Brandisses.
+func (s *Server) linkIdentity(w http.ResponseWriter, r *http.Request) {
+	person, err := s.store.ResolvePerson(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	var in api.Identity
+	if err := decode(r, &in); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.store.LinkIdentity(r.Context(), person.ID, in.Source, in.ExternalID); err != nil {
+		s.fail(w, err)
+		return
+	}
+	identities, err := s.store.Identities(r.Context(), person.ID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, identities)
+}
+
+func (s *Server) listGroups(w http.ResponseWriter, r *http.Request) {
+	groups, err := s.store.Groups(r.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, groups)
+}
+
+func (s *Server) createGroup(w http.ResponseWriter, r *http.Request) {
+	var in api.Group
+	if err := decode(r, &in); err != nil {
+		s.fail(w, err)
+		return
+	}
+	group, err := s.store.CreateGroup(r.Context(), in)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, group)
+}
+
+func (s *Server) setGroupMembers(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Members []string `json:"members"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.store.SetGroupMembers(r.Context(), r.PathValue("id"), in.Members); err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) linkPerson(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.resolve(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Person string `json:"person"`
+		Role   string `json:"role"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, err)
+		return
+	}
+	person, err := s.store.ResolvePerson(r.Context(), in.Person)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.store.LinkPerson(r.Context(), s.actorOf(r), id, person.ID, in.Role, s.Now()); err != nil {
+		s.fail(w, err)
+		return
+	}
+	task, err := s.store.Get(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+func (s *Server) unlinkPerson(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.resolve(w, r)
+	if !ok {
+		return
+	}
+	person, err := s.store.ResolvePerson(r.Context(), r.PathValue("person"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.store.UnlinkPerson(r.Context(), s.actorOf(r), id, person.ID, r.PathValue("role"), s.Now()); err != nil {
+		s.fail(w, err)
+		return
+	}
+	task, err := s.store.Get(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
 }
 
 func (s *Server) listFilters(w http.ResponseWriter, r *http.Request) {

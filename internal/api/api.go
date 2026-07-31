@@ -105,6 +105,35 @@ type Person struct {
 	Notes  string `json:"notes,omitempty"`
 }
 
+// Identity maps an external account onto a person. A Jira account id, a
+// monday user id, and an Entra object id all resolve to one person row, so
+// "everything involving Brandiss" spans systems.
+type Identity struct {
+	PersonID   string `json:"person_id"`
+	Source     string `json:"source"`
+	ExternalID string `json:"external_id"`
+}
+
+// PersonPage is the screen you open before a 1:1. The order of the sections
+// is the point: what they owe you, what you owe them, what you are waiting on
+// and for how long, then the softer links.
+type PersonPage struct {
+	Person Person `json:"person"`
+
+	Assigned []Task `json:"assigned"`
+	Owed     []Task `json:"owed"`
+	Waiting  []Task `json:"waiting"`
+	// WaitingDays is parallel to Waiting: how long each has been waiting.
+	// "Waiting on Mikah since the 12th" is the state you actually live in.
+	WaitingDays []int  `json:"waiting_days"`
+	Involved    []Task `json:"involved"`
+	Agenda      []Task `json:"agenda"`
+
+	Groups     []string   `json:"groups"`
+	GroupTasks []Task     `json:"group_tasks"`
+	Identities []Identity `json:"identities"`
+}
+
 // Group is static membership, not a saved search.
 type Group struct {
 	ID      string   `json:"id"`
@@ -311,6 +340,7 @@ const (
 	KindTaskDropped  = "task.dropped"
 	KindTaskSnoozed  = "task.snoozed"
 	KindTaskTagged   = "task.tagged"
+	KindTaskPeople   = "task.people"
 	KindUndo         = "undo"
 )
 

@@ -44,7 +44,10 @@ type fakeServer struct {
 	created   []api.TaskCreate
 	patched   []map[string]any
 	snoozed   []api.SnoozeRequest
+	linked    []personLink
 }
+
+type personLink struct{ person, role string }
 
 func newFake(t *testing.T) *fakeServer {
 	t.Helper()
@@ -137,6 +140,16 @@ func newFake(t *testing.T) *fakeServer {
 		var req api.SnoozeRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		f.snoozed = append(f.snoozed, req)
+		writeJSON(w, api.Task{ID: r.PathValue("id")})
+	})
+	mux.HandleFunc("GET /api/v1/people/{ref}", func(w http.ResponseWriter, r *http.Request) {
+		ref := r.PathValue("ref")
+		writeJSON(w, api.Person{ID: "person-" + ref, Handle: ref, Name: strings.ToUpper(ref[:1]) + ref[1:]})
+	})
+	mux.HandleFunc("POST /api/v1/tasks/{id}/people", func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Person, Role string }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.linked = append(f.linked, personLink{person: body.Person, role: body.Role})
 		writeJSON(w, api.Task{ID: r.PathValue("id")})
 	})
 	mux.HandleFunc("POST /api/v1/undo", func(w http.ResponseWriter, _ *http.Request) {

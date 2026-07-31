@@ -18,6 +18,54 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  Building past the two-week soak, on the author's instruction
+Phase: 6 onward
+
+Section 16 says to stop after step 5 and use the thing for two weeks before
+building step 6, because half the requirements will change. That was raised
+twice and the author asked to continue through phase 9 anyway.
+
+Recorded rather than re-argued. The risk the spec names is real and unchanged:
+phases 6 to 9 are being built against requirements that have not been tested
+against use, so anything they get wrong will be discovered later and cost
+more. Nothing in the build is harder to reverse because of it.
+
+## 2026-07-31  MCP: what the 2026-07-28 revision actually says
+Phase: 8 and 9
+
+`CLAUDE.md` says to read the current documentation rather than trusting
+training data on this, and that was worth doing. What the spec says, checked
+against modelcontextprotocol.io rather than memory:
+
+- **Sessions and the initialization handshake are gone.** The
+  `initialize`/`initialized` exchange and the `Mcp-Session-Id` header were
+  retired. Every request carries its own protocol version in an
+  `MCP-Protocol-Version` header, and the protocol is stateless
+  request/response over `POST /mcp`. This is a large simplification: no
+  session store, no shared state between instances, no SSE requirement.
+- **Protected Resource Metadata is mandatory** for the resource server, at
+  `/.well-known/oauth-protected-resource` (RFC 9728).
+- **Resource Indicators are mandatory** (RFC 8707). The `resource` parameter
+  goes in both the authorization request and the token request, and the
+  server must validate that a token's audience is itself.
+- **The 401 carries the discovery chain**:
+  `WWW-Authenticate: Bearer resource_metadata="...", scope="..."`. Without
+  that header the client never finds the authorization server.
+- **403 with `error="insufficient_scope"`** is the runtime scope failure,
+  distinct from 401.
+- **Client ID Metadata Documents are SHOULD; Dynamic Client Registration is
+  MAY and deprecated**, retained only for servers that lack CIMD.
+- **RFC 9207 `iss`** should be returned in authorization responses, and
+  advertised as `authorization_response_iss_parameter_supported`.
+
+And the thing `CLAUDE.md` predicted would be a problem is not one:
+`github.com/modelcontextprotocol/go-sdk` v1.7.0 lists `2026-07-28` among its
+protocol versions and ships a `StreamableHTTPHandler` with typed tool
+registration. The SDK is current with the spec, so phase 8 uses it rather
+than hand-rolling JSON-RPC.
+
+The revision is pinned in the README and in the code.
+
 ## 2026-07-31  Editing shipped as part of phase 5
 Phase: 5
 

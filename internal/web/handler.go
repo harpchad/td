@@ -75,7 +75,7 @@ func New(svc Service, assets *Assets, log *slog.Logger, now func() time.Time) (*
 }
 
 func parseTemplates() (map[string]*template.Template, error) {
-	pages := []string{"home", "detail", "login", "help", "settings"}
+	pages := []string{"home", "detail", "login", "help", "settings", "person"}
 	out := map[string]*template.Template{}
 
 	for _, page := range pages {
@@ -83,7 +83,7 @@ func parseTemplates() (map[string]*template.Template, error) {
 		if page == "home" {
 			files = append(files, "templates/list.html")
 		}
-		t, err := template.New("layout").ParseFS(templateFS, files...)
+		t, err := template.New("layout").Funcs(templateFuncs()).ParseFS(templateFS, files...)
 		if err != nil {
 			return nil, err
 		}
@@ -91,12 +91,33 @@ func parseTemplates() (map[string]*template.Template, error) {
 	}
 
 	// The list fragment is rendered on its own for htmx swaps.
-	frag, err := template.New("list").ParseFS(templateFS, "templates/list.html")
+	frag, err := template.New("list").Funcs(templateFuncs()).ParseFS(templateFS, "templates/list.html")
 	if err != nil {
 		return nil, err
 	}
 	out["list"] = frag
 	return out, nil
+}
+
+// templateFuncs is the whole template vocabulary. dict exists so a section
+// partial can be handed a title and a list without a named type per section.
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
+		"dict": func(pairs ...any) (map[string]any, error) {
+			if len(pairs)%2 != 0 {
+				return nil, errors.New("dict takes pairs")
+			}
+			out := make(map[string]any, len(pairs)/2)
+			for i := 0; i < len(pairs); i += 2 {
+				key, ok := pairs[i].(string)
+				if !ok {
+					return nil, errors.New("dict keys are strings")
+				}
+				out[key] = pairs[i+1]
+			}
+			return out, nil
+		},
+	}
 }
 
 // Routes registers the browser routes on a mux.
@@ -109,6 +130,7 @@ func (u *UI) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /t/{ref}", u.detail)
 	mux.HandleFunc("GET /help", u.help)
 	mux.HandleFunc("GET /settings", u.settings)
+	mux.HandleFunc("GET /p/{ref}", u.person)
 
 	mux.HandleFunc("POST /w/add", u.add)
 	mux.HandleFunc("POST /w/complete/{id}", u.complete)
@@ -165,6 +187,16 @@ type pageData struct {
 	TagValue      string
 	NotifyChoices []notifyChoice
 
+	// The person page: a first-class screen rather than a filter preset.
+	Page        api.PersonPage
+	Assigned    []Row
+	Owed        []Row
+	Involved    []Row
+	Agenda      []Row
+	GroupTasks  []Row
+	Waiting     []waitingRow
+	PersonQuery string
+
 	Themes   []themeChoice
 	ThemeDir string
 	Tokens   []tokenRow
@@ -180,6 +212,7 @@ type DetailPerson struct {
 	Role  string
 	Label string
 	Query string
+	Href  string
 }
 
 // notifyChoice is one radio of the tri-state.
@@ -187,6 +220,16 @@ type notifyChoice struct {
 	Value    string
 	Label    string
 	Selected bool
+}
+
+// waitingRow carries the age alongside the row, which is the whole reason
+// the waiting section is worth having.
+type waitingRow struct {
+	Row Row
+	Age string
+	// Stale marks the ones that have been waiting long enough to chase. The
+	// spec calls "waiting more than 7 days" a view worth building on day one.
+	Stale bool
 }
 
 type themeChoice struct {
@@ -397,7 +440,7 @@ func (u *UI) detail(w http.ResponseWriter, r *http.Request) {
 	for _, p := range task.People {
 		handle := firstWordLower(p.Name)
 		data.People = append(data.People, DetailPerson{
-			Role: p.Role, Label: "@" + handle, Query: "@" + handle,
+			Role: p.Role, Label: "@" + handle, Query: "@" + handle, Href: "/p/" + handle,
 		})
 	}
 
@@ -415,6 +458,75 @@ func (u *UI) detail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	u.render(w, "detail", data)
+}
+
+// StaleWaitingDays is when a waiting task starts reading as something to
+// chase. Section 5 calls the derived view worth building on day one.
+const StaleWaitingDays = 7
+
+// person renders the screen you open before a 1:1.
+func (u *UI) person(w http.ResponseWriter, r *http.Request) {
+	people, ok := u.svc.(peopleService)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	found, err := people.ResolvePerson(r.Context(), r.PathValue("ref"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	page, err := people.PersonPage(r.Context(), found.ID, u.Now())
+	if err != nil {
+		u.fail(w, r, err)
+		return
+	}
+
+	now := u.Now()
+	data := u.base(r, found.Name)
+	data.Page = page
+	data.PersonQuery = "@" + found.Handle
+
+	rows := func(tasks []api.Task) []Row {
+		out := make([]Row, 0, len(tasks))
+		for _, t := range tasks {
+			out = append(out, prepareRow(t, false, false, now))
+		}
+		return out
+	}
+	data.Assigned = rows(page.Assigned)
+	data.Owed = rows(page.Owed)
+	data.Involved = rows(page.Involved)
+	data.Agenda = rows(page.Agenda)
+	data.GroupTasks = rows(page.GroupTasks)
+
+	for i, t := range page.Waiting {
+		days := 0
+		if i < len(page.WaitingDays) {
+			days = page.WaitingDays[i]
+		}
+		data.Waiting = append(data.Waiting, waitingRow{
+			Row:   prepareRow(t, false, false, now),
+			Age:   plural(days, "day"),
+			Stale: days >= StaleWaitingDays,
+		})
+	}
+
+	u.render(w, "person", data)
+}
+
+// peopleService is the part of the store the person page needs.
+type peopleService interface {
+	ResolvePerson(ctx context.Context, ref string) (api.Person, error)
+	PersonPage(ctx context.Context, personID string, now time.Time) (api.PersonPage, error)
+}
+
+func plural(n int, word string) string {
+	out := itoa(int64(n)) + " " + word
+	if n != 1 {
+		out += "s"
+	}
+	return out
 }
 
 func (u *UI) help(w http.ResponseWriter, r *http.Request) {

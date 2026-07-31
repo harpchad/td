@@ -6,12 +6,13 @@ the TUI.
 `BUILD-SPEC.md` is what is being built. `CLAUDE.md` is how. `testdata/` is
 the oracle: when the code and a fixture disagree, the code is wrong.
 
-**Status: phase 5 of 11.** Schema, event log, task CRUD, the filter grammar,
-the CLI one-shots, authentication, the TUI, the web UI, editing, and ntfy
-reminders.
+**Status: phase 6 of 11.** Schema, event log, task CRUD, the filter grammar,
+the CLI one-shots, authentication, the TUI, the web UI, editing, ntfy
+reminders, and people.
 
-Section 16 says to stop here and use it for two weeks before phase 6, on the
-grounds that half the requirements will change.
+Section 16 says to stop after phase 5 and use it for two weeks before phase
+6, on the grounds that half the requirements will change. That was raised and
+overruled; see `DECISIONS.md`.
 
 ## Build and check
 

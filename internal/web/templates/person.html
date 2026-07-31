@@ -1,0 +1,82 @@
+{{define "body"}}
+<div class="td-app" data-td-app>
+  <div class="td-bar">
+    <span><b>td</b></span>
+    <span class="td-dim">@{{.Page.Person.Handle}}</span>
+    <span class="td-bar__spacer"></span>
+    {{range .Page.Groups}}<span class="td-count td-bar__collapse">{{.}}</span>{{end}}
+    <a class="td-link" href="/" data-back>back</a>
+  </div>
+
+  <div class="td-app__body td-scroll">
+    <div class="td-section">
+      <div class="td-section__title">{{.Page.Person.Name}}</div>
+      {{if .Page.Person.Email}}<div class="td-dim">{{.Page.Person.Email}}</div>{{end}}
+      {{if .Page.Identities}}
+      <div class="td-dim">
+        {{/* What makes a query span systems rather than finding three of
+             the same person. */}}
+        also known as
+        {{range .Page.Identities}}<span class="td-token">{{.Source}}:{{.ExternalID}}</span> {{end}}
+      </div>
+      {{end}}
+      {{if .Page.Person.Notes}}<p class="td-note">{{.Page.Person.Notes}}</p>{{end}}
+    </div>
+
+    {{/* The order is section 5's, and the order is the point. */}}
+    {{template "personSection" dict "Title" "Assigned to them" "Tasks" .Assigned}}
+    {{template "personSection" dict "Title" "You owe them" "Tasks" .Owed}}
+
+    <div class="td-section">
+      <div class="td-section__title">Waiting on them</div>
+      {{if not .Waiting}}
+        <div class="td-dim">Nothing.</div>
+      {{else}}
+        {{range .Waiting}}
+        <div class="td-row" data-id="{{.Row.Task.ID}}" data-num="{{.Row.Task.Num}}">
+          <span class="td-fold td-fold--leaf"></span>
+          <span class="td-num">{{.Row.Task.Num}}</span>
+          <span class="td-prio{{if .Row.PriorityClass}} {{.Row.PriorityClass}}{{end}}">{{.Row.PriorityLabel}}</span>
+          <a class="td-title td-link" href="/t/{{.Row.Task.Num}}">{{.Row.Task.Title}}</a>
+          {{/* The age is what turns "waiting on Mikah" into something you
+               can act on. */}}
+          <span class="td-due{{if .Stale}} td-due--overdue{{end}}">{{.Age}}</span>
+        </div>
+        {{end}}
+      {{end}}
+    </div>
+
+    {{template "personSection" dict "Title" "Agenda" "Tasks" .Agenda}}
+    {{template "personSection" dict "Title" "Involved" "Tasks" .Involved}}
+    {{template "personSection" dict "Title" "Their groups" "Tasks" .GroupTasks}}
+  </div>
+
+  <div class="td-bar td-bar--status">
+    <span class="td-key"><b>esc</b> back</span>
+    <span class="td-bar__spacer"></span>
+    <a class="td-key td-link" href="/?q={{.PersonQuery | urlquery}}">everything involving them</a>
+  </div>
+</div>
+{{end}}
+
+{{define "personSection"}}
+<div class="td-section">
+  <div class="td-section__title">{{.Title}}</div>
+  {{if not .Tasks}}
+    <div class="td-dim">Nothing.</div>
+  {{else}}
+    {{range .Tasks}}
+    <div class="td-row" data-id="{{.Task.ID}}" data-num="{{.Task.Num}}">
+      <span class="td-fold td-fold--leaf"></span>
+      <span class="td-num">{{.Task.Num}}</span>
+      <span class="td-prio{{if .PriorityClass}} {{.PriorityClass}}{{end}}">{{.PriorityLabel}}</span>
+      <a class="td-title td-link" href="/t/{{.Task.Num}}">{{.Task.Title}}</a>
+      <span class="td-row__tokens">
+        {{range .Tags}}<a class="td-token td-link" href="/?q={{.Query | urlquery}}">{{.Label}}</a>{{end}}
+      </span>
+      <span class="td-due{{if .Overdue}} td-due--overdue{{end}}">{{.Due}}</span>
+    </div>
+    {{end}}
+  {{end}}
+</div>
+{{end}}
