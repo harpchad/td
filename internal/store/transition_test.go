@@ -578,3 +578,46 @@ func TestQuickAddLandsInInbox(t *testing.T) {
 		t.Errorf("status = %s, want todo when a due date came in with it", dated.Status)
 	}
 }
+
+// TestANoOpPatchDoesNotDeadlock covers a hang rather than a wrong answer.
+//
+// SQLite takes one writer, so the pool is a single connection. A PATCH that
+// changes nothing used to return the task by calling Get while its own
+// transaction was still open, which waits forever for the connection the
+// transaction is holding. Every later request queues behind it, so one
+// no-op write from any authenticated client stops the whole server.
+func TestANoOpPatchDoesNotDeadlock(t *testing.T) {
+	s, now := seeded(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	task, err := s.GetByNum(ctx, 103)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Set every field to the value it already has.
+	same := task.Title
+	got, err := s.Patch(ctx, actor, task.ID, api.TaskPatch{Title: &same}, "", now)
+	if err != nil {
+		t.Fatalf("a no-op patch failed: %v", err)
+	}
+	if got.Num != task.Num {
+		t.Errorf("returned task %d, want %d", got.Num, task.Num)
+	}
+
+	// And the store still works afterwards, which is the part that was broken:
+	// the connection has to have gone back to the pool.
+	if _, err := s.List(ctx, "is:open", now); err != nil {
+		t.Fatalf("the store is unusable after a no-op patch: %v", err)
+	}
+
+	// A patch that only touches a field with an identical value is the same
+	// path, and so is one whose only effect is already in place.
+	if _, err := s.Patch(ctx, actor, task.ID, api.TaskPatch{Title: &same}, "", now); err != nil {
+		t.Fatalf("a second no-op patch failed: %v", err)
+	}
+	if _, err := s.GetByNum(ctx, 103); err != nil {
+		t.Fatalf("the store is unusable: %v", err)
+	}
+}

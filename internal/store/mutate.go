@@ -276,6 +276,12 @@ func (s *Store) Patch(ctx context.Context, actor, id string, p api.TaskPatch, if
 	}
 
 	if len(fields) == 0 {
+		// Nothing changed, so there is no event to write. Commit first: the
+		// pool is one connection, and calling Get with this transaction still
+		// open waits forever for the connection the transaction is holding.
+		if err := tx.Commit(); err != nil {
+			return api.Task{}, err
+		}
 		return s.Get(ctx, id)
 	}
 	if err := appendEvent(ctx, tx, now, actor, id, kind, api.Patch{Fields: fields}); err != nil {
