@@ -131,6 +131,10 @@ type Patch struct {
 	Fields map[string]Change `json:"fields,omitempty"`
 	// UndoOf is set on events of kind undo and names the seq reversed.
 	UndoOf int64 `json:"undo_of,omitempty"`
+	// Meta carries what an event needs to say that is not a field change.
+	// Auth events use it for the source IP, which section 15 requires and
+	// which the event table has no column for.
+	Meta map[string]any `json:"meta,omitempty"`
 }
 
 // Change is the before and after value of a single field.
@@ -284,4 +288,75 @@ const (
 	KindTaskSnoozed  = "task.snoozed"
 	KindTaskTagged   = "task.tagged"
 	KindUndo         = "undo"
+)
+
+// Auth event kinds. Every one of these carries the source IP in Patch.Meta.
+// None of them is undoable: reversing a login is not a thing, and the log is
+// there so something odd can be found later.
+const (
+	KindAuthAccountCreated = "auth.account_created"
+	KindAuthLogin          = "auth.login"
+	KindAuthLoginFailed    = "auth.login_failed"
+	KindAuthLogout         = "auth.logout"
+	KindAuthLocked         = "auth.locked"
+	KindAuthRateLimited    = "auth.rate_limited"
+	KindAuthRecoveryUsed   = "auth.recovery_used"
+	KindAuthTokenCreated   = "auth.token_created"
+	KindAuthTokenRevoked   = "auth.token_revoked"
+	KindAuthDenied         = "auth.denied"
+)
+
+// Scopes a token may carry. A session from the login page carries all of
+// them; a token carries what it was minted with.
+const (
+	ScopeRead    = "read"
+	ScopeWrite   = "write"
+	ScopeCapture = "capture"
+)
+
+// ScopeSyncPrefix namespaces a per-source sync scope, as in sync:planner.
+const ScopeSyncPrefix = "sync:"
+
+// Token is an API token as the settings page shows it. The secret appears
+// exactly once, in the response that creates it, and is never recoverable
+// afterwards.
+type Token struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Prefix     string   `json:"prefix"`
+	Scopes     []string `json:"scopes"`
+	Actor      string   `json:"actor"`
+	CreatedAt  string   `json:"created_at"`
+	LastUsedAt *string  `json:"last_used_at"`
+	RevokedAt  *string  `json:"revoked_at"`
+	// Secret is populated only on creation.
+	Secret string `json:"secret,omitempty"`
+}
+
+// LoginRequest is the body of POST /login.
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	// TOTP is the six digit code. RecoveryCode substitutes for it when the
+	// authenticator is unavailable.
+	TOTP         string `json:"totp,omitempty"`
+	RecoveryCode string `json:"recovery_code,omitempty"`
+}
+
+// SessionInfo is what the client learns about its own session.
+type SessionInfo struct {
+	Username  string   `json:"username"`
+	Scopes    []string `json:"scopes"`
+	Actor     string   `json:"actor"`
+	ExpiresAt string   `json:"expires_at,omitempty"`
+	Kind      string   `json:"kind"`
+}
+
+// Auth error codes.
+const (
+	ErrUnauthorized  = "unauthorized"
+	ErrForbidden     = "forbidden"
+	ErrNoAccount     = "no_account_configured"
+	ErrRateLimited   = "rate_limited"
+	ErrAccountLocked = "account_locked"
 )

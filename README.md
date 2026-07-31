@@ -6,9 +6,9 @@ the TUI.
 `BUILD-SPEC.md` is what is being built. `CLAUDE.md` is how. `testdata/` is
 the oracle: when the code and a fixture disagree, the code is wrong.
 
-**Status: phase 1 of 11.** Schema, event log, task CRUD, the filter grammar,
-and the CLI one-shots. No authentication yet, which is why the server
-refuses to bind anything but a loopback address. No TUI and no web UI yet.
+**Status: phase 2 of 11.** Schema, event log, task CRUD, the filter grammar,
+the CLI one-shots, and authentication. No TUI and no web UI yet: there is a
+`POST /login` that issues a session cookie, and no page to type into.
 
 ## Build and check
 
@@ -25,9 +25,14 @@ import boundary test, and the `openapi.yaml` schema lint.
 
 ```sh
 make seed      # load testdata/seed.json into build/dev.db
+make account   # create the one account, print TOTP and recovery codes
+make token     # mint a token for the CLI
 make run       # serve on 127.0.0.1:8080, pinned to the fixture's clock
 make run-live  # the same server on the real clock
 ```
+
+There is no signup page and no route that creates an account. Until
+`tdd account create` has been run, every route but `/healthz` answers 503.
 
 `make run` passes `-now @testdata/seed.json`, so a filter typed at the
 running server returns what the case files say it should. It logs a warning
@@ -49,6 +54,7 @@ API. Phase 2 removes both.
 ```sh
 go build -o build/td ./cmd/td
 export TD_SERVER=http://127.0.0.1:8080
+export TD_TOKEN=td_...        # from `make token`, or set it in config.toml
 
 td a "call the dealer about the alignment"
 td a 'renew wildcard cert #certs @stacey p:2 due:friday'
@@ -56,6 +62,7 @@ td ls 'is:open src:local -is:inbox -is:snoozed -is:deferred'
 td show 101
 td done 104
 td undo
+td whoami                     # which credential is in use, and what it may do
 ```
 
 `td a` exits immediately whether or not the server is reachable. If it is
@@ -65,6 +72,34 @@ not, the capture queues locally and `td flush` sends it. Every command takes
 Config lives in `$XDG_CONFIG_HOME/td/config.toml`, falling back to
 `~/.config/td/`. A commented default is written on first run. `TD_SERVER`,
 `TD_TOKEN`, and `TD_TIMEZONE` override it.
+
+## Auth
+
+One account. Password with argon2id, TOTP required at enrollment, ten
+one-time recovery codes. Five failed password attempts lock the account for
+fifteen minutes, and failed TOTP attempts are counted separately. The login
+route is limited to ten attempts per IP per minute.
+
+Browsers get a session cookie (`HttpOnly`, `Secure`, `SameSite=Lax`).
+Everything else gets a `td_` bearer token in the Authorization header, never
+in a query string. Tokens are scoped (`read`, `write`, `capture`,
+`sync:<source>`), individually revocable, and carry the actor their writes
+appear under in the event log:
+
+```sh
+tdd token create -name tui     -scopes read,write,capture
+tdd token create -name claude  -actor mcp:claude    -scopes read,capture
+tdd token create -name planner -actor plugin:planner -scopes sync:planner
+tdd token list
+tdd token revoke <id>
+tdd account log                # the auth history, with source IPs
+```
+
+Two deployment notes. `-base-url` is required and the server refuses to
+start without it. And behind a reverse proxy, set `-trusted-proxies` to the
+proxy's CIDR: with nothing trusted, `X-Forwarded-For` is ignored, every
+request looks like it came from the proxy, and the per-IP login limit
+becomes one global limit.
 
 ## Filter grammar
 
@@ -99,6 +134,7 @@ cmd/td            client only
 cmd/tdd           server only
 internal/api      request and response types, API version constant
 internal/query    filter grammar, sort comparator, capture parser
+internal/auth     argon2id, TOTP, tokens, recovery codes  <- cmd/tdd only
 internal/store    SQLite, migrations, FTS      <- cmd/tdd only
 internal/server   HTTP surface                 <- cmd/tdd only
 internal/client   HTTP client, config, offline queue

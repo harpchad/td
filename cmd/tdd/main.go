@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -37,8 +38,10 @@ func run(args []string) error {
 	tz := fs.String("tz", envOr("TD_TIMEZONE", "America/Chicago"), "timezone for every date-only comparison")
 	seedPath := fs.String("seed", "", "load a fixture dataset and exit")
 	nowFlag := fs.String("now", "", "pin the clock to an RFC3339 instant, or to @<seed file> to take the fixture's. Development only")
-	allowOpenBind := fs.Bool("allow-unauthenticated-bind", os.Getenv("TD_ALLOW_UNAUTHENTICATED_BIND") == "1",
-		"bind a non-loopback address while the API is still unauthenticated; only correct behind a namespace that is not itself reachable")
+	baseURL := fs.String("base-url", envOr("TD_BASE_URL", ""),
+		"the server's own public URL. Required: OAuth discovery, the ntfy click-through, and the resource claim all depend on knowing it")
+	trustedProxies := fs.String("trusted-proxies", envOr("TD_TRUSTED_PROXIES", ""),
+		"comma separated CIDRs whose X-Forwarded-For is believed. Empty trusts nothing")
 	showVersion := fs.Bool("version", false, "print the API version and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -47,6 +50,16 @@ func run(args []string) error {
 	if *showVersion {
 		fmt.Println(api.Version)
 		return nil
+	}
+
+	// A trailing word is a subcommand: `tdd account create`, and equally
+	// `tdd -db /data/td.db account create`. Flag parsing stops at the first
+	// non-flag argument, so the subcommand keeps its own flags.
+	//
+	// These open the database directly and never start the HTTP server, which
+	// is what makes account creation impossible to reach from outside the box.
+	if fs.NArg() > 0 {
+		return subcommand(fs.Args(), *dbPath, *tz)
 	}
 
 	loc, err := time.LoadLocation(*tz)
@@ -82,20 +95,41 @@ func run(args []string) error {
 		return nil
 	}
 
-	// Phase 1 has no authentication: it lands in phase 2, before anything is
-	// exposed rather than after. Until then the server refuses to bind an
-	// address anything but the local machine can reach.
-	if err := requireLoopback(*addr, *allowOpenBind); err != nil {
-		return err
+	// The server refuses to start rather than guess its own public URL:
+	// OAuth discovery, the ntfy click-through, and the resource claim all
+	// depend on it, and a wrong guess fails in ways that look like an
+	// application bug.
+	if strings.TrimSpace(*baseURL) == "" {
+		return errors.New("-base-url is required. Set it to the URL this server is reached at, for example https://td.example.com")
 	}
-	if *allowOpenBind && !isLoopback(*addr) {
-		log.Warn("bound a non-loopback address with no authentication in front of it",
-			"addr", *addr,
-			"why", "-allow-unauthenticated-bind was passed",
-			"remove", "phase 2")
+	if _, err := url.ParseRequestURI(*baseURL); err != nil {
+		return fmt.Errorf("-base-url %q: %w", *baseURL, err)
 	}
 
-	srv := server.New(st, log)
+	networks, err := parseTrustedProxies(*trustedProxies)
+	if err != nil {
+		return err
+	}
+
+	srv, err := server.New(st, log)
+	if err != nil {
+		return err
+	}
+	srv.TrustedProxies = networks
+
+	if configured, err := st.HasAccount(context.Background()); err == nil && !configured {
+		log.Warn("no account configured, every route answers 503",
+			"fix", "run: tdd account create")
+	}
+	if len(networks) == 0 && !isLoopback(*addr) {
+		// Behind a reverse proxy with nothing trusted, every request looks
+		// like it came from the proxy and the per-IP login limit collapses
+		// into one global limit. That fails toward locking the account holder
+		// out rather than toward letting an attacker through, but it is not
+		// what anyone intends.
+		log.Warn("no trusted proxies configured, the login rate limit will count every request as one client",
+			"fix", "set -trusted-proxies to your reverse proxy's CIDR")
+	}
 	if pinned != nil {
 		// A pinned clock is what makes a running server agree with the case
 		// files in testdata/, which all evaluate against one fixed instant.
@@ -126,7 +160,8 @@ func run(args []string) error {
 		}
 	}()
 
-	log.Info("serving", "addr", *addr, "db", *dbPath, "tz", loc.String(), "api", api.Version)
+	log.Info("serving", "addr", *addr, "db", *dbPath, "tz", loc.String(),
+		"base_url", *baseURL, "api", api.Version)
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -166,25 +201,40 @@ func parseClock(value string, loc *time.Location) (*time.Time, error) {
 	return &at, nil
 }
 
-// requireLoopback refuses a publicly reachable bind while the API is still
-// unauthenticated. The server is going on the internet in phase 2, and an
-// open one in the meantime is exactly the accident this prevents.
+// parseTrustedProxies reads the CIDR list whose X-Forwarded-For is believed.
 //
-// The container publishes its port to the host's loopback only, so it does
-// need to bind 0.0.0.0 inside its own namespace. That case passes
-// -allow-unauthenticated-bind, which is deliberately long to type and
-// deliberately easy to grep for when phase 2 removes it.
-func requireLoopback(addr string, allowed bool) error {
-	if _, _, err := net.SplitHostPort(addr); err != nil {
-		return fmt.Errorf("addr %q: %w", addr, err)
+// Empty trusts nothing, which is the safe default: an untrusted forwarded
+// header lets a caller put a fresh address on every attempt and walk past a
+// per-IP rate limit. Behind nginx-proxy-manager this has to be set, or the
+// limit counts the proxy rather than the client.
+func parseTrustedProxies(list string) ([]*net.IPNet, error) {
+	list = strings.TrimSpace(list)
+	if list == "" {
+		return nil, nil
 	}
-	if isLoopback(addr) || allowed {
-		return nil
+	var out []*net.IPNet
+	for _, entry := range strings.Split(list, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		// A bare address is a /32 or /128.
+		if !strings.Contains(entry, "/") {
+			if ip := net.ParseIP(entry); ip != nil {
+				bits := 32
+				if ip.To4() == nil {
+					bits = 128
+				}
+				entry = fmt.Sprintf("%s/%d", entry, bits)
+			}
+		}
+		_, network, err := net.ParseCIDR(entry)
+		if err != nil {
+			return nil, fmt.Errorf("trusted proxy %q: %w", entry, err)
+		}
+		out = append(out, network)
 	}
-	return fmt.Errorf(
-		"refusing to bind %s: the API is unauthenticated until phase 2. Use a loopback address, "+
-			"or pass -allow-unauthenticated-bind if something else is keeping this port private",
-		addr)
+	return out, nil
 }
 
 func isLoopback(addr string) bool {
@@ -204,4 +254,58 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// subcommand dispatches the server-side commands.
+//
+// None of them starts the HTTP server or needs -base-url: they are operations
+// on the database, run by whoever can already reach the box.
+func subcommand(args []string, dbPath, tz string) error {
+	name, rest := args[0], args[1:]
+
+	openStore := func() (*store.Store, error) {
+		loc, err := time.LoadLocation(tz)
+		if err != nil {
+			return nil, fmt.Errorf("timezone %q: %w", tz, err)
+		}
+		return store.Open(dbPath, store.Options{Location: loc})
+	}
+
+	switch name {
+	case "help", "-h", "--help":
+		fmt.Fprint(os.Stdout, usage)
+		return nil
+
+	case "account":
+		if len(rest) == 0 {
+			return errors.New("account takes create, show, or log")
+		}
+		st, err := openStore()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = st.Close() }()
+
+		switch rest[0] {
+		case "create":
+			return accountCreate(context.Background(), st, rest[1:], os.Stdin, os.Stdout)
+		case "show":
+			return accountShow(context.Background(), st, os.Stdout)
+		case "log":
+			return accountLog(context.Background(), st, rest[1:], os.Stdout)
+		default:
+			return fmt.Errorf("unknown account command %q", rest[0])
+		}
+
+	case "token":
+		st, err := openStore()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = st.Close() }()
+		return tokenCommand(context.Background(), st, rest, os.Stdout)
+
+	default:
+		return fmt.Errorf("unknown command %q\n\n%s", name, usage)
+	}
 }

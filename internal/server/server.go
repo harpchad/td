@@ -7,13 +7,16 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/harpchad/td/internal/api"
+	"github.com/harpchad/td/internal/auth"
 	"github.com/harpchad/td/internal/query"
 	"github.com/harpchad/td/internal/store"
 )
@@ -27,19 +30,35 @@ type Server struct {
 	// Now is the clock every handler reads. Injecting it is what lets the
 	// tests evaluate against the fixed clock in testdata/seed.json.
 	Now func() time.Time
+
+	// TrustedProxies are the networks whose X-Forwarded-For header is
+	// believed. Empty means none, so the login rate limit counts the immediate
+	// peer. Behind a reverse proxy this must be set, or every request appears
+	// to come from the proxy and the per-IP limit becomes one global limit.
+	TrustedProxies []*net.IPNet
+
+	// dummyHash is verified against when a username is unknown, so an
+	// enumeration attempt cannot read the answer off the response time. It is
+	// computed once because computing it is itself an argon2 call.
+	dummyHash string
 }
 
 // New builds a Server over an open store.
-func New(s *store.Store, log *slog.Logger) *Server {
+func New(s *store.Store, log *slog.Logger) (*Server, error) {
 	if log == nil {
 		log = slog.Default()
 	}
+	dummy, err := auth.DummyHash(auth.DefaultParams)
+	if err != nil {
+		return nil, fmt.Errorf("preparing the login timing guard: %w", err)
+	}
 	loc := s.Location()
 	return &Server{
-		store: s,
-		log:   log,
-		Now:   func() time.Time { return time.Now().In(loc) },
-	}
+		store:     s,
+		log:       log,
+		Now:       func() time.Time { return time.Now().In(loc) },
+		dummyHash: dummy,
+	}, nil
 }
 
 // Handler returns the routed handler with the standard response headers
@@ -48,6 +67,17 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", s.health)
+
+	// The only routes an unauthenticated request reaches. There is no
+	// registration route and no password reset route: the one account is
+	// created by a command on the server, and nothing over HTTP makes another.
+	mux.HandleFunc("POST /login", s.login)
+	mux.HandleFunc("POST /logout", s.logout)
+
+	mux.HandleFunc("GET /api/v1/whoami", s.whoami)
+	mux.HandleFunc("GET /api/v1/tokens", s.listTokens)
+	mux.HandleFunc("POST /api/v1/tokens", s.createToken)
+	mux.HandleFunc("DELETE /api/v1/tokens/{id}", s.revokeToken)
 
 	mux.HandleFunc("GET /api/v1/tasks", s.listTasks)
 	mux.HandleFunc("POST /api/v1/tasks", s.createTask)
@@ -62,7 +92,37 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/events", s.listEvents)
 	mux.HandleFunc("POST /api/v1/undo", s.undo)
 
-	return s.standardHeaders(mux)
+	// Outermost first: headers apply to every answer including a refusal, the
+	// 503 gate runs before anything looks at a credential, and authentication
+	// runs before any handler sees a request.
+	return s.standardHeaders(s.requireAccount(s.authenticate(mux)))
+}
+
+// securityHeaders are sent on every response, including errors and the 401
+// with the empty body. The server is on the public internet, so these are not
+// conditional on anything.
+func securityHeaders(h http.Header) {
+	// Two years, which is the floor for preload lists. Harmless over plain
+	// HTTP, since a browser ignores HSTS on an insecure origin.
+	h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "no-referrer")
+
+	// No unsafe-inline anywhere. Phase 4 adds the htmx bundle's hash to
+	// script-src; until there is a script to serve, 'self' is the whole of it.
+	h.Set("Content-Security-Policy", strings.Join([]string{
+		"default-src 'self'",
+		"script-src 'self'",
+		"style-src 'self'",
+		"img-src 'self' data:",
+		"connect-src 'self'",
+		"font-src 'self'",
+		"object-src 'none'",
+		"base-uri 'none'",
+		"form-action 'self'",
+		"frame-ancestors 'none'",
+	}, "; "))
 }
 
 // standardHeaders stamps every response with the server's API version and its
@@ -83,8 +143,59 @@ func (s *Server) standardHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Td-Server", api.Version)
 		w.Header().Set("X-Td-Now", s.Now().Format(time.RFC3339))
+		securityHeaders(w.Header())
 		next.ServeHTTP(w, r)
 	})
+}
+
+// actorOf reads the calling principal's actor for the event log. Phase 1
+// hardcoded "me"; a token now carries its own, so a bad agent batch stays
+// separable from your own work and one /undo loop away from gone.
+func (s *Server) actorOf(r *http.Request) string {
+	if p := principalOf(r.Context()); p != nil {
+		return p.Actor
+	}
+	return "me"
+}
+
+func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
+	tokens, err := s.store.Tokens(r.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, tokens)
+}
+
+// createToken mints a token. The secret is in this response and nowhere else,
+// ever again.
+func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name   string   `json:"name"`
+		Actor  string   `json:"actor"`
+		Scopes []string `json:"scopes"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if in.Actor == "" {
+		in.Actor = "me"
+	}
+	tok, err := s.store.CreateToken(r.Context(), in.Name, in.Actor, in.Scopes, s.Now())
+	if err != nil {
+		s.fail(w, &api.Error{Code: api.ErrBadRequest, Message: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, tok)
+}
+
+func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.RevokeToken(r.Context(), r.PathValue("id"), s.Now()); err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // health answers unauthenticated with no detail in the body.
@@ -92,11 +203,6 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
 }
-
-// actor derives who is making the change. Phase 1 has no tokens, so every
-// mutation is the account holder; phase 2 replaces this with the token's
-// identity and phase 8 adds mcp:<name>.
-func (s *Server) actor(_ *http.Request) string { return "me" }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
@@ -133,7 +239,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	task, err := s.store.Create(r.Context(), s.actor(r), in, s.Now())
+	task, err := s.store.Create(r.Context(), s.actorOf(r), in, s.Now())
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -164,7 +270,7 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	task, err := s.store.Patch(r.Context(), s.actor(r), id, patch,
+	task, err := s.store.Patch(r.Context(), s.actorOf(r), id, patch,
 		strings.Trim(r.Header.Get("If-Match"), `"`), s.Now())
 	if err != nil {
 		s.fail(w, err)
@@ -180,7 +286,7 @@ func (s *Server) dropTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	task, err := s.store.Drop(r.Context(), s.actor(r), id, s.Now())
+	task, err := s.store.Drop(r.Context(), s.actorOf(r), id, s.Now())
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -193,7 +299,7 @@ func (s *Server) completeTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	res, err := s.store.Complete(r.Context(), s.actor(r), id, s.Now())
+	res, err := s.store.Complete(r.Context(), s.actorOf(r), id, s.Now())
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -269,7 +375,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) undo(w http.ResponseWriter, r *http.Request) {
-	res, err := s.store.Undo(r.Context(), s.actor(r), s.Now())
+	res, err := s.store.Undo(r.Context(), s.actorOf(r), s.Now())
 	if err != nil {
 		s.fail(w, err)
 		return

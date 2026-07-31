@@ -7,21 +7,23 @@ services:
       context: .
       args:
         VERSION: dev
-    # Phase 1 has no authentication. The container has to bind 0.0.0.0 inside
-    # its own namespace to be reachable at all, and the published port below
-    # is scoped to the host's loopback, so nothing off this machine can reach
-    # it. The flag says out loud that nothing else is guarding this port.
-    # Phase 2 lands auth and this flag goes with it.
     command:
       - "-addr"
       - "0.0.0.0:8080"
       - "-db"
       - "/data/td.db"
-      - "-allow-unauthenticated-bind"
     ports:
       - "127.0.0.1:8080:8080"
     environment:
       TD_TIMEZONE: America/Chicago
+      # The server refuses to start rather than guess its own public URL.
+      # OAuth discovery, the ntfy click-through, and the resource claim all
+      # depend on it, and a wrong guess fails like an application bug.
+      TD_BASE_URL: ${TD_BASE_URL:-http://127.0.0.1:8080}
+      # Behind a reverse proxy this must name the proxy, or every request
+      # looks like it came from there and the per-IP login limit collapses
+      # into one global limit.
+      TD_TRUSTED_PROXIES: ${TD_TRUSTED_PROXIES:-}
       # Disposable dev topic. Do not point this at any other topic.
       TD_NTFY_TOPIC: ${TD_NTFY_TOPIC:-https://ntfy.sh/td-dev-scratch}
     volumes:

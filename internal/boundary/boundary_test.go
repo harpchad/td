@@ -22,6 +22,12 @@ var forbidden = map[string][]string{
 		"github.com/harpchad/td/internal/server",
 		"github.com/harpchad/td/internal/seed",
 		"modernc.org/sqlite",
+		// Section 1: the client links no password hashing. It holds a bearer
+		// token and nothing else, so argon2 and TOTP have no business in a
+		// binary that cross-compiles to a laptop.
+		"github.com/harpchad/td/internal/auth",
+		"golang.org/x/crypto/argon2",
+		"github.com/pquerna/otp",
 	},
 	// The server links no terminal UI.
 	"github.com/harpchad/td/cmd/tdd": {

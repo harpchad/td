@@ -33,6 +33,12 @@ linters:
       exclude-functions:
         - (*database/sql.Tx).Rollback
         - (*database/sql.Rows).Close
+        # Writing to a command's own stdout has nowhere to report a failure,
+        # and errcheck already exempts the fmt.Print family for the same
+        # reason. These are the same calls with the writer spelled out.
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
     revive:
       rules:
         - name: exported

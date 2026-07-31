@@ -141,3 +141,108 @@ There is a test covering that today, using those exact actor strings.
 The security assertions in `CLAUDE.md` are phase 2's acceptance criteria,
 and none of them are satisfied yet. That is expected at this point and is
 what the loopback guard is standing in for in the meantime.
+
+---
+
+## Phase 2: auth
+
+2026-07-31
+
+### What shipped
+
+Section 16 step 2, in full: account creation as a server-side command,
+argon2id passwords, TOTP required at enrollment, one-time recovery codes,
+browser sessions, scoped API tokens, lockout, and an app-level login rate
+limit. Every route but the health check and the login pair now needs a
+credential.
+
+`internal/auth` holds the primitives with no HTTP and no SQL in them, so
+each can be tested for the property it is supposed to have rather than
+through a request. `internal/store` gained the account, session, token,
+recovery code, and login attempt tables. `internal/server` gained the
+middleware chain: security headers, then the no-account 503, then
+authentication, then the mux.
+
+`tdd account create` is the whole of first run. It prints the enrolment URI
+and the recovery codes exactly once, because nothing can print them again.
+`tdd token create` mints the credential the CLI uses. `tdd account log`
+reads the auth history.
+
+### The assertions
+
+The eleven security assertions in `CLAUDE.md` that are not OAuth are now
+eleven tests in `internal/server/security_test.go`, named after what they
+assert. The two remaining ones, exact audience matching and the `/authorize`
+PKCE rules, belong to the authorization server in phase 9.
+
+Two were more interesting to write than to read.
+
+**No enumeration.** The test measures the median of seven login attempts
+against a known username and seven against an unknown one, and requires the
+difference under 50ms. It also fails if either median comes in under a
+millisecond, because that would mean no hashing happened and the test would
+be passing for the wrong reason. Making it pass is one line: verify the
+supplied password against a throwaway hash when the username is unknown.
+Without it the unknown path returns in microseconds and answers the question
+directly.
+
+**Counters that do not pool.** "Failed TOTP attempts count separately from
+failed passwords" only has a testable consequence in one place: four
+failures of each kind must not lock the account, even though eight failures
+happened. That is the test.
+
+### What was learned
+
+**The change feed is read by the least trusted thing in the system.** The
+phase 1 event test started failing because creating an account and a token
+wrote auth events, and they showed up in `GET /events`. The fix was not to
+adjust the test. An MCP token is the credential most likely to be handed to
+something that reads and summarizes, and login history with source IPs is
+not a change to anything. Auth events stay in the table and out of the feed,
+and `tdd account log` reads them on the server. A read scope should mean
+your tasks, not your security log.
+
+**Flags before subcommands, both ways.** The first cut dispatched
+subcommands only when the first argument was not a flag, which meant
+`tdd -db /data/td.db account create` fell through to the serve path and
+died on the missing `-base-url`. That is exactly how the Makefile invokes
+it. Parsing flags first and dispatching on the remaining arguments handles
+both orders, which is what Go's flag package is shaped for.
+
+**A hash is not one thing.** Section 15 says the password is argon2id and
+that tokens and recovery codes are hashed, without saying with what. Using
+argon2id for all of them would have put 30ms on every authenticated request
+to protect 256 random bits that cannot be guessed. Passwords get the slow
+KDF; server-minted secrets get SHA-256.
+
+### What was deferred, and why
+
+- **The login page.** There is a `POST /login` that issues the cookie, and
+  no HTML. The web UI is phase 4 and owns the stylesheet that defines the
+  look; a placeholder page now would either be thrown away or, worse, kept.
+  The session mechanism is tested through the JSON endpoint.
+- **The settings page.** Section 15 wants tokens listed with last-used
+  timestamps and a revoke button. `GET /api/v1/tokens` and
+  `DELETE /api/v1/tokens/{id}` are the routes behind it, and
+  `tdd token list` reads the same data until there is a page.
+- **TOTP replay inside a period.** A code stays valid for its window, so the
+  same code can be used twice within 30 seconds. Nothing in the assertions
+  covers it, and the fix is a last-used-counter column. Worth doing before
+  the server is genuinely public.
+- **Session purge on a schedule.** `PurgeExpiredSessions` exists and nothing
+  calls it. It belongs with the scheduler goroutine in phase 5, which is the
+  first thing in this design that runs on a tick.
+- **Password change.** There is no route and no command. The spec says no
+  password reset route, which is about the unauthenticated flow; changing a
+  password while logged in is a different thing and is not asked for yet.
+
+### Notes for phase 3
+
+The TUI reads a token out of `config.toml` and sends it in the Authorization
+header, which the client already does. `td whoami` reports what that
+credential may do, which is the thing to show in the status line when a
+write is refused.
+
+`Server.actor` is gone: a mutation now writes the calling token's actor, so
+an `mcp:claude` token's writes are already separable from your own and undo
+is already scoped correctly. The test for that uses those exact strings.

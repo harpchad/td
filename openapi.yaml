@@ -7,19 +7,30 @@ info:
     server, and the sync plugins all exercise these routes, so a bug shows up
     everywhere at once instead of hiding in the path you use least.
 
-    Phase 1 covers tasks, people, saved filters, the change feed, and undo.
-    Authentication lands in phase 2; until then the server refuses to bind
-    anything but a loopback address.
+    Every route but the health check and the login pair requires a credential:
+    a session cookie from POST /login, or a `td_` bearer token in the
+    Authorization header. A token never travels in a query string. An
+    unauthenticated request to /api/v1/* answers 401 with an empty body.
+
+    There is no registration route and no password reset route. The one
+    account is created by `tdd account create` on the server. Until it exists
+    every route answers 503.
 
 servers:
   - url: http://127.0.0.1:8080
     description: local development
 
+security:
+  - bearerToken: []
+  - sessionCookie: []
+
 tags:
+  - name: auth
   - name: tasks
   - name: people
   - name: filters
   - name: history
+  - name: tokens
 
 paths:
   /healthz:
@@ -34,6 +45,130 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /login:
+    post:
+      tags: [auth]
+      summary: Log in
+      description: >-
+        Password plus either the authenticator code or a recovery code. A
+        recovery code works exactly once. Every failure answers the same
+        status and the same body, whether the username exists or not, and
+        takes the same time. Failures against the password and against the
+        second factor are counted separately; five of either locks the account
+        for fifteen minutes. Limited to ten attempts per IP per minute.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: logged in, with the session cookie set
+          headers:
+            Set-Cookie:
+              description: "td_session, HttpOnly, Secure, SameSite=Lax"
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionInfo" }
+        "401":
+          description: that combination did not work
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: too many attempts from this address
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          $ref: "#/components/responses/NoAccount"
+
+  /logout:
+    post:
+      tags: [auth]
+      summary: End the session
+      operationId: logout
+      security: []
+      responses:
+        "204":
+          description: the session is gone and the cookie is cleared
+
+  /api/v1/whoami:
+    get:
+      tags: [auth]
+      summary: Report the calling principal
+      description: Which credential is in use, what it may do, and what it writes to the event log.
+      operationId: whoami
+      responses:
+        "200":
+          description: the caller
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionInfo" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /api/v1/tokens:
+    get:
+      tags: [tokens]
+      summary: List API tokens
+      description: Secrets are never returned here. Only the display prefix.
+      operationId: listTokens
+      responses:
+        "200":
+          description: every token, revoked ones included
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Token" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+    post:
+      tags: [tokens]
+      summary: Mint an API token
+      description: >-
+        The response carries the secret. It is the only time it exists outside
+        the caller, because only its hash is stored.
+      operationId: createToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TokenCreate" }
+      responses:
+        "201":
+          description: the token, with its secret
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Token" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /api/v1/tokens/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [tokens]
+      summary: Revoke a token
+      description: The row stays, so the settings page can still show that it existed.
+      operationId: revokeToken
+      responses:
+        "204":
+          description: revoked
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/tasks:
     get:
@@ -265,7 +400,29 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
 
 components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: >-
+        A `td_` token in the Authorization header. Never in a query string:
+        any request carrying one there is refused.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: td_session
+      description: Issued by POST /login. HttpOnly, Secure, SameSite=Lax.
+
   responses:
+    Unauthenticated:
+      description: >-
+        No valid credential. The body is empty: nothing distinguishes a bad
+        token from a missing one.
+    NoAccount:
+      description: no account has been created yet
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     BadRequest:
       description: the request could not be read
       content:
@@ -288,6 +445,70 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+        totp:
+          type: string
+          description: the six digit authenticator code
+        recovery_code:
+          type: string
+          description: substitutes for totp, and works exactly once
+
+    SessionInfo:
+      type: object
+      required: [scopes, actor, kind]
+      properties:
+        username: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        actor:
+          type: string
+          description: "what a mutation writes to the event log: me, mcp:<name>, or plugin:<source>"
+        expires_at: { type: string }
+        kind:
+          type: string
+          enum: [session, token]
+
+    Token:
+      type: object
+      required: [id, name, prefix, scopes, actor, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        prefix:
+          type: string
+          description: the leading fragment, so two tokens can be told apart
+        scopes:
+          type: array
+          items: { type: string }
+        actor: { type: string }
+        created_at: { type: string }
+        last_used_at: { type: string, nullable: true }
+        revoked_at: { type: string, nullable: true }
+        secret:
+          type: string
+          description: present only in the response that creates the token
+
+    TokenCreate:
+      type: object
+      required: [name, scopes]
+      properties:
+        name: { type: string }
+        actor:
+          type: string
+          default: me
+          description: "me, mcp:<name>, or plugin:<source>"
+        scopes:
+          type: array
+          items:
+            type: string
+            description: "read, write, capture, or sync:<source>"
+
     Status:
       type: string
       enum: [inbox, todo, doing, waiting, done, dropped]

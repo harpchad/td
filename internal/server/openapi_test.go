@@ -35,6 +35,11 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 	// The routes registered in Handler, written as OpenAPI paths.
 	want := map[string][]string{
 		"/healthz":                    {"get"},
+		"/login":                      {"post"},
+		"/logout":                     {"post"},
+		"/api/v1/whoami":              {"get"},
+		"/api/v1/tokens":              {"get", "post"},
+		"/api/v1/tokens/{id}":         {"delete"},
 		"/api/v1/tasks":               {"get", "post"},
 		"/api/v1/tasks/{id}":          {"get", "patch", "delete"},
 		"/api/v1/tasks/{id}/complete": {"post"},

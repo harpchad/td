@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"path/filepath"
 	"testing"
 	"time"
@@ -63,35 +64,46 @@ func TestParseClock(t *testing.T) {
 	})
 }
 
-// TestRequireLoopback covers the phase 1 posture: the API is unauthenticated
-// until phase 2, so an accidental public bind is refused rather than
-// discovered.
-func TestRequireLoopback(t *testing.T) {
-	tests := []struct {
-		addr    string
-		allowed bool
-		ok      bool
-	}{
-		{addr: "127.0.0.1:8080", ok: true},
-		{addr: "localhost:8080", ok: true},
-		{addr: "[::1]:8080", ok: true},
-		{addr: "0.0.0.0:8080", ok: false},
-		{addr: "192.168.1.10:8080", ok: false},
-		{addr: ":8080", ok: false},
-		// The container publishes to the host's loopback only, so it opts in
-		// explicitly rather than being allowed by accident.
-		{addr: "0.0.0.0:8080", allowed: true, ok: true},
-		// A malformed address is refused whatever the flag says.
-		{addr: "not-an-address", allowed: true, ok: false},
-	}
+// TestParseTrustedProxies covers the config that decides whether
+// X-Forwarded-For is believed. An untrusted header would let a caller put a
+// fresh address on every attempt and walk straight past the per-IP login
+// limit, so the default trusts nothing.
+func TestParseTrustedProxies(t *testing.T) {
+	t.Run("empty trusts nothing", func(t *testing.T) {
+		got, err := parseTrustedProxies("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 0 {
+			t.Errorf("got %d networks, want none", len(got))
+		}
+	})
 
-	for _, tc := range tests {
-		err := requireLoopback(tc.addr, tc.allowed)
-		if tc.ok && err != nil {
-			t.Errorf("requireLoopback(%q, %v) = %v, want nil", tc.addr, tc.allowed, err)
+	t.Run("CIDRs and bare addresses both parse", func(t *testing.T) {
+		got, err := parseTrustedProxies("172.18.0.0/16, 10.0.0.5 ,::1")
+		if err != nil {
+			t.Fatal(err)
 		}
-		if !tc.ok && err == nil {
-			t.Errorf("requireLoopback(%q, %v) = nil, want a refusal", tc.addr, tc.allowed)
+		if len(got) != 3 {
+			t.Fatalf("got %d networks, want 3", len(got))
 		}
-	}
+		if !got[0].Contains(net.ParseIP("172.18.4.9")) {
+			t.Error("the CIDR does not contain an address inside it")
+		}
+		if got[0].Contains(net.ParseIP("192.168.1.1")) {
+			t.Error("the CIDR contains an address outside it")
+		}
+		// A bare address becomes a single-host network, not a wildcard.
+		if !got[1].Contains(net.ParseIP("10.0.0.5")) || got[1].Contains(net.ParseIP("10.0.0.6")) {
+			t.Error("a bare address did not become a single-host network")
+		}
+	})
+
+	t.Run("garbage is refused rather than ignored", func(t *testing.T) {
+		for _, bad := range []string{"not-an-address", "10.0.0.0/99", "10.0.0.0/"} {
+			if _, err := parseTrustedProxies(bad); err == nil {
+				t.Errorf("parseTrustedProxies(%q) was accepted", bad)
+			}
+		}
+	})
 }

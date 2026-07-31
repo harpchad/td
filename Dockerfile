@@ -30,6 +30,9 @@ ENV TD_DB=/data/td.db \
     TD_ADDR=127.0.0.1:8080 \
     TD_TIMEZONE=America/Chicago
 
+# TD_BASE_URL has no default on purpose: the server refuses to start without
+# it rather than guessing its own public URL.
+
 EXPOSE 8080
 USER nonroot:nonroot
 

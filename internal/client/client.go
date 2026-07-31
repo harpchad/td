@@ -153,6 +153,13 @@ func (c *Client) Filters(ctx context.Context) ([]api.SavedFilter, error) {
 	return out, err
 }
 
+// WhoAmI reports which credential this client is using and what it may do.
+func (c *Client) WhoAmI(ctx context.Context) (api.SessionInfo, error) {
+	var out api.SessionInfo
+	err := c.do(ctx, http.MethodGet, "/api/v1/whoami", nil, nil, &out)
+	return out, err
+}
+
 // Events reads the change feed from seq onwards.
 func (c *Client) Events(ctx context.Context, since int64) ([]api.Event, error) {
 	var out []api.Event
@@ -210,6 +217,15 @@ func decodeError(resp *http.Response) error {
 	var apiErr api.Error
 	if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Code != "" {
 		return &apiErr
+	}
+
+	// A 401 from the API carries no body by design, so there is nothing to
+	// decode and the status alone would tell the user nothing actionable.
+	if resp.StatusCode == http.StatusUnauthorized {
+		return &api.Error{
+			Code:    api.ErrUnauthorized,
+			Message: "the server did not accept this token. Check `token` in config.toml, or mint one with `tdd token create`",
+		}
 	}
 	return fmt.Errorf("server answered %s", resp.Status)
 }

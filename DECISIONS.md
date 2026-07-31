@@ -72,6 +72,152 @@ response time does not reveal whether the account exists.
 Reversible: dropping the field later is easy. Adding it later would mean a
 migration plus re-enrolling.
 
+## 2026-07-31  Auth events stay out of the change feed
+Phase: 2
+
+Section 15 says to log every auth event to the `event` table with the source
+IP. Section 9 serves that table at `GET /events` as the change feed, and
+section 10 has MCP's `recent_activity` read it.
+
+Both, but not the same rows. Auth events go in the table, and `Events`
+excludes anything with an `auth.` prefix. `tdd account log` reads them, on
+the server, next to where the account is created.
+
+The reason is who reads the feed. An MCP token is the least trusted
+credential in the system and the one most likely to be handed to something
+that summarizes what it sees. Login history and the IPs behind it are not a
+change to anything and are no use to an agent, so putting them in the feed
+would be a disclosure with no matching benefit. A read scope should mean
+your tasks, not your security log.
+
+This surfaced from a test rather than from reading: the phase 1 event
+assertion started failing because setting up the harness created an account
+and a token, and both showed up in the feed.
+
+Rejected: a query parameter to include them, which needs a scope to guard it
+and invents an admin role the spec does not have. Also rejected: a separate
+table, which would cost the single ordered history that makes the event log
+worth having.
+
+Reversible: yes, it is one clause in one query.
+
+## 2026-07-31  Both login factors arrive in one request
+Phase: 2
+
+Section 15 requires failures to be counted "against the password and the
+TOTP step separately", which reads like two steps.
+
+One request carries username, password, and either the authenticator code or
+a recovery code. The handler verifies the password, and only then the second
+factor, incrementing whichever counter the failure belongs to. Five of
+either kind locks the account.
+
+Every property the spec states holds. A two-step flow would add a
+pending-login token, its storage, its expiry, and its own replay question,
+and would buy nothing that is written down.
+
+The one thing it gives up is telling the user which factor was wrong. That
+is deliberate: the answer is the same status and the same body whatever
+failed, which is what the no-enumeration assertion requires anyway.
+
+Reversible: the second step could be added without changing the counters,
+which are the part the spec pins.
+
+## 2026-07-31  argon2id for the password, SHA-256 for everything else
+Phase: 2
+
+Section 15 says the password is argon2id and that tokens and recovery codes
+are "hashed at rest". It does not say with what.
+
+Passwords get argon2id at OWASP's 19 MiB, two iterations, one lane. Tokens,
+session cookies, and recovery codes get SHA-256.
+
+The difference is what the hash defends against. A slow KDF buys resistance
+to guessing a low-entropy, human-chosen value. The others are 256 random
+bits minted by the server, so there is nothing to guess, and a slow hash on
+every API request would be a cost with no benefit: an MCP client polling the
+change feed would pay 30ms of argon2 per poll to protect a secret that
+cannot be brute forced.
+
+The property the assertion actually wants holds either way, and is tested
+directly: a database dump contains no usable credential.
+
+Reversible: yes, though rehashing existing tokens would mean reissuing them.
+
+## 2026-07-31  The health check is exempt from the no-account 503
+Phase: 2
+
+Section 14 says that until an account exists, "every route returns 503 with
+`no account configured`". Section 15 separately specifies `/healthz` as
+unauthenticated with no detail in the body, and the container uses it.
+
+Everything answers 503 except `/healthz`, which answers 200.
+
+A liveness probe reports whether the process is alive. An unconfigured
+server is alive, and failing the probe would have the container restarted,
+which does not create an account and does not help. The two statements are
+about different things: one is the answer to a request for data, the other
+is the answer to "are you running".
+
+Reversible: one condition.
+
+## 2026-07-31  A token carries the actor it writes to the event log
+Phase: 2
+
+Section 3 gives the event log actors of the form `me`, `mcp:claude`,
+`plugin:jira`. Section 15 says each client gets its own token. Nothing says
+how a token becomes an actor.
+
+`api_token.actor` is set at creation and validated against those three
+shapes. `tdd token create -name claude -actor mcp:claude -scopes read,capture`.
+
+Deriving it from the token name was rejected: undo is already scoped by
+actor, so a token that could claim an arbitrary actor string could reverse
+another actor's work, and a name is a display label that should not carry
+that weight. Section 10 wants a bad agent batch to be one `/undo` loop away
+from gone, and that only holds if the agent's writes are separable.
+
+Reversible: yes, it is a column.
+
+## 2026-07-31  X-Forwarded-For is believed only from configured proxies
+Phase: 2
+
+Section 15 wants the login route rate limited at the app, ten attempts per
+IP per minute, and notes the server sits behind nginx-proxy-manager. It does
+not say how the client address is determined.
+
+`-trusted-proxies` takes a CIDR list and defaults to empty. With nothing
+trusted the immediate peer is the client. `X-Forwarded-For` is read only
+when the peer is inside a trusted network.
+
+Believing the header unconditionally would make the rate limit decorative:
+a caller puts a fresh address in it on every attempt and never hits the
+limit. The safe default is therefore to trust nothing, and the cost of that
+default behind a proxy is that every request looks like the proxy and the
+per-IP limit becomes one global limit. That fails toward locking out the
+account holder rather than toward letting an attacker through, which is the
+right direction, but it is not what anyone wants: the server logs a warning
+at startup when it binds a non-loopback address with no trusted proxies
+configured.
+
+Reversible: it is configuration.
+
+## 2026-07-31  A lockout expiring does not reset the failure counters
+Phase: 2
+
+Section 15 says five failed attempts lock the account for fifteen minutes.
+It does not say what the counter does afterwards.
+
+Only a completed login clears the counters. When the window expires the
+account is usable again, but the counter still reads five, so the next
+failure locks it immediately rather than granting four more tries.
+
+The alternative turns the lockout into a rate limit of five attempts per
+fifteen minutes, sustained forever. Since the legitimate user gets in on
+the first try and clears the counter, the asymmetry costs them nothing.
+
+Reversible: yes.
+
 ## 2026-07-31  The task list does not paginate
 Phase: 1
 

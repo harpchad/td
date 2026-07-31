@@ -33,6 +33,7 @@ const usage = `td - task manager
   td undo              reverse your last change
   td people            list people
   td filters           list saved filters
+  td whoami            show which credential is in use and what it may do
   td flush             send anything queued while offline
 
 <ref> is a task number or a ULID. Every command takes --json.
@@ -79,6 +80,8 @@ func run(args []string) error {
 		return people(ctx, c, rest)
 	case "filters":
 		return filters(ctx, c, rest)
+	case "whoami":
+		return whoami(ctx, c, rest)
 	case "flush":
 		return flush(ctx, c)
 	default:
@@ -314,6 +317,27 @@ func filters(ctx context.Context, c *client.Client, args []string) error {
 	for _, f := range list {
 		fmt.Printf("%d  %-12s %s\n", f.Slot, f.Name, f.Query)
 	}
+	return nil
+}
+
+func whoami(ctx context.Context, c *client.Client, args []string) error {
+	fs := flag.NewFlagSet("whoami", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "print as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	me, err := c.WhoAmI(ctx)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return printJSON(me)
+	}
+	if me.Username != "" {
+		fmt.Printf("token   %s\n", me.Username)
+	}
+	fmt.Printf("kind    %s\nactor   %s\nscopes  %s\n",
+		me.Kind, me.Actor, strings.Join(me.Scopes, ", "))
 	return nil
 }
 

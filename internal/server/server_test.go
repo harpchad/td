@@ -5,21 +5,45 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/harpchad/td/internal/api"
+	"github.com/harpchad/td/internal/auth"
 	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/server"
 	"github.com/harpchad/td/internal/store"
 )
 
+// harness is a running server plus the credentials to talk to it.
+type harness struct {
+	*httptest.Server
+	store    *store.Store
+	srv      *server.Server
+	token    string
+	username string
+	password string
+	totp     string
+	recovery []string
+	now      time.Time
+}
+
+// testAccount is the credential every test logs in with.
+const (
+	testUsername = "chad"
+	testPassword = "a long enough password"
+)
+
 // newServer starts an HTTP server over a scratch database loaded with
-// testdata/seed.json, with its clock pinned to the fixture's.
-func newServer(t *testing.T) *httptest.Server {
+// testdata/seed.json, with its clock pinned to the fixture's, an account
+// created, and a full-scope token minted. Phase 1's tests run through the
+// same auth path everything else does.
+func newServer(t *testing.T) *harness {
 	t.Helper()
 
 	d, err := seed.Load(filepath.Join("..", "..", "testdata", "seed.json"))
@@ -40,12 +64,52 @@ func newServer(t *testing.T) *httptest.Server {
 		t.Fatal(err)
 	}
 
-	srv := server.New(st, nil)
+	srv, err := server.New(st, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
 	srv.Now = func() time.Time { return now }
 
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
-	return ts
+	h := &harness{store: st, srv: srv, now: now, username: testUsername, password: testPassword}
+
+	// Light argon2 parameters here: the cost is the point only in the timing
+	// test, which sets up its own account with the real ones.
+	hash, err := auth.HashPassword(testPassword, testParams)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, _, err := auth.NewTOTPSecret("td", testUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes, hashes, err := auth.NewRecoveryCodes(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateAccount(context.Background(), testUsername, hash, secret, hashes, now); err != nil {
+		t.Fatal(err)
+	}
+	h.recovery = codes
+	if h.totp, err = auth.GenerateTOTP(secret, now); err != nil {
+		t.Fatal(err)
+	}
+
+	tok, err := st.CreateToken(context.Background(), "test",
+		"me", []string{api.ScopeRead, api.ScopeWrite, api.ScopeCapture}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.token = tok.Secret
+
+	h.Server = httptest.NewServer(srv.Handler())
+	t.Cleanup(h.Close)
+	return h
+}
+
+// testParams keep the suite fast where hashing cost is not what is under
+// test. The timing assertion uses auth.DefaultParams.
+var testParams = auth.Params{
+	Memory: 8 * 1024, Iterations: 1, Parallelism: 1, SaltLength: 16, KeyLength: 32,
 }
 
 // respMeta is what do returns instead of an *http.Response. Handing back a
@@ -55,7 +119,20 @@ type respMeta struct {
 	Header     http.Header
 }
 
-func do(t *testing.T, ts *httptest.Server, method, path string, body any) (respMeta, []byte) {
+func do(t *testing.T, ts *harness, method, path string, body any) (respMeta, []byte) {
+	t.Helper()
+	return request(t, ts, method, path, body, map[string]string{
+		"Authorization": "Bearer " + ts.token,
+	})
+}
+
+// doAnon sends the same request with no credential.
+func doAnon(t *testing.T, ts *harness, method, path string, body any) (respMeta, []byte) {
+	t.Helper()
+	return request(t, ts, method, path, body, nil)
+}
+
+func request(t *testing.T, ts *harness, method, path string, body any, headers map[string]string) (respMeta, []byte) {
 	t.Helper()
 	var reader io.Reader
 	if body != nil {
@@ -72,6 +149,9 @@ func do(t *testing.T, ts *httptest.Server, method, path string, body any) (respM
 	req.Header.Set("X-Td-Client", api.Version)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	resp, err := ts.Client().Do(req)
 	if err != nil {
@@ -295,6 +375,7 @@ func TestStaleIfMatchConflicts(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+ts.token)
 	req.Header.Set("If-Match", `"1999-01-01T00:00:00Z"`)
 	resp, err := ts.Client().Do(req)
 	if err != nil {
@@ -349,6 +430,13 @@ func TestEventsAndUndoRoundTrip(t *testing.T) {
 	decodeInto(t, body, &events)
 	if len(events) != 1 || events[0].Kind != api.KindTaskUpdated {
 		t.Fatalf("events = %+v, want one task.updated", events)
+	}
+	// Setting the harness up created an account and a token, both of which
+	// wrote auth events. None of them belongs in the change feed.
+	for _, e := range events {
+		if strings.HasPrefix(e.Kind, "auth.") {
+			t.Errorf("the change feed carries %s, which an agent has no business reading", e.Kind)
+		}
 	}
 
 	_, body = do(t, ts, http.MethodPost, "/api/v1/undo", nil)

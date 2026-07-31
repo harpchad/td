@@ -62,6 +62,34 @@ shelling out to `spectral`, which would put Node in the build.
 Binary impact: neither. Test-only, and it does not appear in either
 binary's import graph.
 
+## golang.org/x/crypto@v0.54.0
+Phase: 2
+Used for: argon2id password hashing, which section 15 names directly.
+Considered instead: nothing seriously. `golang.org/x/crypto/argon2` is the
+reference implementation and argon2id is what the spec asks for. `bcrypt`
+would have been the fallback if this were unavailable; it is weaker against
+GPU attack and the spec did not ask for it.
+Binary impact: server only. The import boundary test fails the build if
+argon2 ever reaches `cmd/td`, which holds a bearer token and hashes nothing.
+
+## github.com/pquerna/otp@v1.5.0
+Phase: 2
+Used for: TOTP generation and validation, and the otpauth:// enrolment URI
+`tdd account create` prints.
+Considered instead: implementing RFC 6238 by hand, which is about forty
+lines and is a bad place to be clever. This library is the one everything
+else in Go uses, has no dependencies beyond a barcode package, and gets the
+skew window and the URI format right.
+Binary impact: server only, and on the forbidden list for `cmd/td`.
+
+## golang.org/x/term@v0.45.0
+Phase: 2
+Used for: reading the password without echo in `tdd account create`.
+Considered instead: reading a plain line, which prints the password to the
+terminal and into the scrollback. The command falls back to a plain read
+when stdin is not a terminal, which is what makes it testable.
+Binary impact: server only.
+
 ---
 
 ## Tools

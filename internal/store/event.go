@@ -15,6 +15,8 @@ import (
 // undoableKinds are the event kinds an undo may reverse. Auth events, sync
 // writes from a plugin, attachment uploads, and a previous undo are all
 // outside it.
+// Nothing with the auth. prefix appears here: reversing a login is not a
+// thing, and the log exists so something odd can be found later.
 var undoableKinds = map[string]bool{
 	api.KindTaskCreated:  true,
 	api.KindTaskUpdated:  true,
@@ -45,13 +47,50 @@ func nullIfEmpty(s string) any {
 
 // Events returns the change feed from seq onwards, oldest first. MCP clients
 // poll this instead of re-listing everything.
+//
+// Auth events are excluded. They live in the same table, because section 15
+// says to log them there and because one ordered history is worth having, but
+// they are not changes to anything and the feed is read by agents. Handing a
+// read-scoped MCP token your login history and the source IPs behind it would
+// be a needless disclosure to the least trusted credential in the system.
+// AuthEvents reads them, and `tdd account log` is what prints them.
 func (s *Store) Events(ctx context.Context, since int64, limit int) ([]api.Event, error) {
+	return s.events(ctx, `seq > ? AND kind NOT LIKE 'auth.%'`, since, limit)
+}
+
+// AuthEvents returns the authentication history, newest first. It is not
+// served over HTTP in phase 2: `tdd account log` reads it on the server, the
+// same place the account is created.
+func (s *Store) AuthEvents(ctx context.Context, limit int) ([]api.Event, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT seq, at, actor, coalesce(task_id, ''), kind, patch_json
+		 FROM event WHERE kind LIKE 'auth.%' ORDER BY seq DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []api.Event{}
+	for rows.Next() {
+		e, err := scanEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) events(ctx context.Context, where string, since int64, limit int) ([]api.Event, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT seq, at, actor, coalesce(task_id, ''), kind, patch_json
-		 FROM event WHERE seq > ? ORDER BY seq LIMIT ?`, since, limit)
+		 FROM event WHERE `+where+` ORDER BY seq LIMIT ?`, since, limit)
 	if err != nil {
 		return nil, err
 	}

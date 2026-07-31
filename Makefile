@@ -83,13 +83,24 @@ seed:
 ## a running server returns what the case files say it should.
 run:
 	@mkdir -p $(BUILD_DIR)
-	@go run ./cmd/tdd -db $(DEV_DB) -now @$(SEED) -addr 127.0.0.1:8080
+	@go run ./cmd/tdd -db $(DEV_DB) -now @$(SEED) -addr 127.0.0.1:8080 -base-url http://127.0.0.1:8080
 
 .PHONY: run-live
 ## The same server on the real clock, for anything that is not fixture work.
 run-live:
 	@mkdir -p $(BUILD_DIR)
-	@go run ./cmd/tdd -db $(DEV_DB) -addr 127.0.0.1:8080
+	@go run ./cmd/tdd -db $(DEV_DB) -addr 127.0.0.1:8080 -base-url http://127.0.0.1:8080
+
+.PHONY: account
+## Create the one account. There is no signup page and no route that makes one.
+account:
+	@mkdir -p $(BUILD_DIR)
+	@go run ./cmd/tdd -db $(DEV_DB) account create
+
+.PHONY: token
+## Mint a token for the CLI: make token NAME=tui SCOPES=read,write
+token:
+	@go run ./cmd/tdd -db $(DEV_DB) token create -name "$(or $(NAME),tui)" -scopes "$(or $(SCOPES),read,write,capture)"
 
 .PHONY: tidy
 tidy:
