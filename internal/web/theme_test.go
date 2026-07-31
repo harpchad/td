@@ -230,3 +230,153 @@ func TestFixedGreysAreOnlyEverFills(t *testing.T) {
 		}
 	}
 }
+
+// TestControlsInAModalInvertWithIt covers the gap that made the login page's
+// inputs invisible.
+//
+// A modal repaints its surface with --td-surface and --td-surface-ink. Any
+// control that draws itself from --td-ink or --td-paper is therefore wrong
+// inside one: both are dark in the light theme and both are light in the dark
+// theme, so the control disappears into the panel. tokens.css had overrides
+// for the button, the toggle, and the link, and none for the input, which is
+// the only control on the one screen that is nothing but controls.
+//
+// The check is per property, not per selector. A first version asked only
+// whether a .td-modal rule existed for the class, which the :focus override
+// satisfied on its own, so deleting the rule that actually mattered left the
+// test green.
+func TestControlsInAModalInvertWithIt(t *testing.T) {
+	tokens := readCSS(t, "tokens.css")
+	controls := []string{"td-btn", "td-toggle", "td-input", "td-check", "td-radio", "td-done"}
+
+	for _, class := range controls {
+		t.Run(class, func(t *testing.T) {
+			needed := propertiesPaintedFromPageColours(tokens, class)
+			if len(needed) == 0 {
+				return // draws with currentColor or inherit, so it follows the panel
+			}
+			override := modalRules(tokens, class)
+			for _, property := range needed {
+				if !overridesProperty(override, property) {
+					t.Errorf(".%s sets %s from --td-ink or --td-paper and no .td-modal rule "+
+						"resets it, so it is invisible inside a modal", class, property)
+				}
+			}
+		})
+	}
+}
+
+// propertiesPaintedFromPageColours lists the declarations in a class's base
+// rules whose value comes from the page palette rather than from
+// currentColor.
+func propertiesPaintedFromPageColours(css, class string) []string {
+	var out []string
+	seen := map[string]bool{}
+
+	for _, block := range strings.Split(css, "}") {
+		selector, body, ok := strings.Cut(block, "{")
+		if !ok || strings.Contains(selector, ".td-modal") {
+			continue
+		}
+		if !selectorTargets(selector, class) {
+			continue
+		}
+		for _, decl := range strings.Split(body, ";") {
+			property, value, ok := strings.Cut(decl, ":")
+			if !ok {
+				continue
+			}
+			if !strings.Contains(value, "var(--td-ink)") && !strings.Contains(value, "var(--td-paper)") {
+				continue
+			}
+			property = strings.TrimSpace(property)
+			if !seen[property] {
+				seen[property] = true
+				out = append(out, property)
+			}
+		}
+	}
+	return out
+}
+
+// selectorTargets reports whether a selector styles the class itself rather
+// than something that merely mentions it.
+func selectorTargets(selector, class string) bool {
+	for _, part := range strings.Split(selector, ",") {
+		part = strings.TrimSpace(part)
+		if part == "."+class || strings.HasPrefix(part, "."+class+":") ||
+			strings.HasPrefix(part, "."+class+"[") {
+			return true
+		}
+	}
+	return false
+}
+
+func modalRules(css, class string) string {
+	var out strings.Builder
+	for _, block := range strings.Split(css, "}") {
+		selector, body, ok := strings.Cut(block, "{")
+		if ok && strings.Contains(selector, ".td-modal") && strings.Contains(selector, "."+class) {
+			out.WriteString(body)
+			out.WriteString(";")
+		}
+	}
+	return out.String()
+}
+
+// overridesProperty allows a longhand to answer for a shorthand, so
+// border-bottom-color satisfies border-bottom.
+func overridesProperty(rules, property string) bool {
+	for _, decl := range strings.Split(rules, ";") {
+		name, _, ok := strings.Cut(decl, ":")
+		if !ok {
+			continue
+		}
+		name = strings.TrimSpace(name)
+		if name == property || strings.HasPrefix(name, property+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+// TestTheFocusedCaretIsVisible covers the one animation in the product. The
+// field inverts on focus, so a caret left at --td-ink sits on an --td-ink
+// background and cannot be seen.
+func TestTheFocusedCaretIsVisible(t *testing.T) {
+	tokens := readCSS(t, "tokens.css")
+
+	focus := baseRules(tokens, "td-input:focus")
+	if !strings.Contains(focus, "caret-color") {
+		t.Error(".td-input:focus inverts the field without inverting the caret, so the caret is invisible while typing")
+	}
+
+	modalFocus := ""
+	for _, block := range strings.Split(tokens, "}") {
+		selector, body, ok := strings.Cut(block, "{")
+		if ok && strings.Contains(selector, ".td-modal .td-input:focus") {
+			modalFocus = body
+		}
+	}
+	if modalFocus == "" || !strings.Contains(modalFocus, "caret-color") {
+		t.Error("a focused input inside a modal has no caret colour of its own")
+	}
+}
+
+// baseRules returns every rule matching a selector fragment that is not
+// itself a modal override, concatenated.
+func baseRules(css, fragment string) string {
+	var out strings.Builder
+	for _, block := range strings.Split(css, "}") {
+		selector, body, ok := strings.Cut(block, "{")
+		if !ok || strings.Contains(selector, ".td-modal") {
+			continue
+		}
+		if !strings.Contains(selector, "."+fragment) {
+			continue
+		}
+		out.WriteString(body)
+		out.WriteString(";")
+	}
+	return out.String()
+}

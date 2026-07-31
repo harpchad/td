@@ -18,6 +18,61 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  A modal inverts its surface, and the controls have to come with it
+Phase: 4
+
+Reported: the cursor is invisible in the login form's fields.
+
+A modal repaints itself with `--td-surface` and `--td-surface-ink`, which are
+the inverse of the page. `tokens.css` had `.td-modal` overrides for the
+button, the toggle's track and knob, and the link. It had none for the input.
+Nor does `mockup.html`, which shows inputs inside a modal and never overrides
+them either, so both authority artifacts carry the same gap.
+
+The result: an input inside a modal draws its underline and its caret from
+`--td-ink`, which is dark in the light theme where the panel is also dark,
+and light in the dark theme where the panel is also light. Invisible either
+way, on the one screen that is nothing but fields.
+
+Separately, the base `.td-input:focus` inverts the field to `--td-ink` and
+leaves `caret-color` at `--td-ink`, so the caret is invisible while typing in
+any field anywhere. The caret is the only animation in this product.
+
+Both fixed. The general check is now a test: for every control class, any
+property painted from `--td-ink` or `--td-paper` must have a `.td-modal` rule
+resetting it. Controls drawing with `currentColor` or `inherit` need nothing,
+which is what the "form controls do not inherit color" note in that file is
+about.
+
+Two things worth recording about the test. The first version asked only
+whether a `.td-modal` rule mentioned the class, which the `:focus` override
+satisfied on its own, so deleting the rule that mattered left it green. It
+checks per property now, and was verified by deleting the rule and watching
+it fail. And on its first correct run it found a second instance nobody had
+reported: `.td-toggle:focus-visible` outlines in `--td-ink`, so focus was
+invisible on the settings modal, which is the only place toggles live.
+
+Reversible: no reason to.
+
+## 2026-07-31  The due date is a column with a width, not a right-aligned run
+Phase: 4
+
+Reported: the last two rows overlap into the date column when they have no
+date.
+
+`.td-due` had `margin-left: auto`, which right-aligns it, and no width. A row
+whose date renders as an em dash is one character wide where a row reading
+"Aug 10" is six, so its tags ran five characters further right and the tag
+column went ragged.
+
+`min-width: 8ch` and `text-align: right`: the 2ch gutter plus the six
+characters of the longest date. Now it is a column.
+
+Everything lands on a character grid is the rule this follows, and a column
+that is only as wide as its content is not on a grid.
+
+Reversible: yes.
+
 ## 2026-07-31  The CSP silently dropped every inline style, and the markup relied on them
 Phase: 4
 

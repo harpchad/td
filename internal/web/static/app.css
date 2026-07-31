@@ -50,8 +50,12 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
  * It gets its own height because a .td-btn is four pixels taller than a row
  * plus its hard shadow, and a button that overflows its bar draws over the
  * input beside it. */
+/* Tall enough for a button and its shadow with air around both. A .td-btn is
+ * four pixels taller than a row, and the hard offset shadow adds four more
+ * below it; a bar sized to the button alone clips the shadow against the
+ * next rule. */
 .td-bar--add {
-  height: calc(var(--td-row) + var(--td-shadow) + 6px);
+  height: calc(var(--td-row) + var(--td-shadow) * 3 + 4px);
   padding-right: calc(var(--td-pad) + var(--td-shadow));
 }
 .td-bar--add .td-input { flex: 1 1 auto; border-bottom: 0; }

@@ -138,7 +138,14 @@
  * the date is right-aligned, so without a reserved gutter a long tag list
  * runs straight into the date. mockup.html has carried this since the
  * beginning and this file had drifted from it. */
-.td-due { margin-left: auto; opacity: var(--td-dim); padding-left: 2ch; }
+/* A fixed column, not just a right-aligned run. Without the width a row
+ * whose date is an em dash lets its tags run five characters further right
+ * than a row reading "Aug 10", and the tag column goes ragged. 8ch holds the
+ * 2ch gutter and the six characters of the longest date. */
+.td-due {
+  margin-left: auto; opacity: var(--td-dim);
+  padding-left: 2ch; min-width: 8ch; text-align: right;
+}
 .td-due--overdue { color: var(--td-alert); opacity: 1; font-weight: var(--td-weight-bold); }
 .td-children { opacity: var(--td-dim); }
 
@@ -272,7 +279,14 @@
   border-radius: 0; padding: 0 0.5ch; height: var(--td-row);
   caret-color: var(--td-ink);
 }
-.td-input:focus { outline: none; background: var(--td-ink); color: var(--td-paper); }
+/* The field inverts on focus, so the caret has to invert with it. Leaving
+ * caret-color at --td-ink puts an ink caret on an ink background, and the
+ * caret is the only animation in this product. */
+.td-input:focus {
+  outline: none;
+  background: var(--td-ink); color: var(--td-paper);
+  caret-color: var(--td-paper);
+}
 .td-input::placeholder { color: inherit; opacity: var(--td-dimmer); }
 
 /* ---------------------------------------------------------------- */
@@ -300,7 +314,24 @@
 .td-modal .td-btn--primary { background: var(--td-accent); color: var(--td-accent-ink); }
 .td-modal .td-toggle { border-color: var(--td-surface-ink); background: #000; }
 .td-modal .td-toggle__knob { background: var(--td-surface-ink); }
+/* The focus ring too. An --td-ink outline on an --td-surface panel is the
+ * same colour twice, so focus would be invisible on the settings modal,
+ * which is the one place toggles live. */
+.td-modal .td-toggle:focus-visible { outline-color: var(--td-surface-ink); }
 .td-modal .td-link { color: var(--td-surface-ink); }
+
+/* An input inside a modal. Without this the underline and the caret are
+ * drawn in --td-ink on a surface painted --td-surface, which are both dark
+ * in the light theme and both light in the dark one: an invisible field on
+ * the one screen that is nothing but fields. */
+.td-modal .td-input {
+  border-bottom-color: var(--td-surface-ink);
+  caret-color: var(--td-surface-ink);
+}
+.td-modal .td-input:focus {
+  background: var(--td-surface-ink); color: var(--td-surface);
+  caret-color: var(--td-surface);
+}
 
 /* ---------------------------------------------------------------- */
 /* scrollbar: a character-wide gutter, not the browser default      */
