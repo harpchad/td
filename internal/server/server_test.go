@@ -130,6 +130,29 @@ func TestEveryResponseCarriesTheServerVersion(t *testing.T) {
 	}
 }
 
+// TestEveryResponseCarriesTheServerClock covers the header a client renders
+// relative date labels against. Without it, a client in another timezone
+// labels a different set of tasks "Today" than the server bucketed there, and
+// the two disagree about a list the server already ordered.
+func TestEveryResponseCarriesTheServerClock(t *testing.T) {
+	ts := newServer(t)
+	resp, _ := do(t, ts, http.MethodGet, "/api/v1/tasks", nil)
+
+	got := resp.Header.Get("X-Td-Now")
+	if got == "" {
+		t.Fatal("no X-Td-Now header")
+	}
+	at, err := time.Parse(time.RFC3339, got)
+	if err != nil {
+		t.Fatalf("X-Td-Now = %q, which does not parse: %v", got, err)
+	}
+	// The test server pins the fixture clock, so the header must report it
+	// rather than the machine's wall clock.
+	if want := "2026-08-03T10:30:00-05:00"; at.Format(time.RFC3339) != want {
+		t.Errorf("X-Td-Now = %s, want the pinned %s", at.Format(time.RFC3339), want)
+	}
+}
+
 func TestHealthzIsUnauthenticatedAndSaysNothing(t *testing.T) {
 	ts := newServer(t)
 	resp, body := do(t, ts, http.MethodGet, "/healthz", nil)

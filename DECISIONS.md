@@ -18,6 +18,60 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  OAuth 2.1 is in scope, and "no OAuth" means no federation
+Phase: 1 (resolved for phase 9)
+
+`CLAUDE.md` contradicts itself. Its "Do not build" list says "No
+collaboration, no sharing, no second user, no OAuth". Four other statements
+assume an OAuth authorization server exists: the v1 definition of done calls
+the claude.ai connector "the end-to-end test for the OAuth work, and nothing
+short of it counts"; two security assertions test `/authorize` PKCE handling
+and exact audience matching; a third says "OAuth client registration is not
+user registration and creates no account". `BUILD-SPEC.md` section 10 calls
+it "not optional and not a later nice-to-have" and section 16 makes it step
+9.
+
+Built, as specced, in phase 9. Confirmed with the author.
+
+The reading that makes the whole document consistent: "no OAuth" sits in a
+list with "no collaboration, no sharing, no second user", and means no
+third-party login and no user federation. Being your own authorization
+server for a single account is a different thing, and it is the only way the
+claude.ai connector works at all: that UI takes a client id and secret and
+has no field for a bearer token.
+
+Rejected: taking the prohibition literally, which would leave a v1 done
+criterion permanently unmet and three security assertions testing code that
+does not exist.
+
+Reversible: it is a phase that either happens or does not. Deciding now
+rather than at phase 9 matters because phase 2 designs the token and session
+tables an authorization server later builds on.
+
+## 2026-07-31  The account has a username
+Phase: 1 (resolved for phase 2)
+
+Section 15 says "one account" and section 14 has `tdd account create` prompt
+for a password, saying nothing about a username. A security assertion in
+`CLAUDE.md` then requires that "a login attempt with an unknown account and
+one with a known account return the same status, the same body, and timings
+within 50ms", which is only meaningful if an account can be named.
+
+The account has a username. `tdd account create` prompts for one. Confirmed
+with the author.
+
+The assertion is what settles it: a test that distinguishes a known account
+from an unknown one requires that accounts have names. Without a username
+the login form is a bare password box, and that assertion becomes vacuous
+rather than passing.
+
+The implementation this commits to: an unknown username runs a dummy
+argon2id verification with the same parameters as a real one, so the
+response time does not reveal whether the account exists.
+
+Reversible: dropping the field later is easy. Adding it later would mean a
+migration plus re-enrolling.
+
 ## 2026-07-31  The task list does not paginate
 Phase: 1
 
@@ -44,6 +98,41 @@ a row across it. Pagination lives there and nowhere else.
 
 Reversible: adding a cursor back is easy, and would first require a reason
 that the events feed does not already cover.
+
+## 2026-07-31  The server can be pinned to the fixture clock, and tells clients its own
+Phase: 1
+
+`CLAUDE.md` says `make seed` loads `testdata/seed.json` "including the fixed
+clock, so every fixture in that directory evaluates the way the case files
+say it does". The first pass honored that in the test suite only: `make run`
+served from the real wall clock, so the home view on a running server came
+back in a different order than `sort_cases.json` specifies. That is correct
+behavior for a real server and wrong against that sentence.
+
+`tdd -now` pins the clock. It takes an RFC3339 instant, or `@<seed file>` to
+lift both the instant and the timezone out of a fixture. `make run` passes
+`-now @testdata/seed.json`; `make run-live` is the same server on the real
+clock. Pinning logs a warning at startup, because every date predicate and
+the entire sort order depend on it and a server left running that way
+answers plausible nonsense.
+
+Fixing that surfaced a second, real bug. The client rendered relative date
+labels ("Today", overdue) from its own `time.Now()`, so a client and server
+in different timezones disagree about which tasks are due today, on a list
+the server already ordered. That breaks the v1 criterion that the TUI and
+the web UI show the same list for the same filter, and it would have been
+found in phase 3 or 4 rather than here.
+
+Every response now carries `X-Td-Now` with the server's instant in its
+configured zone, and the client renders against it. The server's zone is
+authoritative because it is what the sort order already used. A missing or
+unparseable header falls back to local time rather than failing.
+
+Rejected: a `timezone` key in the client config, which is already there and
+defaults to empty. It cannot be the answer, because the client would then
+have to be configured correctly to agree with a list it did not compute.
+
+Reversible: yes. The header is additive and an old client ignores it.
 
 ## 2026-07-31  Pure-Go SQLite driver instead of the cgo one
 Phase: 1

@@ -36,6 +36,7 @@ func run(args []string) error {
 	dbPath := fs.String("db", envOr("TD_DB", "/data/td.db"), "path to the SQLite database")
 	tz := fs.String("tz", envOr("TD_TIMEZONE", "America/Chicago"), "timezone for every date-only comparison")
 	seedPath := fs.String("seed", "", "load a fixture dataset and exit")
+	nowFlag := fs.String("now", "", "pin the clock to an RFC3339 instant, or to @<seed file> to take the fixture's. Development only")
 	allowOpenBind := fs.Bool("allow-unauthenticated-bind", os.Getenv("TD_ALLOW_UNAUTHENTICATED_BIND") == "1",
 		"bind a non-loopback address while the API is still unauthenticated; only correct behind a namespace that is not itself reachable")
 	showVersion := fs.Bool("version", false, "print the API version and exit")
@@ -51,6 +52,14 @@ func run(args []string) error {
 	loc, err := time.LoadLocation(*tz)
 	if err != nil {
 		return fmt.Errorf("timezone %q: %w", *tz, err)
+	}
+
+	pinned, err := parseClock(*nowFlag, loc)
+	if err != nil {
+		return err
+	}
+	if pinned != nil {
+		loc = pinned.Location()
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -87,6 +96,18 @@ func run(args []string) error {
 	}
 
 	srv := server.New(st, log)
+	if pinned != nil {
+		// A pinned clock is what makes a running server agree with the case
+		// files in testdata/, which all evaluate against one fixed instant.
+		// It is loud on purpose: every date predicate and the whole sort order
+		// depend on it, so a server left running this way would answer
+		// plausible nonsense.
+		at := *pinned
+		srv.Now = func() time.Time { return at }
+		log.Warn("clock is pinned, this server is not telling the time",
+			"now", at.Format(time.RFC3339), "tz", loc.String())
+	}
+
 	httpSrv := &http.Server{
 		Addr:              *addr,
 		Handler:           srv.Handler(),
@@ -110,6 +131,39 @@ func run(args []string) error {
 		return err
 	}
 	return nil
+}
+
+// parseClock reads the -now flag. An empty value means the real clock. A
+// value starting with @ names a seed file and takes both the instant and the
+// timezone from it, so `-now @testdata/seed.json` puts the server in exactly
+// the environment the case files in that directory assume. Anything else is
+// an RFC3339 instant, read in loc.
+//
+// This exists because `make seed` loads a fixture pinned to one instant, and
+// a server answering from the real wall clock returns a different order for
+// the same filter than sort_cases.json specifies. Hand-checking a fixture
+// against a running server should agree with the test suite.
+func parseClock(value string, loc *time.Location) (*time.Time, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if strings.HasPrefix(value, "@") {
+		data, err := seed.Load(strings.TrimPrefix(value, "@"))
+		if err != nil {
+			return nil, fmt.Errorf("clock from seed file: %w", err)
+		}
+		at, _, err := data.Clock()
+		if err != nil {
+			return nil, fmt.Errorf("clock from seed file: %w", err)
+		}
+		return &at, nil
+	}
+	at, err := time.ParseInLocation(time.RFC3339, value, loc)
+	if err != nil {
+		return nil, fmt.Errorf("-now %q is not an RFC3339 instant: %w", value, err)
+	}
+	at = at.In(loc)
+	return &at, nil
 }
 
 // requireLoopback refuses a publicly reachable bind while the API is still

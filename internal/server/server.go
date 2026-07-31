@@ -62,16 +62,27 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/events", s.listEvents)
 	mux.HandleFunc("POST /api/v1/undo", s.undo)
 
-	return versionHeader(mux)
+	return s.standardHeaders(mux)
 }
 
-// versionHeader stamps every response with the server's API version. The
-// client compares it against its own and warns once when the major versions
-// differ, which is the whole answer to running a container and a laptop on
-// different release schedules.
-func versionHeader(next http.Handler) http.Handler {
+// standardHeaders stamps every response with the server's API version and its
+// current instant.
+//
+// The version is the answer to a container and a laptop updating on different
+// schedules: the client compares it against its own and warns once when the
+// major versions differ.
+//
+// The clock is the answer to a subtler one. Relative date labels ("Today",
+// "Tomorrow") and the overdue bucket are computed against a calendar date in
+// a timezone, and the server's configured zone is authoritative because that
+// is what the sort order already used. A client rendering those labels from
+// its own wall clock disagrees with the list it was handed the moment the two
+// machines are in different zones, or the moment a development server pins
+// its clock to a fixture.
+func (s *Server) standardHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Td-Server", api.Version)
+		w.Header().Set("X-Td-Now", s.Now().Format(time.RFC3339))
 		next.ServeHTTP(w, r)
 	})
 }

@@ -33,6 +33,37 @@ type Client struct {
 	// Warn receives the one version-skew line. Tests replace it; the CLI
 	// points it at stderr.
 	Warn func(string)
+
+	mu        sync.Mutex
+	serverNow time.Time
+}
+
+// Now reports the server's clock as of the last response, in the server's
+// configured timezone. Relative date labels and the overdue bucket are
+// computed against it rather than against the local wall clock, so a client
+// in another zone renders the same list it was handed.
+//
+// Falls back to local time before the first response.
+func (c *Client) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.serverNow.IsZero() {
+		return time.Now()
+	}
+	return c.serverNow
+}
+
+func (c *Client) noteServerClock(header string) {
+	if header == "" {
+		return
+	}
+	at, err := time.Parse(time.RFC3339, header)
+	if err != nil {
+		return
+	}
+	c.mu.Lock()
+	c.serverNow = at
+	c.mu.Unlock()
 }
 
 // New builds a Client from a resolved config.
@@ -163,6 +194,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, headers 
 	defer func() { _ = resp.Body.Close() }()
 
 	c.checkVersion(resp.Header.Get("X-Td-Server"))
+	c.noteServerClock(resp.Header.Get("X-Td-Now"))
 
 	if resp.StatusCode >= 400 {
 		return decodeError(resp)

@@ -24,9 +24,15 @@ import boundary test, and the `openapi.yaml` schema lint.
 ## Run it
 
 ```sh
-make seed      # load testdata/seed.json into build/dev.db, fixed clock and all
-make run       # serve on 127.0.0.1:8080
+make seed      # load testdata/seed.json into build/dev.db
+make run       # serve on 127.0.0.1:8080, pinned to the fixture's clock
+make run-live  # the same server on the real clock
 ```
+
+`make run` passes `-now @testdata/seed.json`, so a filter typed at the
+running server returns what the case files say it should. It logs a warning
+while pinned, because every date predicate and the whole sort order depend
+on it.
 
 Or with the container:
 
@@ -112,3 +118,8 @@ including a test that fails if a route exists without a matching entry.
 The client sends `X-Td-Client` with its version and the server returns
 `X-Td-Server` on every response. The client prints one warning line when the
 major versions differ.
+
+Every response also carries `X-Td-Now`, the server's clock in its configured
+timezone. Clients render relative dates against it rather than against their
+own wall clock, so a client in another zone does not label a different set of
+tasks "Today" than the server bucketed there.

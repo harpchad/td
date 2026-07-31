@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/client"
@@ -50,6 +51,57 @@ func TestMajorVersionSkewWarnsOnce(t *testing.T) {
 	}
 	if len(warnings) != 1 {
 		t.Fatalf("got %d warnings, want exactly one: %v", len(warnings), warnings)
+	}
+}
+
+// TestClientTakesItsClockFromTheServer covers the fix for a client and a
+// server disagreeing about what "today" is. The server's configured zone is
+// authoritative, because it is what the sort order already used.
+func TestClientTakesItsClockFromTheServer(t *testing.T) {
+	const pinned = "2026-08-03T10:30:00-05:00"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Td-Server", api.Version)
+		w.Header().Set("X-Td-Now", pinned)
+		_ = json.NewEncoder(w).Encode(api.TaskList{Tasks: []api.Task{}})
+	}))
+	defer ts.Close()
+
+	c := client.New(client.Config{Server: ts.URL})
+
+	// Before any response there is nothing to go on, so the local clock
+	// stands in rather than a zero time.
+	if c.Now().IsZero() {
+		t.Error("Now() before the first request should fall back to local time")
+	}
+
+	if _, err := c.List(context.Background(), "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Now().Format(time.RFC3339); got != pinned {
+		t.Errorf("Now() = %s, want the server's %s", got, pinned)
+	}
+}
+
+// TestAMissingOrJunkClockHeaderIsIgnored keeps a client usable against a
+// server that does not send the header, or sends something unparseable.
+func TestAMissingOrJunkClockHeaderIsIgnored(t *testing.T) {
+	for _, header := range []string{"", "yesterday afternoon"} {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-Td-Server", api.Version)
+			if header != "" {
+				w.Header().Set("X-Td-Now", header)
+			}
+			_ = json.NewEncoder(w).Encode(api.TaskList{Tasks: []api.Task{}})
+		}))
+
+		c := client.New(client.Config{Server: ts.URL})
+		if _, err := c.List(context.Background(), "", 0); err != nil {
+			t.Fatal(err)
+		}
+		if c.Now().IsZero() {
+			t.Errorf("header %q left the clock unusable", header)
+		}
+		ts.Close()
 	}
 }
 

@@ -177,8 +177,9 @@ func list(ctx context.Context, c *client.Client, args []string) error {
 	}
 	// Sort order and display order are not the same thing: a subtask is
 	// lifted out of its sorted position and drawn under its parent.
+	now := c.Now()
 	for _, row := range query.Arrange(out.Tasks) {
-		fmt.Println(strings.Repeat("  ", row.Depth) + formatRow(row.Task))
+		fmt.Println(strings.Repeat("  ", row.Depth) + formatRow(row.Task, now))
 	}
 	return nil
 }

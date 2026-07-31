@@ -25,8 +25,10 @@ func printJSON(v any) error {
 }
 
 // formatRow renders one list line in the same column order the TUI uses:
-// checkbox, number, priority, title, tags and people, due date.
-func formatRow(t api.Task) string {
+// checkbox, number, priority, title, tags and people, due date. now is the
+// server's clock, not the local one, so a relative label agrees with the
+// bucket the server sorted the row into.
+func formatRow(t api.Task, now time.Time) string {
 	var b strings.Builder
 	b.WriteString(checkbox(t.Status))
 	fmt.Fprintf(&b, " %-4d %-2s %s", t.Num, priorityLabel(t.Priority), t.Title)
@@ -37,7 +39,7 @@ func formatRow(t api.Task) string {
 	if t.ChildrenTotal > 0 {
 		fmt.Fprintf(&b, "  %d/%d", t.ChildrenDone, t.ChildrenTotal)
 	}
-	if due := dueLabel(t); due != "" {
+	if due := dueLabel(t, now); due != "" {
 		b.WriteString("  " + due)
 	}
 	return b.String()
@@ -78,11 +80,11 @@ func tokensOf(t api.Task) string {
 	return strings.Join(parts, " ")
 }
 
-func dueLabel(t api.Task) string {
+func dueLabel(t api.Task, now time.Time) string {
 	if t.DueAt == nil {
 		return ""
 	}
-	d := query.LocalDate(*t.DueAt, time.Local)
+	d := query.LocalDate(*t.DueAt, now.Location())
 	if d == "" {
 		return ""
 	}
@@ -90,7 +92,7 @@ func dueLabel(t api.Task) string {
 	if err != nil {
 		return d
 	}
-	today := time.Now().Format(query.DateLayout)
+	today := now.Format(query.DateLayout)
 	switch {
 	case d == today:
 		return "Today"

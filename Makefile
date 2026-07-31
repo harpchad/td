@@ -79,7 +79,15 @@ seed:
 	@go run ./cmd/tdd -db $(DEV_DB) -seed $(SEED)
 
 .PHONY: run
+## Serve the seeded database on the fixture's own clock, so a filter typed at
+## a running server returns what the case files say it should.
 run:
+	@mkdir -p $(BUILD_DIR)
+	@go run ./cmd/tdd -db $(DEV_DB) -now @$(SEED) -addr 127.0.0.1:8080
+
+.PHONY: run-live
+## The same server on the real clock, for anything that is not fixture work.
+run-live:
 	@mkdir -p $(BUILD_DIR)
 	@go run ./cmd/tdd -db $(DEV_DB) -addr 127.0.0.1:8080
 
