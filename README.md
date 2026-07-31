@@ -38,6 +38,11 @@ running server returns what the case files say it should. It logs a warning
 while pinned, because every date predicate and the whole sort order depend
 on it.
 
+If 8080 is taken, `make run PORT=8099`. Point the client at the same place
+with `export TD_SERVER=http://127.0.0.1:8099`, or set `server` in
+`config.toml`. For the container, `TD_PORT=8099 docker compose up` moves the
+host side and leaves the container on 8080.
+
 Or with the container:
 
 ```sh
@@ -52,7 +57,7 @@ API. Phase 2 removes both.
 
 ```sh
 go build -o build/td ./cmd/td
-export TD_SERVER=http://127.0.0.1:8080
+export TD_SERVER=http://127.0.0.1:8080   # match `make run PORT=...`
 export TD_TOKEN=td_...        # from `make token`, or set it in config.toml
 
 td a "call the dealer about the alignment"

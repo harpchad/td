@@ -10,6 +10,12 @@ GOBIN ?= $(shell go env GOPATH)/bin
 BUILD_DIR := build
 
 SEED := testdata/seed.json
+
+# Port the development server listens on. Override for a busy 8080:
+#   make run PORT=8099
+PORT ?= 8080
+TD_ADDR := 127.0.0.1:$(PORT)
+TD_BASE_URL := http://127.0.0.1:$(PORT)
 DEV_DB := $(BUILD_DIR)/dev.db
 
 .PHONY: check
@@ -81,15 +87,16 @@ seed:
 .PHONY: run
 ## Serve the seeded database on the fixture's own clock, so a filter typed at
 ## a running server returns what the case files say it should.
+## Override the port with: make run PORT=8099
 run:
 	@mkdir -p $(BUILD_DIR)
-	@go run ./cmd/tdd -db $(DEV_DB) -now @$(SEED) -addr 127.0.0.1:8080 -base-url http://127.0.0.1:8080
+	@go run ./cmd/tdd -db $(DEV_DB) -now @$(SEED) -addr $(TD_ADDR) -base-url $(TD_BASE_URL)
 
 .PHONY: run-live
 ## The same server on the real clock, for anything that is not fixture work.
 run-live:
 	@mkdir -p $(BUILD_DIR)
-	@go run ./cmd/tdd -db $(DEV_DB) -addr 127.0.0.1:8080 -base-url http://127.0.0.1:8080
+	@go run ./cmd/tdd -db $(DEV_DB) -addr $(TD_ADDR) -base-url $(TD_BASE_URL)
 
 .PHONY: sync-css
 ## tokens.css and themes.css at the root are the authority. go:embed cannot

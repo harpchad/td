@@ -13,13 +13,15 @@ services:
       - "-db"
       - "/data/td.db"
     ports:
-      - "127.0.0.1:8080:8080"
+      # Published to the host's loopback only. Change the host side with
+      # TD_PORT=8099 docker compose up; the container side stays 8080.
+      - "127.0.0.1:${TD_PORT:-8080}:8080"
     environment:
       TD_TIMEZONE: America/Chicago
       # The server refuses to start rather than guess its own public URL.
       # OAuth discovery, the ntfy click-through, and the resource claim all
       # depend on it, and a wrong guess fails like an application bug.
-      TD_BASE_URL: ${TD_BASE_URL:-http://127.0.0.1:8080}
+      TD_BASE_URL: ${TD_BASE_URL:-http://127.0.0.1:${TD_PORT:-8080}}
       # Behind a reverse proxy this must name the proxy, or every request
       # looks like it came from there and the per-IP login limit collapses
       # into one global limit.
