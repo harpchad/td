@@ -30,6 +30,12 @@ var forbidden = map[string][]string{
 		"github.com/harpchad/td/internal/auth",
 		"golang.org/x/crypto/argon2",
 		"github.com/pquerna/otp",
+		// Section 1: no MCP server in the client. td talks to tdd over HTTP
+		// like every other client; a second protocol server inside the
+		// binary that cross-compiles to a laptop is not what /mcp is for.
+		"github.com/harpchad/td/internal/mcpsrv",
+		"github.com/modelcontextprotocol/go-sdk/mcp",
+		"github.com/harpchad/td/internal/blob",
 	},
 	// The server links no terminal UI.
 	"github.com/harpchad/td/cmd/tdd": {

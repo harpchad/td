@@ -97,6 +97,10 @@ func isPublicPath(path string) bool {
 	switch path {
 	case "/healthz", "/login", "/logout":
 		return true
+	case PRMPath:
+		// RFC 9728 metadata. A client reads it precisely because it has no
+		// credential yet, so requiring one would make discovery impossible.
+		return true
 	}
 	// The stylesheet and the two scripts are needed to render the login page
 	// itself, so they sit outside the credential check. They carry no data.
@@ -137,6 +141,14 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 
 		p, err := s.resolveCredential(r)
 		if err != nil || p == nil {
+			if r.URL.Path == MCPPath {
+				// The WWW-Authenticate header is the whole of MCP client
+				// discovery. Without it the client never finds the
+				// authorization server, and the symptom is this endpoint
+				// seeing traffic while the AS sees none.
+				s.mcpUnauthorized(w, r, api.MCPScopeRead)
+				return
+			}
 			if isBrowserPath(r.URL.Path) && wantsHTML(r) {
 				s.logAuth(r, api.KindAuthDenied, "anonymous", map[string]any{
 					"path": r.URL.Path, "reason": "no session",
@@ -149,6 +161,15 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		}
 
 		if scope := requiredScope(r); scope != "" && !p.has(scope) {
+			if r.URL.Path == MCPPath {
+				// 403 with insufficient_scope, not 401: the credential is
+				// valid and the client needs more scope, not a new grant.
+				s.logAuth(r, api.KindAuthDenied, p.Actor, map[string]any{
+					"path": r.URL.Path, "scope": scope,
+				})
+				s.insufficientScope(w, api.ScopeToMCP(scope))
+				return
+			}
 			s.logAuth(r, api.KindAuthDenied, p.Actor, map[string]any{
 				"path": r.URL.Path, "scope": scope,
 			})
@@ -243,6 +264,13 @@ func requiredScope(r *http.Request) string {
 	case http.MethodPost:
 		if r.URL.Path == "/api/v1/tasks" {
 			return api.ScopeCapture
+		}
+		if r.URL.Path == MCPPath {
+			// Read is the floor for reaching the protocol at all. Which tools
+			// the credential may actually call is checked per tool, because a
+			// client that can list the tools and is told which ones it may use
+			// is a better failure than one that sees nothing.
+			return api.ScopeRead
 		}
 		return api.ScopeWrite
 	default:

@@ -169,6 +169,27 @@ Binary impact: server only.
 
 ---
 
+## github.com/modelcontextprotocol/go-sdk v1.7.0
+
+The MCP server, required by `BUILD-SPEC.md` section 10.
+Replaced: nothing.
+Considered instead: hand-rolling JSON-RPC over HTTP, which `CLAUDE.md`
+anticipated might be necessary because the 2026-07-28 revision is recent
+enough to be ahead of its SDKs. It is not: v1.7.0 lists `2026-07-28` among its
+supported protocol versions and ships a stateless `StreamableHTTPHandler` with
+typed tool registration that generates the input and output schemas from Go
+structs. Writing that by hand would be several hundred lines whose only job is
+to agree with a specification this library already agrees with.
+
+It pulls in `github.com/google/jsonschema-go` for the generated schemas,
+`golang.org/x/oauth2` for scope handling, `github.com/segmentio/encoding` for
+JSON, `github.com/yosida95/uritemplate/v3` for resource templates, and
+`golang.org/x/time/rate` for logging backpressure. All indirect and all server
+only.
+Binary impact: server only. The import boundary test forbids it in `cmd/td`.
+
+---
+
 ## Tools
 
 Pinned in the `Makefile` and installed by `make tools`. Not modules of this

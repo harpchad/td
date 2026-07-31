@@ -406,6 +406,43 @@ const (
 	ScopeCapture = "capture"
 )
 
+// MCP scopes are the same three, namespaced. OAuth scope strings are global
+// identifiers a client sends to an authorization server it discovered, so
+// they carry the product's name; the internal token scopes do not need to.
+const (
+	MCPScopeRead    = "td:read"
+	MCPScopeCapture = "td:capture"
+	MCPScopeWrite   = "td:write"
+)
+
+// ScopeFromMCP maps an OAuth scope string onto the internal one. An unknown
+// scope maps to the empty string rather than to read, so a typo grants
+// nothing instead of granting something.
+func ScopeFromMCP(scope string) string {
+	switch scope {
+	case MCPScopeRead:
+		return ScopeRead
+	case MCPScopeCapture:
+		return ScopeCapture
+	case MCPScopeWrite:
+		return ScopeWrite
+	}
+	return ""
+}
+
+// ScopeToMCP is the inverse, for building metadata and consent screens.
+func ScopeToMCP(scope string) string {
+	switch scope {
+	case ScopeRead:
+		return MCPScopeRead
+	case ScopeCapture:
+		return MCPScopeCapture
+	case ScopeWrite:
+		return MCPScopeWrite
+	}
+	return ""
+}
+
 // ScopeSyncPrefix namespaces a per-source sync scope, as in sync:planner.
 const ScopeSyncPrefix = "sync:"
 

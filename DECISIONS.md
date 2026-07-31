@@ -18,6 +18,61 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-07-31  MCP tool failures are results, not transport errors
+Phase: 8
+
+A tool can fail for two different reasons: the server is broken, or the model
+asked for something that does not make sense. `search_tasks` with a filter that
+does not parse is the second kind.
+
+Decided: everything a tool can be asked for that it cannot do comes back as a
+`CallToolResult` with `IsError` set and the same message a person would get at
+the command line. A JSON-RPC error is reserved for the server actually
+failing. The difference matters to whoever is watching: a JSON-RPC error
+surfaces as "the td server is broken", and a typo in a filter is not that.
+
+Reversible: `fail` in `internal/mcpsrv/mcpsrv.go`, one function.
+
+## 2026-07-31  Read is the floor for /mcp, and each tool checks its own scope
+Phase: 8
+
+The middleware could have required write to reach `POST /mcp` at all, since
+every other POST needs it.
+
+Decided: the endpoint requires read, and every tool checks the scope it needs
+on the way in. A client holding read and capture can list all eleven tools and
+is told which of them it may call. The alternative, hiding the tools it cannot
+use, produces a model that does not know the capability exists and a user who
+cannot tell a missing scope from a missing feature.
+
+Rejected: filtering the tool list per credential, for the reason above, and
+because a tool list that changes shape depending on who is asking is a cache
+invalidation problem nobody needs.
+
+Reversible: `requiredScope` in `internal/server/auth.go` and `requireScope` in
+`internal/mcpsrv`.
+
+## 2026-07-31  Tool output is a projection, not api.Task
+Phase: 8
+
+The obvious build returns `api.Task` from every tool and lets the schema
+generator describe it.
+
+Decided: a `TaskView` projection. A model reading a list does not need
+`updated_at`, `due_is_date`, `external_rev`, or `upstream_gone`, and every
+field that goes over the wire is a field it can be confused by or waste tokens
+on. The projection leads with `num`, because that is what a person types and
+what the model should quote back, and it carries `id` alongside for the tools
+that take one.
+
+This is also the injection boundary. Task content lands inside JSON string
+fields and is never interpolated into prose the model reads as its own
+context, which is what actually stops a synced Jira description from acting as
+a directive. The instructions block states the rule as well; the shape of the
+output is what enforces it.
+
+Reversible: `internal/mcpsrv/tools.go`, one type and one conversion.
+
 ## 2026-07-31  Promotion is checked against the state after the patch
 Phase: 7
 

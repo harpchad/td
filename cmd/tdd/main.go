@@ -148,6 +148,10 @@ func run(args []string) error {
 	}
 	srv.AttachBlobs(blobs)
 
+	// MCP at /mcp in the same binary, over the same service layer. The base
+	// URL is what every discovery document is built from.
+	srv.AttachMCP(*baseURL)
+
 	// Config resolves flags over environment over file, and a commented
 	// default is written on first start.
 	cfgPath := *configPath

@@ -31,6 +31,7 @@ tags:
   - name: filters
   - name: history
   - name: tokens
+  - name: mcp
   - name: attachments
   - name: series
 
@@ -47,6 +48,67 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /.well-known/oauth-protected-resource:
+    get:
+      tags: [mcp]
+      summary: Protected Resource Metadata
+      description: >-
+        RFC 9728, mandatory for an MCP resource server as of the 2026-07-28
+        revision. Unauthenticated on purpose: a client reads it precisely
+        because it has no credential yet. The `resource` value must match the
+        MCP URL exactly, because it is what an access token's audience is
+        checked against.
+
+        One deployment note, because it fails in a way that looks like an
+        application bug: the reverse proxy must pass /.well-known/* through.
+        A rule broad enough to swallow everything under /.well-known/ while
+        intercepting acme-challenge breaks discovery entirely.
+      operationId: protectedResourceMetadata
+      responses:
+        "200":
+          description: the metadata document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProtectedResourceMetadata" }
+
+  /mcp:
+    post:
+      tags: [mcp]
+      summary: Model Context Protocol
+      description: >-
+        JSON-RPC over HTTP, revision 2026-07-28. That revision removed sessions
+        and the initialize/initialized handshake, so the protocol is stateless
+        request/response and POST is the only method; GET and DELETE were the
+        session transport. An unauthenticated request answers 401 with
+        `WWW-Authenticate: Bearer resource_metadata="...", scope="td:read"`,
+        which is the whole of client discovery. A valid credential missing a
+        scope answers 403 with `error="insufficient_scope"`.
+
+        Read is the floor for reaching the protocol; each tool checks the scope
+        it needs, so a client can list the tools and be told which ones it may
+        use rather than seeing nothing.
+      operationId: mcp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: A JSON-RPC 2.0 request.
+      responses:
+        "200":
+          description: the JSON-RPC response
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: >-
+            no valid credential. The body is empty; the WWW-Authenticate
+            header carries the discovery chain.
+        "403":
+          description: the credential is valid but lacks the scope
 
   /login:
     post:
@@ -998,6 +1060,31 @@ components:
     Role:
       type: string
       enum: [assigner, assignee, involved, waiting]
+
+    ProtectedResourceMetadata:
+      type: object
+      required: [resource, authorization_servers, scopes_supported, bearer_methods_supported]
+      properties:
+        resource:
+          type: string
+          description: Exactly the MCP URL. Token audiences are compared against it.
+          example: https://td.example.com/mcp
+        authorization_servers:
+          type: array
+          items: { type: string }
+        scopes_supported:
+          type: array
+          items:
+            type: string
+            enum: [td:read, td:capture, td:write]
+        bearer_methods_supported:
+          type: array
+          description: >-
+            header only. No endpoint in td accepts a token in a query string:
+            it ends up in access logs, browser history, and Referer headers.
+          items: { type: string, enum: [header] }
+        resource_name: { type: string }
+        resource_documentation: { type: string }
 
     Attachment:
       type: object

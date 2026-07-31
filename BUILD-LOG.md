@@ -685,3 +685,76 @@ small job and belongs with whatever else touches that file next.
 Attachments have no drag-and-drop and no upload progress. The form posts a
 file and the page comes back. At 25 MB on a LAN that is fine, and anything
 better needs script the CSP would have to be widened for.
+
+---
+
+## Phase 8: MCP server, static bearer auth, read plus capture
+
+2026-07-31
+
+### What shipped
+
+`internal/mcpsrv` serves the Model Context Protocol at `POST /mcp`, over the
+same store the REST API and the browser go through. All eleven tools from
+section 10, no more: `search_tasks`, `get_task`, `capture`, `create_task`,
+`update_task`, `complete_task`, `add_note`, `list_people`, `person_agenda`,
+`whats_next`, `recent_activity`. A test asserts the count, so a twelfth tool
+has to be a decision rather than a drift.
+
+The revision is `2026-07-28`, pinned in `mcpsrv.Revision`, asserted by a test,
+and named in the README. `CLAUDE.md` was right that this needed checking
+against the current documentation rather than memory, and it was also right
+that the SDK might be behind: it is not.
+`github.com/modelcontextprotocol/go-sdk@v1.7.0` lists `2026-07-28` among its
+supported versions, so the handler is `StreamableHTTPHandler` in `Stateless`
+mode with `JSONResponse` set. Stateless is not a preference here: that
+revision removed sessions and the initialize/initialized handshake, so `POST`
+is the only method the endpoint answers and `GET` and `DELETE` return 405.
+
+Authentication rides on whatever the HTTP layer already accepted. A `td_`
+token in an `Authorization: Bearer` header works with the same scopes and the
+same revoke button as everything else. An unauthenticated request answers 401
+with `WWW-Authenticate: Bearer resource_metadata="...", scope="td:read"`, and
+RFC 9728 Protected Resource Metadata is served unauthenticated at
+`/.well-known/oauth-protected-resource` with `resource` set to the MCP URL
+exactly. A valid credential missing a scope answers 403 with
+`error="insufficient_scope"`, which is a different thing and tells a client
+something different.
+
+Read is the floor for reaching the protocol; each tool checks the scope it
+needs. A client with read and capture can list all eleven tools and is told
+which ones it may use, which is a better failure than seeing six.
+
+### What was learned
+
+**The 2026-07-28 revision makes this phase smaller, not bigger.** No session
+store, no shared state between requests, no SSE, no handshake to get wrong.
+The handler is built once at startup and every request is independent.
+
+**A tool failure is a result, not a transport error.** A bad filter is the
+model's typo and it needs the parser's message to fix it; returning a
+JSON-RPC error would surface to the user as a broken server. Everything comes
+back as `IsError` content with the same message a person would get.
+
+**The injection defence is structural before it is textual.** Task content
+goes back inside JSON string fields and is never interpolated into prose the
+model reads as its own context, which is what actually stops a synced Jira
+description from acting as a directive. The instructions block says so as
+well, because a rule the model is told once is cheaper than a rule it has to
+infer, but the shape of the output is what enforces it.
+
+**`whats_next` had to report the untruncated total.** Returning `total: 3` for
+a limit of 3 reads as inbox zero when eight things are open, and a model that
+believes it will say so out loud.
+
+### What was deferred
+
+OAuth 2.1 is phase 9, which is where the authorization server, the JWKS with
+two live keys, PKCE, and the consent screen land. Phase 8 ships the resource
+server half: the PRM document and the 401 discovery chain already point at an
+authorization server that does not exist yet, which is correct ordering but
+means a claude.ai custom connector cannot complete a grant until phase 9.
+
+MCP resources and prompts are not implemented. Section 10 lists tools and
+nothing else, and a resource list is a second surface with its own injection
+questions.

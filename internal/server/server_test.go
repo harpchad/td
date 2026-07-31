@@ -83,6 +83,7 @@ func newServer(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	srv.AttachBlobs(blobs)
+	srv.AttachMCP("https://td.example.com")
 
 	h := &harness{store: st, srv: srv, now: now, username: testUsername, password: testPassword}
 

@@ -18,6 +18,7 @@ import (
 	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/auth"
 	"github.com/harpchad/td/internal/blob"
+	"github.com/harpchad/td/internal/mcpsrv"
 	"github.com/harpchad/td/internal/query"
 	"github.com/harpchad/td/internal/store"
 	"github.com/harpchad/td/internal/web"
@@ -52,6 +53,15 @@ type Server struct {
 	// refusal rather than a panic, so a deployment with no writable data
 	// directory still serves everything else.
 	blobs *blob.Store
+
+	// mcp serves the Model Context Protocol at /mcp. Nil leaves the route a
+	// 404, which is what the API-only tests get.
+	mcp *mcpsrv.Server
+
+	// baseURL is the server's own public URL. Every OAuth and MCP discovery
+	// document is built from it, and a wrong value fails in ways that look
+	// like an application bug, which is why tdd refuses to start without one.
+	baseURL string
 }
 
 // AttachBlobs mounts the attachment store. The bytes never go behind a static
@@ -95,6 +105,15 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", s.health)
+
+	// RFC 9728 Protected Resource Metadata, unauthenticated on purpose: a
+	// client reads it precisely because it has no credential yet.
+	mux.HandleFunc("GET "+PRMPath, s.protectedResource)
+
+	// The protocol is stateless as of the 2026-07-28 revision, so POST is the
+	// only method. GET and DELETE were the session transport, and there are
+	// no sessions.
+	mux.HandleFunc("POST "+MCPPath, s.mcpHandler)
 
 	// The only routes an unauthenticated request reaches. There is no
 	// registration route and no password reset route: the one account is

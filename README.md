@@ -6,9 +6,9 @@ the TUI.
 `BUILD-SPEC.md` is what is being built. `CLAUDE.md` is how. `testdata/` is
 the oracle: when the code and a fixture disagree, the code is wrong.
 
-**Status: phase 6 of 11.** Schema, event log, task CRUD, the filter grammar,
+**Status: phase 8 of 11.** Schema, event log, task CRUD, the filter grammar,
 the CLI one-shots, authentication, the TUI, the web UI, editing, ntfy
-reminders, and people.
+reminders, people, recurrence, subtasks, triage, attachments, and MCP.
 
 Section 16 says to stop after phase 5 and use it for two weeks before phase
 6, on the grounds that half the requirements will change. That was raised and
@@ -75,6 +75,12 @@ td note 103 "Discount tire quoted 780."   # appends; -replace or -show
 td snooze 103 2h                          # or a date: friday
 td undo
 td whoami                     # which credential is in use, and what it may do
+
+td sub 103 "call the dealer"              # a subtask under 103
+td repeat 103 "every 2 weeks"             # or: every monday, monthly on the 1st
+td repeat 103                             # show the rule without changing it
+td attach 103 quote.pdf                   # -list, -get <id>, -rm <id>
+td triage                                 # work the inbox one task at a time
 ```
 
 Flags work before or after the task number, and date keywords resolve against
@@ -228,6 +234,62 @@ internal/seed     testdata/seed.json loader
 drift between what the client validates and what the server executes.
 `internal/boundary` walks the real import graph and fails the build if
 `internal/store` ever reaches `cmd/td`.
+
+## MCP
+
+td serves the Model Context Protocol at `POST /mcp`, in the same binary and
+over the same service layer everything else uses.
+
+**The revision is `2026-07-28`**, pinned in `internal/mcpsrv.Revision` and
+asserted by a test. That revision removed sessions and the
+`initialize`/`initialized` handshake, so the protocol is stateless
+request/response and `POST` is the only method the endpoint answers; `GET`
+and `DELETE` were the session transport. It also made RFC 9728 Protected
+Resource Metadata mandatory, which td serves unauthenticated at
+`/.well-known/oauth-protected-resource`.
+
+Authentication is whatever the HTTP layer already accepts. A `td_` token in
+an `Authorization: Bearer` header works today, with the same scopes and the
+same revoke button as the rest of the API:
+
+```jsonc
+// ~/.claude.json, or any client that lets you set a header
+{
+  "mcpServers": {
+    "td": {
+      "type": "http",
+      "url": "https://td.example.com/mcp",
+      "headers": { "Authorization": "Bearer td_..." }
+    }
+  }
+}
+```
+
+Mint one with `tdd token create -name claude -actor mcp:claude -scopes read,capture`.
+Give the everyday assistant read plus capture and keep write for a token you
+paste deliberately: capture drops things in the inbox, and everything that
+lands there gets sorted by you. Agent mutations carry `actor = mcp:<name>` in
+the event log, so a bad batch is one `td undo` loop away from gone.
+
+An unauthenticated request answers 401 with
+`WWW-Authenticate: Bearer resource_metadata="...", scope="td:read"`. That
+header is the whole of client discovery. A valid credential missing a scope
+answers 403 with `error="insufficient_scope"` instead, which tells a client
+to ask for more scope rather than to start the authorization dance again.
+
+**One deployment gotcha, because it looks like an application bug.** The
+reverse proxy has to pass `/.well-known/*` through to td.
+nginx-proxy-manager already intercepts `/.well-known/acme-challenge/` for
+certificate issuance, and a rule broad enough to swallow the rest of
+`/.well-known/` breaks discovery entirely. Check that before debugging
+anything else.
+
+Tool output is data, never instructions. A Jira description synced in from an
+external reporter becomes text an agent reads, so nothing is interpolated
+into prose the model takes as its own context, and no tool completes or
+transitions a task on the strength of content that came from somewhere else.
+The server states that rule in its instructions block as well as enforcing it
+in the shape of the output.
 
 ## API
 
