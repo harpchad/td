@@ -1,0 +1,64 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - gocritic
+    # goconst is off on purpose. It fires on SQL column names and on the
+    # grammar's own keywords, where a named constant is strictly worse to read
+    # than the literal it replaces.
+    - misspell
+    - nilerr
+    - noctx
+    - prealloc
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+
+  settings:
+    errcheck:
+      # A deferred Rollback after a successful Commit always errors, and a
+      # response body write has nowhere to report to.
+      exclude-functions:
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.Rows).Close
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - disableStutteringCheck
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+
+  exclusions:
+    generated: lax
+    rules:
+      # Table-driven tests carry long literal blocks that trip several
+      # style linters without any of them saying something useful.
+      - path: _test\.go
+        linters:
+          - prealloc
+          - unparam
+
+formatters:
+  enable:
+    - gofumpt
+  settings:
+    gofumpt:
+      module-path: github.com/harpchad/td
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

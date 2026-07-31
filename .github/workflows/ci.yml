@@ -1,0 +1,52 @@
+name: ci
+
+# CI runs `make check` and nothing else. There is no second definition of
+# passing.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: false
+
+      - name: Install pinned tools
+        run: make tools
+
+      - name: make check
+        run: make check
+        env:
+          # The module proxy is the only network make check needs.
+          GOFLAGS: -mod=readonly
+
+      - name: go mod tidy leaves no diff
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build the server image
+        run: docker build -t td:ci --build-arg VERSION=ci .
+
+      - name: The image starts and reports its version
+        run: docker run --rm td:ci -version

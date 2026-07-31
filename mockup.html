@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>td — visual mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ---- copy of tokens.css, inlined so this file renders standalone ---- */
+:root,[data-theme="light"]{
+  --td-paper:#e6e5df; --td-ink:#16181c; --td-grey:#767570;
+  --td-grey-faint:#b3b2ab; --td-rule:#16181c;
+  --td-surface:#1c1f26; --td-surface-ink:#e6e5df; --td-surface-grey:#8c8f97;
+  --td-accent:#e8b53d; --td-accent-ink:#16181c;
+  --td-alert:#b5442f; --td-alert-inv:#e0654c;
+  --td-dim:.58; --td-dimmer:.40;
+  --td-font:"JetBrains Mono","IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --td-size:14px; --td-size-small:12px; --td-weight:400; --td-weight-bold:700;
+  --td-row:24px; --td-gap:1ch; --td-pad:2ch;
+  --td-border:1px; --td-rule-w:3px; --td-shadow:4px;
+}
+[data-theme="dark"]{
+  --td-paper:#16181c; --td-ink:#e6e5df; --td-grey:#8c8f97;
+  --td-grey-faint:#4a4d55; --td-rule:#e6e5df;
+  --td-surface:#e6e5df; --td-surface-ink:#16181c;
+  --td-alert:#e0654c; --td-alert-inv:#b5442f;
+}
+[data-theme="nord"] {
+  --td-paper:        #2e3440;
+  --td-ink:          #d8dee9;
+  --td-grey:         #4c566a;
+  --td-grey-faint:   #3b4252;
+  --td-rule:         #d8dee9;
+  --td-surface:      #eceff4;
+  --td-surface-ink:  #2e3440;
+  --td-surface-grey: #4c566a;
+  --td-accent:       #ebcb8b;
+  --td-accent-ink:   #2e3440;
+  --td-alert:        #bf616a;
+  --td-alert-inv:    #bf616a;
+  --td-dim:    0.68;
+  --td-dimmer: 0.48;
+}
+
+/* Solarized Light — base3 paper, base01 ink, base1 for de-emphasis */
+[data-theme="solarized-light"] {
+  --td-paper:        #fdf6e3;
+  --td-ink:          #586e75;
+  --td-grey:         #93a1a1;
+  --td-grey-faint:   #eee8d5;
+  --td-rule:         #586e75;
+  --td-surface:      #002b36;
+  --td-surface-ink:  #93a1a1;
+  --td-surface-grey: #586e75;
+  --td-accent:       #b58900;
+  --td-accent-ink:   #fdf6e3;
+  --td-alert:        #dc322f;
+  --td-alert-inv:    #dc322f;
+  --td-dim:    0.72;
+  --td-dimmer: 0.52;
+}
+
+/* Dracula — purple is the identifying hue, so it takes the accent role
+ * even though it breaks the warm-accent pattern of the others */
+[data-theme="dracula"] {
+  --td-paper:        #282a36;
+  --td-ink:          #f8f8f2;
+  --td-grey:         #6272a4;
+  --td-grey-faint:   #44475a;
+  --td-rule:         #f8f8f2;
+  --td-surface:      #f8f8f2;
+  --td-surface-ink:  #282a36;
+  --td-surface-grey: #6272a4;
+  --td-accent:       #bd93f9;
+  --td-accent-ink:   #282a36;
+  --td-alert:        #ff5555;
+  --td-alert-inv:    #ff5555;
+  --td-dim:    0.62;
+  --td-dimmer: 0.44;
+}
+
+/* Tokyo Night */
+[data-theme="tokyo-night"] {
+  --td-paper:        #1a1b26;
+  --td-ink:          #c0caf5;
+  --td-grey:         #565f89;
+  --td-grey-faint:   #414868;
+  --td-rule:         #c0caf5;
+  --td-surface:      #c0caf5;
+  --td-surface-ink:  #1a1b26;
+  --td-surface-grey: #565f89;
+  --td-accent:       #e0af68;
+  --td-accent-ink:   #1a1b26;
+  --td-alert:        #f7768e;
+  --td-alert-inv:    #f7768e;
+  --td-dim:    0.64;
+  --td-dimmer: 0.46;
+}
+
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--td-font);font-size:var(--td-size);
+  font-weight:var(--td-weight);line-height:var(--td-row);
+  color:var(--td-ink);background:var(--td-paper);
+  -webkit-font-smoothing:antialiased;padding:var(--td-row) var(--td-pad) 64px}
+a,.td-link{color:inherit;text-decoration:underline;text-underline-offset:2px}
+
+.td-bar{display:flex;align-items:center;gap:var(--td-gap);height:var(--td-row);
+  padding:0 var(--td-pad);border-bottom:var(--td-border) solid var(--td-rule)}
+.td-bar--status{border-bottom:0;border-top:var(--td-border) solid var(--td-rule);
+  font-size:var(--td-size-small);opacity:var(--td-dim);gap:2ch;overflow:hidden}
+.td-bar__spacer{margin-left:auto}
+.td-count{color:var(--td-grey)}
+.td-count b{font-weight:var(--td-weight-bold);color:var(--td-ink)}
+.td-key b{font-weight:var(--td-weight-bold);color:var(--td-ink)}
+
+.td-row{display:flex;align-items:center;gap:var(--td-gap);height:var(--td-row);
+  padding:0 var(--td-pad);white-space:nowrap;cursor:default}
+.td-row--selected{background:var(--td-ink);color:var(--td-paper)}
+.td-row--selected .td-due--overdue{color:var(--td-alert-inv)}
+.td-row--sub{padding-left:calc(var(--td-pad) + 4ch)}
+.td-group[data-collapsed="true"] .td-row--sub{display:none}
+.td-fold{appearance:none;-webkit-appearance:none;font:inherit;color:inherit;
+  background:transparent;border:0;padding:0;width:2ch;text-align:left;cursor:pointer}
+.td-fold::before{content:"\25BE"}
+.td-fold[aria-expanded="false"]::before{content:"\25B8"}
+.td-fold:focus-visible{outline:var(--td-border) solid currentColor;outline-offset:1px}
+.td-fold--leaf{visibility:hidden;cursor:default}
+.td-box{display:inline-flex;align-items:center;justify-content:center;width:3ch;min-height:var(--td-row);cursor:pointer}
+.td-num{width:4ch;opacity:var(--td-dim)}
+.td-prio{width:3ch}
+.td-prio--1{font-weight:var(--td-weight-bold)}
+.td-prio--2{opacity:1}
+.td-prio--3{opacity:var(--td-dim)}
+.td-prio--4{opacity:var(--td-dimmer)}
+.td-title{overflow:hidden;text-overflow:ellipsis}
+.td-dim{opacity:var(--td-dim)}
+.td-due{margin-left:auto;opacity:var(--td-dim);padding-left:2ch}
+.td-due--overdue{color:var(--td-alert);opacity:1;font-weight:var(--td-weight-bold)}
+.td-children{opacity:var(--td-dim)}
+.td-token{opacity:var(--td-dim)}
+
+.td-btn{font:inherit;line-height:calc(var(--td-row) + 4px);height:calc(var(--td-row) + 4px);
+  padding:0 var(--td-pad);border:var(--td-border) solid var(--td-ink);border-radius:0;
+  background:var(--td-paper);color:var(--td-ink);
+  box-shadow:var(--td-shadow) var(--td-shadow) 0 0 var(--td-ink);cursor:pointer}
+.td-btn--primary{background:var(--td-accent);color:var(--td-accent-ink)}
+.td-btn:active,.td-btn--pressed{transform:translate(var(--td-shadow),var(--td-shadow));box-shadow:none}
+.td-btn:focus-visible{outline:none;background:var(--td-ink);color:var(--td-paper)}
+.td-btn[disabled]{color:var(--td-grey-faint);border-color:var(--td-grey-faint);
+  box-shadow:var(--td-shadow) var(--td-shadow) 0 0 var(--td-grey-faint);cursor:not-allowed}
+
+.td-toggle{display:inline-flex;align-items:center;width:6ch;height:20px;padding:2px;
+  border:var(--td-border) solid var(--td-ink);border-radius:999px;background:var(--td-ink);cursor:pointer}
+.td-toggle__knob{width:14px;height:14px;border-radius:50%;background:var(--td-paper);margin-left:0}
+.td-toggle[aria-checked="true"] .td-toggle__knob{margin-left:auto}
+.td-toggle[aria-disabled="true"]{cursor:not-allowed}
+.td-toggle[aria-disabled="true"] .td-toggle__knob{background:var(--td-grey)}
+
+.td-done,.td-check,.td-radio{appearance:none;-webkit-appearance:none;
+  color:inherit;   /* form controls do not inherit color; without this the box vanishes when a row inverts */
+  width:13px;height:13px;margin:0;padding:0;border:var(--td-border) solid currentColor;
+  border-radius:0;background:transparent;cursor:pointer;display:inline-grid;place-content:center;
+  vertical-align:middle}
+.td-radio{border-radius:50%}
+.td-done:checked,.td-check:checked,.td-radio:checked{background:currentColor}
+.td-done:indeterminate::before{content:"";display:block;width:7px;height:1px;background:currentColor}
+.td-done:hover{box-shadow:inset 0 0 0 1px currentColor}
+.td-done:focus-visible,.td-check:focus-visible,.td-radio:focus-visible{
+  outline:var(--td-border) solid currentColor;outline-offset:2px}
+.td-row--done .td-title{color:var(--td-grey);text-decoration:line-through}
+
+.td-input{font:inherit;color:inherit;background:transparent;border:0;
+  border-bottom:var(--td-border) solid var(--td-ink);border-radius:0;
+  padding:0 .5ch;height:var(--td-row);caret-color:var(--td-ink);width:28ch}
+.td-input--focus{background:var(--td-ink);color:var(--td-paper)}
+.td-input::placeholder{color:var(--td-grey-faint)}
+
+.td-modal{position:relative;background:var(--td-surface);color:var(--td-surface-ink);
+  border:var(--td-rule-w) double var(--td-surface-ink);border-radius:0;
+  padding:calc(var(--td-row) * 1.5) var(--td-pad) var(--td-pad);
+  box-shadow:var(--td-shadow) var(--td-shadow) 0 0 var(--td-ink);max-width:62ch}
+.td-modal__title{position:absolute;top:calc(var(--td-rule-w) * -1 - 1px);left:50%;
+  transform:translateX(-50%);padding:0 var(--td-gap);height:var(--td-row);
+  line-height:var(--td-row);background:var(--td-surface);color:var(--td-surface-ink);
+  font-weight:var(--td-weight-bold);white-space:nowrap}
+.td-modal .td-btn{border-color:var(--td-surface-ink);background:var(--td-surface-ink);
+  color:var(--td-surface);box-shadow:var(--td-shadow) var(--td-shadow) 0 0 #000}
+.td-modal .td-btn--primary{background:var(--td-accent);color:var(--td-accent-ink)}
+.td-modal .td-toggle{border-color:var(--td-surface-ink);background:#000}
+.td-modal .td-toggle__knob{background:var(--td-surface-ink)}
+.td-modal .td-dim{color:var(--td-surface-grey)}
+
+/* ---- mockup scaffolding only, not part of tokens.css ---- */
+.frame{border:var(--td-border) solid var(--td-rule);max-width:96ch;margin:0 0 calc(var(--td-row) * 2)}
+.label{font-size:var(--td-size-small);color:var(--td-grey);
+  margin:calc(var(--td-row) * 1.5) 0 calc(var(--td-row) * .5);max-width:96ch}
+.label b{color:var(--td-ink);font-weight:var(--td-weight-bold)}
+.spec{display:grid;grid-template-columns:22ch 1fr;gap:0 2ch;align-items:center;
+  max-width:96ch;padding:0 var(--td-pad)}
+.spec > div{min-height:calc(var(--td-row) * 1.6);display:flex;align-items:center;gap:2ch}
+.themeswap{display:flex;flex-wrap:wrap;gap:3ch;margin:0 0 calc(var(--td-row)*2) var(--td-pad)}
+@media (max-width:640px){
+  .td-num{display:none}   /* priority stays: it is the sort key */
+  .frame{max-width:none}
+}
+</style>
+</head>
+<body class="td-scroll">
+
+<div class="themeswap">
+  <button class="td-btn" data-set="light">light</button>
+  <button class="td-btn" data-set="dark">dark</button>
+  <button class="td-btn" data-set="nord">nord</button>
+  <button class="td-btn" data-set="solarized-light">solarized</button>
+  <button class="td-btn" data-set="dracula">dracula</button>
+  <button class="td-btn" data-set="tokyo-night">tokyo night</button>
+</div>
+
+<div class="label"><b>Home view.</b> Real seed data, in the order the sort fixture specifies.
+Row 102 is selected. Subtask 113 sits under its parent rather than in flat sort position.</div>
+
+<div class="frame">
+  <div class="td-bar">
+    <span><b>td</b></span>
+    <span class="td-dim">Today</span>
+    <span class="td-bar__spacer"></span>
+    <span class="td-count">inbox <b>1</b></span>
+    <span class="td-count">waiting <b>1</b></span>
+    <span class="td-count">overdue <b>1</b></span>
+  </div>
+  <div class="td-bar">
+    <span class="td-dim">filter:</span>
+    <span>is:open src:local -is:inbox -is:snoozed -is:deferred</span>
+  </div>
+
+  <div class="td-row">
+    <span class="td-fold td-fold--leaf"></span><label class="td-box"><input type="checkbox" class="td-done"></label><span class="td-num">104</span><span class="td-prio td-prio--1">p1</span>
+    <span class="td-title">Send Q3 numbers</span>
+    <span class="td-token">@stacey</span><span class="td-token">#finance</span>
+    <span class="td-due td-due--overdue">Jul 30</span>
+  </div>
+  <div class="td-row td-row--selected">
+    <span class="td-fold td-fold--leaf"></span><label class="td-box"><input type="checkbox" class="td-done"></label><span class="td-num">102</span><span class="td-prio td-prio--2">p2</span>
+    <span class="td-title">Follow up on monday forms</span>
+    <span class="td-token">@mikah</span><span class="td-token">#monday</span>
+    <span class="td-due">Today</span>
+  </div>
+  <div class="td-group" data-collapsed="false">
+  <div class="td-row">
+    <button class="td-fold" aria-expanded="true" aria-controls="sub-101"></button><label class="td-box"><input type="checkbox" class="td-done"></label><span class="td-num">101</span><span class="td-prio td-prio--1">p1</span>
+    <span class="td-title">Renew wildcard cert</span>
+    <span class="td-token">@stacey</span><span class="td-token">#certs</span>
+    <span class="td-children">0/1</span>
+    <span class="td-due">Aug 4</span>
+  </div>
+  <div class="td-row td-row--sub" id="sub-101">
+    <span class="td-fold td-fold--leaf"></span><label class="td-box"><input type="checkbox" class="td-done"></label><span class="td-num">113</span><span class="td-prio td-prio--3">p3</span>
+    <span class="td-title">Draft cert renewal runbook</span>
+    <span class="td-token">#certs</span>
+    <span class="td-due">Aug 6</span>
+  </div>
+  </div>
+  <div class="td-row">
+    <span class="td-fold td-fold--leaf"></span><label class="td-box"><input type="checkbox" class="td-done"></label><span class="td-num">114</span><span class="td-prio td-prio--1">p1</span>
+    <span class="td-title">Upload SOC2 evidence</span>
+    <span class="td-token">#compliance</span>
+    <span class="td-due">Aug 10</span>
+  </div>
+  <div class="td-row">
+    <span class="td-fold td-fold--leaf"></span><label class="td-box"><input type="checkbox" class="td-done"></label><span class="td-num">108</span><span class="td-prio td-prio--2">p2</span>
+    <span class="td-title">Plan HR onboarding flow</span>
+    <span class="td-token">@mikah</span><span class="td-token">#hr</span>
+    <span class="td-due">Aug 7</span>
+  </div>
+  <div class="td-row">
+    <span class="td-fold td-fold--leaf"></span><label class="td-box"><input type="checkbox" class="td-done" data-indeterminate="1"></label><span class="td-num">106</span><span class="td-prio td-prio--2">p2</span>
+    <span class="td-title">Waiting on VPN quote</span>
+    <span class="td-token">@mikah</span><span class="td-token">#vpn</span>
+    <span class="td-due">11d</span>
+  </div>
+  <div class="td-row">
+    <span class="td-fold td-fold--leaf"></span><label class="td-box"><input type="checkbox" class="td-done"></label><span class="td-num">103</span><span class="td-prio td-prio--3">p3</span>
+    <span class="td-title">Order tires</span>
+    <span class="td-token">#truck</span>
+    <span class="td-due">—</span>
+  </div>
+
+  <div class="td-bar td-bar--status">
+    <span class="td-key"><b>a</b> add</span>
+    <span class="td-key"><b>e</b> edit</span>
+    <span class="td-key"><b>d</b> done</span>
+    <span class="td-key"><b>w</b> wait</span>
+    <span class="td-key"><b>t</b> tag</span>
+    <span class="td-key"><b>p</b> prio</span>
+    <span class="td-key"><b>/</b> search</span>
+    <span class="td-key"><b>u</b> undo</span>
+    <span class="td-key"><b>?</b> keys</span>
+  </div>
+</div>
+
+<div class="label"><b>Controls.</b> Each keeps its native shape and gesture and gives up its material.
+Toggles are for settings only. Task state stays a bracket checkbox in the row above.</div>
+
+<div class="spec">
+  <div class="td-dim">primary / secondary</div>
+  <div><button class="td-btn td-btn--primary">Save changes</button>
+       <button class="td-btn">Cancel</button></div>
+
+  <div class="td-dim">pressed / disabled</div>
+  <div><button class="td-btn td-btn--pressed">Save changes</button>
+       <button class="td-btn" disabled>Sync now</button></div>
+
+  <div class="td-dim">toggle on / off / locked</div>
+  <div><span class="td-toggle" aria-checked="true"><span class="td-toggle__knob"></span></span>
+       <span class="td-toggle" aria-checked="false"><span class="td-toggle__knob"></span></span>
+       <span class="td-toggle" aria-checked="true" aria-disabled="true"><span class="td-toggle__knob"></span></span>
+       <span class="td-dim">locked = owned upstream</span></div>
+
+  <div class="td-dim">task state</div>
+  <div><input type="checkbox" class="td-done"> open
+       <input type="checkbox" class="td-done" data-indeterminate="1"> doing or waiting
+       <input type="checkbox" class="td-done" checked> done</div>
+
+  <div class="td-dim">checkbox / radio</div>
+  <div><label><input type="checkbox" class="td-check" checked> Quiet hours</label>
+       <label><input type="radio" name="catchup" class="td-radio" checked> Skip</label>
+       <label><input type="radio" name="catchup" class="td-radio"> Pile up</label></div>
+
+  <div class="td-dim">input rest / focus</div>
+  <div><input class="td-input" placeholder="p:&lt;=2 -#someday">
+       <input class="td-input td-input--focus" value="due:<=friday"></div>
+
+  <div class="td-dim">link</div>
+  <div><a class="td-link" href="#">OPS-1421 in Jira</a></div>
+</div>
+
+<div class="label"><b>Modal.</b> Transient surfaces invert to a terminal window.
+The title breaks the double rule, which is the detail that does most of the work.</div>
+
+<div class="td-modal">
+  <div class="td-modal__title">Notifications</div>
+  <p style="margin:0 0 var(--td-row)">Reminders fire once per task, at the lead time below.
+  Overdue tasks are never pushed again. Quiet hours hold a push until the window opens.
+  Change the default rule to <b>*</b> for always on, or leave it empty for always off.
+  See <a class="td-link" href="#">filter syntax</a>.</p>
+  <div class="spec" style="padding:0">
+    <div class="td-dim">default rule</div>
+    <div><input class="td-input" value="p:&lt;=2"></div>
+    <div class="td-dim">lead time</div>
+    <div><input class="td-input" value="30 minutes"></div>
+    <div class="td-dim">quiet hours</div>
+    <div><span class="td-toggle" aria-checked="true"><span class="td-toggle__knob"></span></span>
+         <span class="td-dim">22:00 to 06:00</span></div>
+  </div>
+  <div style="display:flex;gap:3ch;margin-top:calc(var(--td-row) * 1.2)">
+    <button class="td-btn td-btn--primary">Save changes</button>
+    <button class="td-btn">Cancel</button>
+  </div>
+</div>
+
+<script>
+  for (const b of document.querySelectorAll('[data-set]'))
+    b.addEventListener('click', () => document.documentElement.dataset.theme = b.dataset.set);
+  for (const el of document.querySelectorAll('[data-indeterminate]')) el.indeterminate = true;
+  for (const b of document.querySelectorAll('.td-fold[aria-expanded]')) {
+    b.addEventListener('click', () => {
+      const open = b.getAttribute('aria-expanded') === 'true';
+      b.setAttribute('aria-expanded', String(!open));
+      b.closest('.td-group').dataset.collapsed = String(open);
+    });
+  }
+</script>
+</body>
+</html>

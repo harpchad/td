@@ -1,0 +1,43 @@
+{
+  "$comment": "Golden cases for the default sort comparator. Evaluates against seed.json at seed.now (2026-08-03T10:30:00-05:00, a Monday). The comparator is one function shared by the API, the TUI, and the web UI.",
+  "comparator": {
+    "keys": [
+      "1. bucket: overdue (0), due today (1), everything else (2)",
+      "2. within overdue: due date ascending, so the most overdue sorts first",
+      "3. priority ascending, unset sorts last",
+      "4. due date ascending, no due date sorts last",
+      "5. created_at ascending",
+      "6. num ascending, as a total-order tiebreak"
+    ],
+    "note": "Bucket outranks priority. A P4 due today sorts above a P1 due tomorrow. That is deliberate. Do not 'fix' it."
+  },
+  "cases": [
+    {
+      "name": "home view default order",
+      "filter": "is:open src:local -is:inbox -is:snoozed -is:deferred",
+      "expect_order": [104, 102, 101, 114, 108, 106, 113, 103],
+      "explain": [
+        "104 overdue (2026-07-30)",
+        "102 due today",
+        "101 P1 due 08-04, then 114 P1 due 08-10",
+        "108 P2 due 08-07, then 106 P2 with no due date",
+        "113 P3 due 08-06, then 103 P3 with no due date",
+        "105 is an inbox item and the home filter excludes it"
+      ]
+    },
+    {
+      "name": "bucket outranks due date within a single priority",
+      "filter": "p:2 is:open src:local",
+      "expect_order": [102, 110, 108, 106],
+      "explain": [
+        "102 and 110 are both due today, so they bucket ahead of the rest",
+        "102 before 110 on the num tiebreak, since every other key is equal",
+        "108 due 08-07 before 106, which has no due date",
+        "110 is snoozed, and this filter does not exclude it. Snoozing is a view default, not a sort rule."
+      ]
+    }
+  ],
+  "stability": {
+    "requirement": "The sort must be total and deterministic. Two runs over the same data return the same order. num is the final tiebreak so that no two rows can compare equal."
+  }
+}

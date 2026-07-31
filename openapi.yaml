@@ -1,0 +1,520 @@
+openapi: 3.0.3
+info:
+  title: td API
+  version: 1.0.0
+  description: >-
+    Single-user task manager. One transport: the TUI, the web UI, the MCP
+    server, and the sync plugins all exercise these routes, so a bug shows up
+    everywhere at once instead of hiding in the path you use least.
+
+    Phase 1 covers tasks, people, saved filters, the change feed, and undo.
+    Authentication lands in phase 2; until then the server refuses to bind
+    anything but a loopback address.
+
+servers:
+  - url: http://127.0.0.1:8080
+    description: local development
+
+tags:
+  - name: tasks
+  - name: people
+  - name: filters
+  - name: history
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+      description: Unauthenticated, with no detail in the body.
+      operationId: health
+      responses:
+        "200":
+          description: serving
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1/tasks:
+    get:
+      tags: [tasks]
+      summary: List tasks
+      operationId: listTasks
+      parameters:
+        - name: q
+          in: query
+          description: A filter in the grammar from BUILD-SPEC.md section 6.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: cursor
+          in: query
+          description: Opaque continuation token returned by the previous page.
+          schema: { type: string }
+      responses:
+        "200":
+          description: matching tasks in the default order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskList" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+    post:
+      tags: [tasks]
+      summary: Create a task
+      description: >-
+        The id is client-supplied, which makes this idempotent: a retrying
+        plugin cannot duplicate a row.
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskCreate" }
+      responses:
+        "201":
+          description: created, or the existing task when the id was already known
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+
+  /api/v1/tasks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: A ULID or the short task number.
+        schema: { type: string }
+    get:
+      tags: [tasks]
+      summary: Get one task
+      operationId: getTask
+      responses:
+        "200":
+          description: the task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [tasks]
+      summary: Update a task
+      description: >-
+        An absent key leaves a field alone; a key present with a null clears
+        it. If-Match is compared against updated_at so a slow client cannot
+        clobber a newer edit.
+      operationId: patchTask
+      parameters:
+        - name: If-Match
+          in: header
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskPatch" }
+      responses:
+        "200":
+          description: the updated task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+    delete:
+      tags: [tasks]
+      summary: Drop a task
+      description: Sets status to dropped. There is no hard delete anywhere in td.
+      operationId: dropTask
+      responses:
+        "200":
+          description: the dropped task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/tasks/{id}/complete:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [tasks]
+      summary: Complete a task
+      description: >-
+        Reports how many children are still open so the client can prompt. The
+        server never cascades on its own.
+      operationId: completeTask
+      responses:
+        "200":
+          description: the completed task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompleteResult" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/people:
+    get:
+      tags: [people]
+      summary: List people
+      operationId: listPeople
+      responses:
+        "200":
+          description: everyone tasks can refer to
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Person" }
+
+  /api/v1/filters:
+    get:
+      tags: [filters]
+      summary: List saved filters
+      operationId: listFilters
+      responses:
+        "200":
+          description: filters bound to the number keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SavedFilter" }
+    post:
+      tags: [filters]
+      summary: Bind a filter to a slot
+      operationId: putFilter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SavedFilter" }
+      responses:
+        "201":
+          description: the saved filter
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SavedFilter" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/events:
+    get:
+      tags: [history]
+      summary: Change feed
+      description: >-
+        The append-only history. MCP clients poll this instead of re-listing
+        everything.
+      operationId: listEvents
+      parameters:
+        - name: since
+          in: query
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: events, oldest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Event" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/undo:
+    post:
+      tags: [history]
+      summary: Reverse the caller's newest reversible change
+      description: >-
+        Unbounded depth, walking the event log backwards over the calling
+        actor's own events. Writes its own event naming the seq it reversed.
+      operationId: undo
+      responses:
+        "200":
+          description: what was reversed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UndoResult" }
+        "404":
+          description: nothing left to undo
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  responses:
+    BadRequest:
+      description: the request could not be read
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: no task with that id or number
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: an illegal status transition, or a stale If-Match
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unprocessable:
+      description: the request was understood and a precondition was not met
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Status:
+      type: string
+      enum: [inbox, todo, doing, waiting, done, dropped]
+
+    Notify:
+      type: string
+      enum: [auto, on, off]
+
+    Role:
+      type: string
+      enum: [assigner, assignee, involved, waiting]
+
+    Task:
+      type: object
+      required:
+        - id
+        - num
+        - title
+        - notes
+        - status
+        - due_is_date
+        - notify
+        - source
+        - upstream_gone
+        - created_at
+        - updated_at
+        - tags
+        - people
+        - groups
+        - attachments
+        - children_total
+        - children_done
+      properties:
+        id: { type: string, description: "ULID, generated by the client" }
+        num: { type: integer, format: int64, description: "short human id" }
+        title: { type: string }
+        notes: { type: string }
+        status: { $ref: "#/components/schemas/Status" }
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 4
+          nullable: true
+          description: "1 is highest; null is unset and never matches a p: comparison"
+        due_at:
+          type: string
+          nullable: true
+          description: RFC3339 instant, or YYYY-MM-DD when due_is_date is true
+        due_is_date:
+          type: boolean
+          description: >-
+            A date-only due is a calendar date with no zone. Treating it as an
+            instant breaks the moment you travel.
+        start_at: { type: string, nullable: true }
+        snooze_until: { type: string, nullable: true }
+        notify: { $ref: "#/components/schemas/Notify" }
+        remind_before: { type: integer, nullable: true }
+        notified_at: { type: string, nullable: true }
+        waiting_on: { type: string, nullable: true }
+        waiting_since: { type: string, nullable: true }
+        effort: { type: integer, nullable: true }
+        parent_id: { type: string, nullable: true }
+        series_id: { type: string, nullable: true }
+        source: { type: string }
+        external_id: { type: string, nullable: true }
+        external_url: { type: string, nullable: true }
+        external_rev: { type: string, nullable: true }
+        upstream_gone: { type: boolean }
+        created_at: { type: string }
+        updated_at: { type: string }
+        completed_at: { type: string, nullable: true }
+        tags:
+          type: array
+          items: { type: string }
+        people:
+          type: array
+          items: { $ref: "#/components/schemas/TaskPerson" }
+        groups:
+          type: array
+          items: { type: string }
+        attachments: { type: integer }
+        children_total: { type: integer }
+        children_done: { type: integer }
+
+    TaskPerson:
+      type: object
+      required: [person_id, name, role]
+      properties:
+        person_id: { type: string }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+
+    TaskCreate:
+      type: object
+      required: [title]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        notes: { type: string }
+        status: { $ref: "#/components/schemas/Status" }
+        priority: { type: integer, minimum: 1, maximum: 4 }
+        due_at: { type: string }
+        start_at: { type: string }
+        notify: { $ref: "#/components/schemas/Notify" }
+        effort: { type: integer }
+        parent_id: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        people:
+          type: array
+          items: { type: string, description: "handle, optionally handle:role" }
+        waiting_on: { type: string }
+        source: { type: string }
+        external_id: { type: string }
+        external_url: { type: string }
+
+    TaskPatch:
+      type: object
+      description: >-
+        An absent key leaves the field alone. A key present with a null clears
+        it.
+      properties:
+        title: { type: string }
+        notes: { type: string }
+        status: { $ref: "#/components/schemas/Status" }
+        priority: { type: integer, minimum: 1, maximum: 4, nullable: true }
+        due_at: { type: string, nullable: true }
+        start_at: { type: string, nullable: true }
+        snooze_until: { type: string, nullable: true }
+        notify: { $ref: "#/components/schemas/Notify" }
+        effort: { type: integer, nullable: true }
+        waiting_on: { type: string, nullable: true }
+        tags:
+          type: array
+          nullable: true
+          items: { type: string }
+
+    TaskList:
+      type: object
+      required: [tasks, total]
+      properties:
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        total: { type: integer }
+        cursor: { type: string }
+
+    CompleteResult:
+      type: object
+      required: [task, children_open]
+      properties:
+        task: { $ref: "#/components/schemas/Task" }
+        children_open:
+          type: integer
+          description: >-
+            How many children are still open. The client prompts; the server
+            never cascades.
+
+    Person:
+      type: object
+      required: [id, name, handle]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        handle: { type: string, description: "the @handle the filter grammar matches" }
+        email: { type: string }
+        notes: { type: string }
+
+    SavedFilter:
+      type: object
+      required: [slot, name, query]
+      properties:
+        id: { type: string }
+        slot: { type: integer, minimum: 1, maximum: 9 }
+        name: { type: string }
+        query: { type: string }
+
+    Event:
+      type: object
+      required: [seq, at, actor, kind, patch]
+      properties:
+        seq: { type: integer, format: int64 }
+        at: { type: string }
+        actor:
+          type: string
+          description: "me, mcp:<name>, or plugin:<source>"
+        task_id: { type: string }
+        kind: { type: string }
+        patch: { $ref: "#/components/schemas/Patch" }
+
+    Patch:
+      type: object
+      properties:
+        fields:
+          type: object
+          description: field name to its before and after value
+          additionalProperties: { $ref: "#/components/schemas/Change" }
+        undo_of:
+          type: integer
+          format: int64
+          description: set on events of kind undo
+
+    Change:
+      type: object
+      properties:
+        from: {}
+        to: {}
+
+    UndoResult:
+      type: object
+      required: [reversed, kind]
+      properties:
+        reversed: { type: integer, format: int64 }
+        kind: { type: string }
+        task_id: { type: string }
+        task: { $ref: "#/components/schemas/Task" }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: what a client branches on
+        message:
+          type: string
+          description: what a human reads, saying what to do about it
+        from: { $ref: "#/components/schemas/Status" }
+        to: { $ref: "#/components/schemas/Status" }

@@ -1,0 +1,369 @@
+{
+  "$comment": "Fixture dataset for td. All cases in this directory evaluate against this seed at the fixed clock below. Load with `make seed`.",
+  "now": "2026-08-03T10:30:00-05:00",
+  "timezone": "America/Chicago",
+  "people": [
+    {
+      "key": "stacey",
+      "name": "Stacey"
+    },
+    {
+      "key": "mikah",
+      "name": "Mikah"
+    },
+    {
+      "key": "brandiss",
+      "name": "Brandiss"
+    }
+  ],
+  "groups": [
+    {
+      "key": "leadership",
+      "members": [
+        "brandiss",
+        "stacey"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "num": 101,
+      "title": "Renew wildcard cert",
+      "status": "todo",
+      "priority": 1,
+      "due_at": "2026-08-04",
+      "tags": [
+        "certs",
+        "ops"
+      ],
+      "people": {
+        "assigner": [
+          "stacey"
+        ]
+      },
+      "source": "local",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 102,
+      "title": "Follow up on monday forms",
+      "status": "todo",
+      "priority": 2,
+      "due_at": "2026-08-03",
+      "tags": [
+        "monday"
+      ],
+      "people": {
+        "assignee": [
+          "mikah"
+        ]
+      },
+      "source": "local",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 103,
+      "title": "Order tires",
+      "status": "todo",
+      "priority": 3,
+      "due_at": null,
+      "tags": [
+        "truck"
+      ],
+      "people": {},
+      "source": "local",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 104,
+      "title": "Send Q3 numbers",
+      "status": "todo",
+      "priority": 1,
+      "due_at": "2026-07-30",
+      "tags": [
+        "finance"
+      ],
+      "people": {
+        "involved": [
+          "stacey"
+        ]
+      },
+      "source": "local",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 105,
+      "title": "Ask Brandiss about headcount",
+      "status": "inbox",
+      "priority": null,
+      "due_at": null,
+      "tags": [],
+      "people": {
+        "involved": [
+          "brandiss"
+        ]
+      },
+      "source": "local",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 106,
+      "title": "Waiting on VPN quote",
+      "status": "waiting",
+      "priority": 2,
+      "due_at": null,
+      "tags": [
+        "vpn"
+      ],
+      "people": {},
+      "source": "local",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": "mikah",
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00",
+      "waiting_since": "2026-07-20"
+    },
+    {
+      "num": 107,
+      "title": "OPS-1421 Fix mail flow",
+      "status": "todo",
+      "priority": 2,
+      "due_at": "2026-08-05",
+      "tags": [],
+      "people": {},
+      "source": "jira",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": "OPS-1421",
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 108,
+      "title": "Plan HR onboarding flow",
+      "status": "todo",
+      "priority": 2,
+      "due_at": "2026-08-07",
+      "tags": [
+        "monday",
+        "hr"
+      ],
+      "people": {
+        "involved": [
+          "mikah"
+        ]
+      },
+      "source": "local",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [
+        "leadership"
+      ],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 109,
+      "title": "Book campsite",
+      "status": "todo",
+      "priority": 3,
+      "due_at": "2026-09-01",
+      "tags": [
+        "travel"
+      ],
+      "people": {},
+      "source": "local",
+      "parent_num": null,
+      "start_at": "2026-08-15",
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 110,
+      "title": "Reply to vendor",
+      "status": "todo",
+      "priority": 2,
+      "due_at": "2026-08-03",
+      "tags": [],
+      "people": {},
+      "source": "local",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": "2026-08-04T08:00:00-05:00",
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 111,
+      "title": "Review budget doc",
+      "status": "done",
+      "priority": 2,
+      "due_at": "2026-07-29",
+      "tags": [
+        "finance"
+      ],
+      "people": {},
+      "source": "local",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": "2026-07-29T16:00:00-05:00",
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 112,
+      "title": "Old idea",
+      "status": "dropped",
+      "priority": null,
+      "due_at": null,
+      "tags": [],
+      "people": {},
+      "source": "local",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 113,
+      "title": "Draft cert renewal runbook",
+      "status": "todo",
+      "priority": 3,
+      "due_at": "2026-08-06",
+      "tags": [
+        "certs"
+      ],
+      "people": {},
+      "source": "local",
+      "parent_num": 101,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "auto",
+      "groups": [],
+      "attachments": 0,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    },
+    {
+      "num": 114,
+      "title": "Upload SOC2 evidence",
+      "status": "todo",
+      "priority": 1,
+      "due_at": "2026-08-10",
+      "tags": [
+        "compliance"
+      ],
+      "people": {},
+      "source": "local",
+      "parent_num": null,
+      "start_at": null,
+      "snooze_until": null,
+      "waiting_on": null,
+      "notify": "off",
+      "groups": [],
+      "attachments": 1,
+      "notes": "",
+      "completed_at": null,
+      "external_id": null,
+      "created_at": "2026-07-01T09:00:00-05:00"
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+/* td themes
+ *
+ * A theme sets colors. It never sets type, spacing, radius, shadow, or
+ * any structural token: those belong to the system, not the palette.
+ *
+ * The mapping from a terminal palette to these tokens:
+ *
+ *   --td-paper        the terminal background
+ *   --td-ink          the terminal foreground
+ *   --td-grey         the comment / bright-black color
+ *   --td-grey-faint   one step further down, or the same at lower alpha
+ *   --td-rule         usually --td-ink, borrowed for borders
+ *   --td-surface      inverted: transient surfaces read as a window
+ *   --td-surface-ink  the foreground for that inverted surface
+ *   --td-accent       the theme's warmest or most identifying hue
+ *   --td-accent-ink   whichever of paper or ink is legible on the accent
+ *   --td-alert        the theme's red
+ *   --td-alert-inv    the same role, legible on an inverted row
+ *   --td-dim          raise it on low-contrast themes: Nord and
+ *                     Solarized need more than the default 0.58
+ *
+ * Themes may replace the accent hue. They may not add a second accent:
+ * one saturated value, one primary action per screen, in every theme.
+ *
+ * Selection and focus stay inverse video in every theme. Themes that
+ * define their own "current line" color do not get to use it here.
+ * Backing off inversion is what turns this into a normal web app.
+ *
+ * Palette values are transcribed from each project's published
+ * palette. Verify against upstream before shipping.
+ */
+
+/* Nord — nord0 background, nord4 foreground, nord13 as the accent so
+ * the primary action keeps the warm role it has in every other theme */
+[data-theme="nord"] {
+  --td-paper:        #2e3440;
+  --td-ink:          #d8dee9;
+  --td-grey:         #4c566a;
+  --td-grey-faint:   #3b4252;
+  --td-rule:         #d8dee9;
+  --td-surface:      #eceff4;
+  --td-surface-ink:  #2e3440;
+  --td-surface-grey: #4c566a;
+  --td-accent:       #ebcb8b;
+  --td-accent-ink:   #2e3440;
+  --td-alert:        #bf616a;
+  --td-alert-inv:    #bf616a;
+  --td-dim:    0.68;
+  --td-dimmer: 0.48;
+}
+
+/* Solarized Light — base3 paper, base01 ink, base1 for de-emphasis */
+[data-theme="solarized-light"] {
+  --td-paper:        #fdf6e3;
+  --td-ink:          #586e75;
+  --td-grey:         #93a1a1;
+  --td-grey-faint:   #eee8d5;
+  --td-rule:         #586e75;
+  --td-surface:      #002b36;
+  --td-surface-ink:  #93a1a1;
+  --td-surface-grey: #586e75;
+  --td-accent:       #b58900;
+  --td-accent-ink:   #fdf6e3;
+  --td-alert:        #dc322f;
+  --td-alert-inv:    #dc322f;
+  --td-dim:    0.72;
+  --td-dimmer: 0.52;
+}
+
+/* Dracula — purple is the identifying hue, so it takes the accent role
+ * even though it breaks the warm-accent pattern of the others */
+[data-theme="dracula"] {
+  --td-paper:        #282a36;
+  --td-ink:          #f8f8f2;
+  --td-grey:         #6272a4;
+  --td-grey-faint:   #44475a;
+  --td-rule:         #f8f8f2;
+  --td-surface:      #f8f8f2;
+  --td-surface-ink:  #282a36;
+  --td-surface-grey: #6272a4;
+  --td-accent:       #bd93f9;
+  --td-accent-ink:   #282a36;
+  --td-alert:        #ff5555;
+  --td-alert-inv:    #ff5555;
+  --td-dim:    0.62;
+  --td-dimmer: 0.44;
+}
+
+/* Tokyo Night */
+[data-theme="tokyo-night"] {
+  --td-paper:        #1a1b26;
+  --td-ink:          #c0caf5;
+  --td-grey:         #565f89;
+  --td-grey-faint:   #414868;
+  --td-rule:         #c0caf5;
+  --td-surface:      #c0caf5;
+  --td-surface-ink:  #1a1b26;
+  --td-surface-grey: #565f89;
+  --td-accent:       #e0af68;
+  --td-accent-ink:   #1a1b26;
+  --td-alert:        #f7768e;
+  --td-alert-inv:    #f7768e;
+  --td-dim:    0.64;
+  --td-dimmer: 0.46;
+}

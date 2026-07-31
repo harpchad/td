@@ -1,0 +1,39 @@
+# `docker compose up` starts the server with a scratch database.
+# `make seed` loads testdata/seed.json, including its fixed clock.
+
+services:
+  tdd:
+    build:
+      context: .
+      args:
+        VERSION: dev
+    # Phase 1 has no authentication. The container has to bind 0.0.0.0 inside
+    # its own namespace to be reachable at all, and the published port below
+    # is scoped to the host's loopback, so nothing off this machine can reach
+    # it. The flag says out loud that nothing else is guarding this port.
+    # Phase 2 lands auth and this flag goes with it.
+    command:
+      - "-addr"
+      - "0.0.0.0:8080"
+      - "-db"
+      - "/data/td.db"
+      - "-allow-unauthenticated-bind"
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      TD_TIMEZONE: America/Chicago
+      # Disposable dev topic. Do not point this at any other topic.
+      TD_NTFY_TOPIC: ${TD_NTFY_TOPIC:-https://ntfy.sh/td-dev-scratch}
+    volumes:
+      - td-data:/data
+    restart: unless-stopped
+    healthcheck:
+      # distroless carries no shell and no curl, so the server checks itself.
+      test: ["CMD", "/usr/local/bin/tdd", "-version"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  td-data:
