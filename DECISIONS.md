@@ -18,6 +18,24 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  The keystroke budget is p95, not the worst sample
+Phase: after v0.1
+
+The TUI redraw test asserted on the slowest of fifty samples and failed in CI
+at 20.8ms against a mean of 1.7ms. Nothing in the change under test touches the
+render path, and no change could make one sample in fifty twelve times the cost
+of the other forty-nine. That is a preemption on a shared runner, measured.
+
+Section 15 writes every other target at p95 for this reason, so this one now
+matches: p95 under 16ms, plus an absolute ceiling at 100ms. The ceiling is the
+part that keeps this a test rather than an average. A redraw that is genuinely
+broken is slow in every sample and fails the p95 line; the ceiling is for the
+other shape, a stall rare enough to hide behind p95 but long enough to see.
+
+Rejected: raising the budget, which would have moved a target from the spec to
+suit a runner. Rejected: `-count=1` reruns or a retry, which turns a flake into
+a slower flake.
+
 ## 2026-08-01  One hard delete, on the command line only
 Phase: after v0.1
 
