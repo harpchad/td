@@ -38,6 +38,10 @@ var forbidden = map[string][]string{
 		"github.com/harpchad/td/internal/blob",
 		// The client is not an authorization server and holds no signing key.
 		"github.com/harpchad/td/internal/oauth",
+		// Sync plugins run on the server. The client asks it to run one; it
+		// does not hold a Graph credential and does not reach a tenant.
+		"github.com/harpchad/td/internal/plugins/planner",
+		"github.com/harpchad/td/internal/msgraph",
 	},
 	// The server links no terminal UI.
 	"github.com/harpchad/td/cmd/tdd": {

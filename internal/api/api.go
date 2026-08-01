@@ -376,6 +376,13 @@ const (
 	KindRecurrenceFired = "recurrence.fired"
 )
 
+// Plugin event kinds. They sit with the auth kinds because connecting a
+// plugin stores a credential, and that is a thing you want a record of.
+const (
+	KindPluginConnected    = "auth.plugin_connected"
+	KindPluginDisconnected = "auth.plugin_disconnected"
+)
+
 // Sync event kinds.
 const (
 	// KindSyncGone marks a mirrored task whose upstream item disappeared. It

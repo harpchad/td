@@ -6,26 +6,21 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/harpchad/td/internal/client"
-	"github.com/harpchad/td/internal/plugins/planner"
 	"github.com/harpchad/td/internal/sync"
 )
 
-// syncCmd runs a sync plugin.
+// syncCmd asks the server to run a sync plugin now.
 //
-// A plugin is a client. It reads the source system, translates, and posts to
-// the td API with a scoped token, exactly like every other client: nothing
-// here opens the database, and the server decides what a batch is allowed to
-// change. That is what makes a plugin something you can write in an afternoon
-// without being able to corrupt anything.
-func syncCmd(ctx context.Context, c *client.Client, cfg client.Config, args []string) error {
+// The plugin itself lives on the server and runs on its own schedule. This is
+// the "do it now" button for somebody at a terminal, and it holds no
+// credentials of its own: the Graph connection belongs to the server, which
+// is the whole point of it being there.
+func syncCmd(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the result as JSON")
-	dryRun := fs.Bool("n", false, "read and translate, but post nothing")
 	relink := fs.Bool("relink", false,
 		"re-apply every item instead of skipping what has not changed, which is how newly mapped people get backfilled")
 	if err := parseArgs(fs, args); err != nil {
@@ -34,54 +29,17 @@ func syncCmd(ctx context.Context, c *client.Client, cfg client.Config, args []st
 	if fs.NArg() != 1 {
 		return errors.New("sync takes a source: planner")
 	}
+	source := fs.Arg(0)
 
-	switch fs.Arg(0) {
-	case planner.Source:
-		return syncPlanner(ctx, c, cfg, *asJSON, *dryRun, *relink)
-	default:
-		return fmt.Errorf("no plugin for %q, try: planner", fs.Arg(0))
-	}
-}
-
-func syncPlanner(ctx context.Context, c *client.Client, cfg client.Config, asJSON, dryRun, relink bool) error {
-	pc := cfg.Planner
-	pc.Relink = relink
-	if !pc.Enabled() {
-		return errors.New("no plans configured: set planner.plans in config.toml")
-	}
-	if pc.GraphToken == "" && pc.GraphTokenCommand != "" {
-		token, err := runTokenCommand(ctx, pc.GraphTokenCommand)
-		if err != nil {
-			return err
-		}
-		pc.GraphToken = token
-	}
-	if pc.GraphToken == "" {
-		return errors.New("no Graph token: set planner.graph_token or planner.graph_token_command")
-	}
-
-	graph := planner.New(pc)
-
-	// The clock comes off the server, the same as everywhere else, so a due
-	// date read out of Planner lands on the day the server would call it.
-	if err := c.SyncClock(ctx); err != nil && !errors.Is(err, client.ErrOffline) {
-		return err
-	}
-	now := c.Now()
-
-	if dryRun {
-		return previewPlanner(ctx, graph, now.Location(), asJSON)
-	}
-
-	res, err := planner.Run(ctx, graph, c, now, now.Location())
+	res, err := c.RunSync(ctx, source, *relink)
 	if err != nil {
 		return err
 	}
-	if asJSON {
+	if *asJSON {
 		return printJSON(res)
 	}
-	fmt.Printf("planner  %d created  %d updated  %d unchanged  %d gone\n",
-		res.Created, res.Updated, res.Unchanged, res.Gone)
+	fmt.Printf("%s  %d created  %d updated  %d unchanged  %d gone\n",
+		source, res.Created, res.Updated, res.Unchanged, res.Gone)
 	reportUnresolved(res.Unresolved)
 	return nil
 }
@@ -89,11 +47,12 @@ func syncPlanner(ctx context.Context, c *client.Client, cfg client.Config, asJSO
 // reportUnresolved says which upstream people did not get attached, and gives
 // the command that fixes each.
 //
-// This is the part that used to be silent. An identity whose name collides
-// with somebody already known is exactly the person you care about, and the
-// sync cannot safely guess whether it is them: two people called Stacey is
-// ordinary, and merging them is not something you can see afterwards by
-// looking at the list. So it asks, once, and the answer is permanent.
+// An identity whose name collides with somebody already known is exactly the
+// person you care about, and the sync cannot safely guess whether it is them:
+// two people called Stacey is ordinary, and merging them is not something you
+// can see afterwards by looking at the list. So it asks, once, and the answer
+// is permanent. The same list appears on the settings page with a dropdown,
+// which is the better place to answer it from.
 func reportUnresolved(unresolved []sync.Unresolved) {
 	if len(unresolved) == 0 {
 		return
@@ -121,57 +80,11 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// previewPlanner reads and translates without posting, which is how you check
-// a plan id and a token before letting anything write.
-func previewPlanner(ctx context.Context, graph *planner.Client, loc *time.Location, asJSON bool) error {
-	var tasks []planner.GraphTask
-	for _, planID := range graph.Config.PlanIDs {
-		read, err := graph.Tasks(ctx, planID)
-		if err != nil {
-			return err
-		}
-		tasks = append(tasks, read...)
-	}
-	users, err := graph.Users(ctx, planner.UserIDs(tasks))
-	if err != nil {
-		return err
-	}
-	items := planner.Translate(tasks, users, graph.Config.TaskURLTemplate, loc, graph.Config.Relink)
-
-	if asJSON {
-		return printJSON(items)
-	}
-	for _, item := range items {
-		due := ""
-		if item.DueAt != nil {
-			due = "  due " + *item.DueAt
-		}
-		fmt.Printf("%-8s %-10s %s%s\n", item.Status, item.ExternalID, item.Title, due)
-	}
-	fmt.Fprintf(os.Stderr, "td: %d items, nothing posted\n", len(items))
-	return nil
-}
-
-// runTokenCommand shells out for a short-lived Graph token, so one does not
-// have to sit in a file.
-func runTokenCommand(ctx context.Context, command string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Stderr = os.Stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("planner.graph_token_command failed: %w", err)
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
 // personMap attaches an upstream account to a person.
 //
-// It is the answer to what a sync reports. Once an identity is mapped the
-// question never comes back: the next sync takes the certain path, and every
-// task that account touches lands on the right person page.
+// Once an identity is mapped the question never comes back: the next sync
+// takes the certain path, and every task that account touches lands on the
+// right person page.
 func personMap(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("person map", flag.ContinueOnError)
 	if err := parseArgs(fs, args); err != nil {

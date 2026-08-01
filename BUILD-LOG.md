@@ -1013,3 +1013,68 @@ people and maps nothing, so it proves the resolution rather than bypassing it.
 A first sync against people with no `email` recorded reports everybody and you
 map them once. That is the deliberate cost of never guessing on a name, and
 filling in addresses removes it.
+
+---
+
+## Phase 11, corrected again: the mirror runs on the server
+
+2026-08-01
+
+### What changed
+
+The Planner mirror was a client. Configured in the client's config.toml, run
+from a laptop, with a Graph token in a file. The author deployed to a VPS and
+pointed out that this is a burden and, more to the point, that a mirror which
+only refreshes while a laptop is open is not a mirror.
+
+They were right, and it was already inconsistent: the Memos webhook runs
+server-side on the scheduler tick with its config in the server's config.toml.
+Planner was the odd one out because of how it got built, not because anybody
+decided it.
+
+Now: a `plugin_config` table the browser edits, the sync on the same tick as
+reminders and the journal, the Graph credential on the server, and a Settings
+section with on/off, plan ids, interval, connect/disconnect, last run, and the
+unmatched people with a dropdown to answer each.
+
+`POST /api/v1/sync/{source}` did not move. It is still exactly what a third
+party posts to with a `sync:<source>` token; the first-party plugin just stopped
+needing it. Both land in the same `store.Sync`, so the ownership rules cannot
+diverge.
+
+### What was learned
+
+**The credential question decided the design, and needed checking.** Microsoft's
+permissions reference says Planner is delegated-only; their plannerPlan endpoint
+pages list `Tasks.Read.All` as an application permission. Device code works
+whichever way that rollout lands, needs no secret and no admin consent, and
+matches td's one-user model.
+
+**The boundary test earned its keep again.** Giving the plugin a store-backed
+runner immediately would have dragged `internal/store` into `cmd/td`. The test
+turns that into a build failure, and the fix was the restructure that was
+wanted anyway: the client lost the plugin package entirely.
+
+**Separate columns beat remembering.** `settings` and `credential` are
+different columns and the save path writes only the first, so a settings form
+cannot blank a refresh token by omitting a field. There is a test, but the
+column split is what makes it true.
+
+**The API view drifted from the schema within an hour.** `last_unresolved` was
+stored, documented in openapi.yaml, rendered by the web UI, and missing from
+`PluginView`, so the JSON API silently omitted it. Caught by reading the live
+response rather than by a test, which is an argument for running the thing.
+
+### What was deferred
+
+The refresh token is stored in plaintext, matching `oauth_key.private_pem`.
+Encrypting it needs a key that lives somewhere other than the same volume,
+which is a real design question and not one to answer in passing.
+
+There is one plugin. The table and the runner interface are general, but
+nothing has exercised them with a second, and the first genuinely different
+source will find the assumptions.
+
+The device code flow is tested at the protocol boundary and against a stubbed
+credential, not against Entra. Testing the interactive half needs a tenant,
+which CLAUDE.md forbids.

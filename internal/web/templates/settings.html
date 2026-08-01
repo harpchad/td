@@ -7,6 +7,7 @@
   </div>
 
   <div class="td-app__body td-scroll">
+    {{if .Status}}<div class="td-notice td-dim">{{.Status}}</div>{{end}}
     <div class="td-section">
       <div class="td-section__title">Theme</div>
       {{/* A list, not a gallery and not a live preview. Themes are files. */}}
@@ -55,6 +56,115 @@
         </tr>
         {{end}}
         </tbody>
+      </table>
+      {{end}}
+    </div>
+
+    <div class="td-section">
+      <div class="td-section__title">Microsoft Planner</div>
+      <p class="td-dim">
+        A one-way mirror. Upstream owns the title, status and due date; your
+        priority, notes, tags and people links are never touched. It runs on
+        the server, so the mirror stays current whether or not anything of
+        yours is open.
+      </p>
+
+      <form action="/w/planner" method="post">
+        <div class="td-form__row">
+          <span class="td-form__label">mirror</span>
+          <label class="td-notify__choice">
+            <input class="td-check" type="checkbox" name="enabled" value="1"
+                   {{if .Planner.Enabled}}checked{{end}}>
+            <span>run this on a schedule</span>
+          </label>
+        </div>
+
+        <label class="td-edit__notes">
+          <span class="td-form__label">plans</span>
+          <textarea class="td-textarea" name="plans" rows="3"
+                    placeholder="one plan id per line">{{.Planner.Plans}}</textarea>
+        </label>
+
+        <label class="td-form__row">
+          <span class="td-form__label">every</span>
+          <input class="td-input" type="text" name="interval" inputmode="numeric"
+                 value="{{.Planner.Interval}}"> <span class="td-dim">minutes</span>
+        </label>
+
+        <div class="td-form__actions">
+          <button class="td-btn td-btn--primary" type="submit">Save</button>
+        </div>
+      </form>
+
+      <div class="td-section__title">Microsoft account</div>
+      {{if .Planner.Connected}}
+        <p>Connected{{if .Planner.Account}} as <b>{{.Planner.Account}}</b>{{end}}.</p>
+        <div class="td-form__actions">
+          <form action="/w/planner/run" method="post">
+            <button class="td-btn" type="submit">Sync now</button>
+          </form>
+          <form action="/w/planner/run?relink=1" method="post">
+            <button class="td-btn" type="submit">Re-apply everything</button>
+          </form>
+          <form action="/w/planner/disconnect" method="post">
+            <button class="td-btn" type="submit">Disconnect</button>
+          </form>
+        </div>
+      {{else}}
+        <p class="td-dim">
+          Not connected. You need an app registration with public client flows
+          enabled and delegated <b>Tasks.Read</b> and <b>User.ReadBasic.All</b>.
+          Signing in once is enough: the server keeps the connection alive from
+          then on.
+        </p>
+        <form action="/w/planner/connect" method="post">
+          <label class="td-form__row">
+            <span class="td-form__label">tenant</span>
+            <input class="td-input td-edit__wide" type="text" name="tenant_id"
+                   placeholder="a tenant id, a domain, or organizations">
+          </label>
+          <label class="td-form__row">
+            <span class="td-form__label">client id</span>
+            <input class="td-input td-edit__wide" type="text" name="client_id"
+                   placeholder="the app registration's application id">
+          </label>
+          <div class="td-form__actions">
+            <button class="td-btn td-btn--primary" type="submit">Connect</button>
+          </div>
+        </form>
+      {{end}}
+
+      {{if .Planner.LastRunAt}}
+      <div class="td-section__title">Last run</div>
+      <p class="td-dim">{{.Planner.LastRunAt}} — {{.Planner.LastResult}}</p>
+      {{if .Planner.LastError}}<p class="td-notice--error">{{.Planner.LastError}}</p>{{end}}
+      {{end}}
+
+      {{if .Planner.Unresolved}}
+      <div class="td-section__title">People it would not guess at</div>
+      <p class="td-dim">
+        Two people with the same first name is ordinary, and merging them is
+        not something you can see afterwards by looking at the list. Say who
+        each of these is and the answer is permanent.
+      </p>
+      <table class="td-tokens">
+        {{range .Planner.Unresolved}}
+        <tr>
+          <td>{{.Who}}</td>
+          <td class="td-dim">{{.Reason}}</td>
+          <td>
+            <form action="/w/planner/map" method="post" class="td-inline">
+              <input type="hidden" name="source" value="{{.Source}}">
+              <input type="hidden" name="source_user" value="{{.SourceUser}}">
+              <select class="td-input" name="handle">
+                <option value="">who is this?</option>
+                {{range $.Planner.People}}<option value="{{.Handle}}">{{.Name}} (@{{.Handle}})</option>{{end}}
+              </select>
+              <button class="td-linkbtn" type="submit">map</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
       </table>
       {{end}}
     </div>

@@ -352,3 +352,38 @@ func itoaExport(n int) string {
 	}
 	return string(buf[i:])
 }
+
+// TestAPluginCredentialIsNotExported. A backup gets copied to object storage,
+// and a Graph refresh token in it would be a credential leaving the machine
+// it was granted on.
+func TestAPluginCredentialIsNotExported(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	const refresh = "a-graph-refresh-token"
+	if err := s.SavePluginSettings(ctx, "planner", true,
+		json.RawMessage(`{"plans":["PLAN-1"]}`), 15, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SavePluginCredential(ctx, "planner",
+		json.RawMessage(`{"refresh_token":"`+refresh+`"}`), now); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := s.Export(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), refresh) {
+		t.Fatal("the export contains a Graph refresh token")
+	}
+	// The whole plugin table is absent, not merely stripped of secrets: the
+	// settings are a deployment's own state, not a task list.
+	if strings.Contains(string(body), "plugin_config") || strings.Contains(string(body), `"plans"`) {
+		t.Error("the export carries plugin configuration")
+	}
+}

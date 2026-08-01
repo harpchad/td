@@ -16,6 +16,8 @@ import (
 	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/auth"
 	"github.com/harpchad/td/internal/blob"
+	"github.com/harpchad/td/internal/msgraph"
+	"github.com/harpchad/td/internal/plugins/planner"
 	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/server"
 	"github.com/harpchad/td/internal/store"
@@ -93,6 +95,9 @@ func newServerWith(t *testing.T, withSeed bool) *harness {
 	}
 	srv.AttachBlobs(blobs)
 	srv.AttachMCP("https://td.example.com")
+	// The built-in sync plugins, so the settings page and the plugin routes
+	// are the ones a real deployment has.
+	srv.AttachPlugins(&planner.Runner{Store: st, Identity: msgraph.New(), Loc: loc})
 
 	h := &harness{store: st, srv: srv, now: now, username: testUsername, password: testPassword}
 

@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
-
-	"github.com/harpchad/td/internal/plugins/planner"
 )
 
 // Config is the client's half of config.toml.
@@ -28,11 +26,6 @@ type Config struct {
 	// Mouse turns TUI mouse reporting off for terminals that handle text
 	// selection badly.
 	Mouse *bool `toml:"mouse"`
-	// Planner configures the Microsoft Planner mirror. It lives in the
-	// client's config because a sync plugin is a client: it talks to tdd over
-	// HTTP with a scoped token like everything else, and holding the Graph
-	// credential next to the server's database is the wrong place for it.
-	Planner planner.Config `toml:"planner"`
 }
 
 // DefaultConfig is what gets written on first run.
@@ -52,20 +45,6 @@ timezone = ""
 # text selection away; most emulators hand it back while shift is held.
 # mouse = false
 
-[planner]
-# Plans to mirror into td, by id. Empty mirrors nothing, which is the
-# default: a plugin that guessed which plans you meant would import
-# somebody else's board.
-plans = []
-
-# A Microsoft Graph token with Tasks.Read and User.ReadBasic.All. Prefer
-# graph_token_command so a short-lived token does not live in a file.
-graph_token = ""
-# graph_token_command = "az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv"
-
-# The deep link a mirrored task carries. %s is the Planner task id.
-# Planner's web address has moved once already, so this is configuration.
-# task_url_template = "https://tasks.office.com/Home/Task/%s"
 `
 
 // ConfigDir resolves $XDG_CONFIG_HOME/td, falling back to ~/.config/td.

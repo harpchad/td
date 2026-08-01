@@ -48,3 +48,18 @@ func (c *Client) MapIdentity(ctx context.Context, personRef, source, externalID 
 		"/api/v1/people/"+url.PathEscape(person.ID)+"/identities",
 		map[string]string{"source": source, "external_id": externalID}, nil, nil)
 }
+
+// RunSync asks the server to run a plugin now.
+//
+// The plugin and its credentials live on the server, so this carries nothing
+// but the instruction. It is the button for somebody at a terminal; the
+// schedule is what keeps the mirror current.
+func (c *Client) RunSync(ctx context.Context, source string, relink bool) (sync.Result, error) {
+	path := "/api/v1/plugins/" + url.PathEscape(source) + "/run"
+	if relink {
+		path += "?relink=1"
+	}
+	var out sync.Result
+	err := c.do(ctx, http.MethodPost, path, nil, nil, &out)
+	return out, err
+}

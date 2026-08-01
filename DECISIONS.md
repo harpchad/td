@@ -18,6 +18,79 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  The Planner mirror moved onto the server
+Phase: 11, corrected
+
+Section 8 defines the plugin contract as "over the API with a scoped token",
+and the first build took that literally: the mirror was a client, configured in
+the client's config.toml, run from a laptop with a Graph token in a file.
+
+That was wrong for the one first-party plugin, and the author said so. A mirror
+that only refreshes while somebody's laptop is open is not a mirror. Worse, it
+was already inconsistent: the Memos webhook runs on the server, on the
+scheduler tick, configured server-side. Planner was the odd one out by accident
+rather than by decision.
+
+Decided: configuration lives in a `plugin_config` table so the browser can edit
+it, the sync runs on the existing scheduler tick, and the Graph credential
+lives on the server. `POST /api/v1/sync/{source}` is untouched and is still
+exactly what a third party posts to; the first-party plugin simply no longer
+needs to. Both paths call the same `store.Sync`, so the field-ownership rules
+cannot differ between them.
+
+The client loses `[planner]` from its config and its dependency on the plugin
+package entirely, which is a smaller `cmd/td`. `td sync planner` stays as a
+"run now" trigger that holds no credentials.
+
+Rejected: a plugin marketplace or installer, which the do-not-build list
+forbids and which this is not. One built-in mirror with a settings section is
+not a marketplace.
+
+Reversible: the client half was deleted rather than kept in parallel, so going
+back means restoring it. The contract endpoint never moved, so nothing external
+depends on the choice.
+
+## 2026-08-01  Device code, not a client secret
+Phase: 11, corrected
+
+A scheduled sync needs a credential that renews itself, which a pasted
+one-hour token is not.
+
+Checked rather than assumed, because Microsoft's documentation currently
+contradicts itself: the Graph permissions reference says Planner supports
+delegated permissions only, while the plannerPlan endpoint pages list
+Tasks.Read.All as an application permission. That looks like a per-endpoint
+rollout in progress.
+
+Decided: device code with a stored refresh token. It works whichever way that
+lands, needs no client secret and no admin consent, and keeps td's model
+intact: one user, and everything acts as them. One interactive sign-in, then
+the refresh token renews on every run.
+
+The refresh token is stored in the database in plaintext, which matches the
+existing precedent: `oauth_key.private_pem` already is, and both are protected
+by the same file permissions. It is excluded from `td export` and from every
+API response, and the settings page shows only whether a credential exists and
+whose it is.
+
+Rejected: client credentials, which is simpler and might 403 on a tenant.
+Rejected: supporting both, which is a third more surface for a fallback that
+device code already covers.
+
+Reversible: `internal/msgraph` is one file and one interface.
+
+## 2026-08-01  Settings and credential are separate columns
+Phase: 11, corrected
+
+Decided: `plugin_config.settings` and `plugin_config.credential` are different
+columns, and the save path writes only the first.
+
+A settings form that could blank a stored refresh token by omitting a field is
+a settings form that eventually will, and the failure looks like "Planner just
+stopped working" rather than like a form bug. Separating them makes the save
+path structurally incapable of it, and disconnect the only way a credential
+goes.
+
 ## 2026-08-01  The pinned tools are installed locally and invoked by path
 Phase: release
 

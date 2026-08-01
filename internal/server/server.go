@@ -62,6 +62,11 @@ type Server struct {
 	// document is built from it, and a wrong value fails in ways that look
 	// like an application bug, which is why tdd refuses to start without one.
 	baseURL string
+
+	// plugins are the built-in sync plugins, keyed by name. They run on the
+	// scheduler tick and are configured from the settings page, because a
+	// mirror that needs a laptop and a CLI to stay current is not a mirror.
+	plugins map[string]PluginRunner
 }
 
 // AttachBlobs mounts the attachment store. The bytes never go behind a static
@@ -176,6 +181,25 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/events", s.listEvents)
 	mux.HandleFunc("POST /api/v1/undo", s.undo)
 	mux.HandleFunc("POST /api/v1/sync/{source}", s.syncSource)
+
+	// The built-in plugins. /sync/{source} above stays exactly as it is: it
+	// is the contract a third-party plugin posts to, and both paths land in
+	// the same store.Sync so the ownership rules cannot differ.
+	mux.HandleFunc("GET /api/v1/plugins/{name}", s.getPlugin)
+	mux.HandleFunc("PUT /api/v1/plugins/{name}", s.savePlugin)
+	mux.HandleFunc("POST /api/v1/plugins/{name}/connect", s.connectPlugin)
+	mux.HandleFunc("POST /api/v1/plugins/{name}/poll", s.pollPlugin)
+	mux.HandleFunc("POST /api/v1/plugins/{name}/disconnect", s.disconnectPlugin)
+	mux.HandleFunc("POST /api/v1/plugins/{name}/run", s.runPlugin)
+
+	// The browser side of connecting Planner. The device code flow is a
+	// conversation with Microsoft, so the server drives it and hands the web
+	// UI something to draw.
+	mux.HandleFunc("POST /w/planner/connect", s.plannerConnect)
+	mux.HandleFunc("POST /w/planner/poll", s.plannerPoll)
+	mux.HandleFunc("POST /w/planner/disconnect", s.plannerDisconnect)
+	mux.HandleFunc("POST /w/planner/run", s.plannerRunNow)
+	mux.HandleFunc("POST /w/planner/map", s.plannerMap)
 	mux.HandleFunc("GET /api/v1/export", s.export)
 	mux.HandleFunc("POST /api/v1/import", s.importAll)
 

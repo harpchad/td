@@ -79,6 +79,9 @@ func parseTemplates() (map[string]*template.Template, error) {
 		"home", "detail", "login", "help", "settings", "person", "triage",
 		"consent", "oautherror",
 	}
+	// Fragments htmx swaps in. They render the "body" template on their own,
+	// without the page around them.
+	pages = append(pages, "connect")
 	out := map[string]*template.Template{}
 
 	for _, page := range pages {
@@ -149,6 +152,7 @@ func (u *UI) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /w/theme", u.setTheme)
 	mux.HandleFunc("POST /w/tokens/{id}/revoke", u.revokeToken)
 	mux.HandleFunc("POST /w/grants/{id}/revoke", u.RevokeGrant)
+	mux.HandleFunc("POST /w/planner", u.savePlanner)
 
 	mux.HandleFunc("GET /static/td.css", u.asset(u.assets.CSS, "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /static/td.js", u.asset(u.assets.Script, "text/javascript; charset=utf-8"))
@@ -227,6 +231,11 @@ type pageData struct {
 
 	// The OAuth consent screen. The scopes are checkboxes because the point
 	// of a consent screen is that it can grant less than was asked for.
+	// The Planner mirror on the settings page, and the device code panel
+	// htmx swaps in while you sign in.
+	Planner plannerView
+	Connect ConnectCode
+
 	ClientName string
 	Request    string
 	// Next is where the login form returns to. Same-origin paths only.
@@ -589,6 +598,7 @@ func (u *UI) help(w http.ResponseWriter, r *http.Request) {
 func (u *UI) settings(w http.ResponseWriter, r *http.Request) {
 	data := u.base(r, "Settings")
 	data.ThemeDir = u.ThemeDir
+	data.Status = r.URL.Query().Get("e")
 
 	for _, t := range u.assets.Themes {
 		data.Themes = append(data.Themes, themeChoice{
@@ -614,6 +624,7 @@ func (u *UI) settings(w http.ResponseWriter, r *http.Request) {
 		data.Tokens = append(data.Tokens, row)
 	}
 	data.Grants = u.GrantRows(r.Context())
+	data.Planner = u.plannerSection(r.Context())
 
 	u.render(w, "settings", data)
 }

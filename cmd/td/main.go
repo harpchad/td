@@ -45,7 +45,7 @@ const usage = `td - task manager
   td filters           list saved filters
   td whoami            show which credential is in use and what it may do
   td flush             send anything queued while offline
-  td sync planner      mirror Microsoft Planner into td; -n reads without posting
+  td sync planner      run the server-side Planner mirror now (-relink re-applies all)
   td export --json     the whole database, which imports back
   td export --markdown one file per task, for Obsidian
   td import <file>     restore an export into an empty database
@@ -143,7 +143,7 @@ func run(args []string) error {
 	case "flush":
 		return flush(ctx, c)
 	case "sync":
-		return syncCmd(ctx, c, cfg, rest)
+		return syncCmd(ctx, c, rest)
 	case "export":
 		return exportCmd(ctx, c, rest)
 	case "import":

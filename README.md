@@ -405,31 +405,67 @@ one fact it exists to record.
 
 ## Sync plugins
 
-One way. A mirrored task carries `external_url` and the detail view puts it
-on the first line, so one keystroke opens the real thing. That removes the
+One way. A mirrored task carries `external_url` and the detail view puts it on
+the first line, so one keystroke opens the real thing. That removes the
 callback path, the action queue, and the whole class of failures where a
 remote write half-succeeds and the two systems disagree about what happened.
 
-```sh
-td sync planner -n     # read and translate, post nothing
-td sync planner        # mirror it
-```
+**It runs on the server**, configured from Settings, on the same tick as
+reminders and the journal. Nothing lives on a laptop: a mirror that only
+refreshes while a terminal is open is not a mirror.
 
-```toml
-[planner]
-plans       = ["xqQg5FS2LkCp935s-FIFm2QAFkHM"]
-graph_token = ""       # Tasks.Read and User.ReadBasic.All
-# graph_token_command = "az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv"
-```
+### Setting up Planner
 
-Mint the token with
-`tdd token create -name planner -actor plugin:planner -scopes sync:planner,read`.
-The scope is per source, so a Planner token cannot write the Jira mirror and
-reaches nothing else in the API. Everything it writes is attributed to
-`plugin:planner` and is one `td undo` loop away from gone.
+You need an app registration in Entra with **public client flows enabled** and
+delegated **Tasks.Read** and **User.ReadBasic.All**. No client secret and no
+admin consent.
 
-**Field ownership is the core rule**, and it is enforced by the server rather
-than by each plugin:
+Device code rather than an app-only secret for a reason worth knowing:
+Microsoft's own documentation currently disagrees with itself about whether
+Planner supports application permissions. The
+[permissions reference](https://learn.microsoft.com/en-us/graph/permissions-reference)
+says it does not; the
+[`plannerPlan: list tasks`](https://learn.microsoft.com/en-us/graph/api/plannerplan-list-tasks?view=graph-rest-1.0)
+page lists `Tasks.Read.All` as an application permission. A delegated flow
+works whichever way that rollout lands, and keeps td's model intact: one user,
+everything acts as them.
+
+Then, in **Settings → Microsoft Planner**:
+
+1. Paste your plan ids, one per line. Find them with `GET /me/planner/plans`
+   in [Graph Explorer](https://developer.microsoft.com/graph/graph-explorer),
+   or lift one out of a Planner URL.
+2. Set the interval and tick **run this on a schedule**.
+3. **Connect**, enter the code it shows at
+   [microsoft.com/devicelogin](https://microsoft.com/devicelogin), and sign in.
+
+That is the only interactive step. The server stores a refresh token and
+renews it on every run, so a schedule that runs more often than the token's
+inactivity window keeps itself alive indefinitely. The refresh token never
+leaves the database: no API route returns it, it is not in `td export`, and
+the settings page shows only whether you are connected and as whom.
+
+`td sync planner` still exists and asks the server to run now; it holds no
+credentials of its own. `-relink` re-applies everything, which is how somebody
+you map after the fact gets backfilled.
+
+### Who is who
+
+An upstream account has to be attached to a person, or the mirror arrives with
+nobody on it. A sync resolves that three ways, in descending order of
+evidence: an identity already mapped, an email that matches a person's exactly
+and uniquely, or nobody holding that handle yet, in which case a new person is
+created.
+
+It never matches on a name. Two people called Stacey is ordinary, and merging
+them is not something you notice afterwards by looking at the list. Anything it
+will not place is listed on the settings page with a dropdown: say who each one
+is, and the answer is permanent. Filling in `email` on your people avoids the
+question entirely.
+
+### Field ownership
+
+Enforced by the server, not by each plugin:
 
 | Upstream owns, overwritten every sync | Yours, never touched |
 | --- | --- |
@@ -443,43 +479,17 @@ statement about your own work, and a sync that reopened it every fifteen
 minutes would make the mirror an argument rather than a list.
 
 Planner's own priority is deliberately not mapped. It is set by whoever made
-the card; td's priority is your answer to "what should I do next", and those
-are different questions.
-
-### Who is who
-
-An upstream account has to be attached to a person, or the mirror arrives with
-nobody on it. A sync resolves that three ways, in descending order of
-evidence: an identity already mapped, an email that matches a person's exactly
-and uniquely, or nobody holding that handle yet, in which case a new person is
-created.
-
-It never matches on a name. Two people called Stacey is ordinary, and merging
-them is not something you notice afterwards by looking at the list. Anything
-it will not place is **reported**, once per person, with the command that
-fixes it:
-
-```text
-td: 3 upstream people could not be matched to anybody, so those links are missing:
-  Stacey Whitlock <stacey@example.invalid>
-      somebody already has that handle, so this was not guessed at
-      td person map <handle> planner 8f3d2e11-0000-4a2b-9c3d-000000000001
-```
-
-Mapping is permanent and the next sync takes the certain path. Filling in
-`email` on your people is the cheaper route: the match then happens on the
-first sync and records the mapping for you.
-
-Because an item whose revision has not moved is skipped entirely, a person you
-map after the fact is not backfilled until something upstream changes.
-`td sync planner -relink` re-applies everything and does it now.
+the card; td's priority is your answer to "what should I do next".
 
 Items that disappear upstream are marked `upstream_gone`, never deleted: a
-ticket you can no longer see is not a ticket that never existed, and
-something in your notes probably refers to it. Planner has no delta query, so
-"gone" is computed by subtraction from a full read, and a read that returned
-nothing never marks anything gone. An expired token looks exactly like an
-emptied plan, and only one of those should delete your mirror.
+ticket you can no longer see is not a ticket that never existed. Planner has no
+delta query, so "gone" is computed by subtraction from a full read, and a read
+that returned nothing never marks anything gone. An expired token looks exactly
+like an emptied plan, and only one of those should delete your mirror.
+
+`POST /api/v1/sync/{source}` is unchanged and is still the contract a
+third-party plugin posts to with a `sync:<source>` token. Both paths land in
+the same code, so the ownership rules cannot differ between them.
 
 ## Backup
 

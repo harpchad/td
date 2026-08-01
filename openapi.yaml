@@ -34,6 +34,7 @@ tags:
   - name: mcp
   - name: oauth
   - name: sync
+  - name: plugins
   - name: attachments
   - name: series
 
@@ -815,6 +816,174 @@ paths:
         "409":
           description: the database is not empty
 
+  /api/v1/plugins/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, enum: [planner] }
+    get:
+      tags: [plugins]
+      summary: A built-in sync plugin's configuration
+      description: >-
+        Never includes the credential. `connected` says whether one is stored
+        and `account` says whose it is, which is what a person needs to answer
+        "is this working, and as whom".
+      operationId: getPlugin
+      responses:
+        "200":
+          description: the plugin
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plugin" }
+    put:
+      tags: [plugins]
+      summary: Save a plugin's settings
+      description: >-
+        Deliberately cannot touch the credential. A settings form that could
+        blank a stored refresh token by omitting a field is one that
+        eventually will.
+      operationId: savePlugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+                settings: { type: object }
+                interval_minutes: { type: integer }
+      responses:
+        "200":
+          description: the saved plugin
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plugin" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/plugins/{name}/connect:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [plugins]
+      summary: Start a Microsoft device code sign-in
+      description: >-
+        Device code rather than a client secret, because Microsoft's own
+        documentation currently disagrees with itself about whether Planner
+        supports application permissions: the permissions reference says it
+        does not, and the plannerPlan endpoint pages list Tasks.Read.All as an
+        application permission. A delegated flow works whichever way that
+        lands, and keeps td's model intact: one user, everything acts as them.
+
+        The device code comes back to the caller rather than being held
+        server-side. It is single use, expires in minutes, and is worthless
+        without the sign-in that follows.
+      operationId: connectPlugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client_id]
+              properties:
+                tenant_id: { type: string }
+                client_id: { type: string }
+                authority: { type: string }
+      responses:
+        "200":
+          description: what to show the person, and the handle to poll with
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_code: { type: string }
+                  verification_uri: { type: string }
+                  message: { type: string }
+                  device_code: { type: string }
+                  interval: { type: integer }
+                  expires_in: { type: integer }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/plugins/{name}/poll:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [plugins]
+      summary: Finish a device code sign-in
+      description: >-
+        One attempt per request; the caller decides how long to wait. A 202
+        means the person has not finished signing in yet, which is a normal
+        outcome and not an error.
+      operationId: pollPlugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_code]
+              properties:
+                tenant_id: { type: string }
+                client_id: { type: string }
+                authority: { type: string }
+                device_code: { type: string }
+      responses:
+        "200":
+          description: connected; the credential is stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plugin" }
+        "202":
+          description: still waiting for the sign-in
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/plugins/{name}/disconnect:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [plugins]
+      summary: Drop the stored credential
+      operationId: disconnectPlugin
+      responses:
+        "204":
+          description: disconnected
+
+  /api/v1/plugins/{name}/run:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+      - name: relink
+        in: query
+        required: false
+        description: >-
+          Re-apply every item instead of skipping what has not changed, which
+          is how a person mapped after the first sync gets backfilled.
+        schema: { type: string }
+    post:
+      tags: [plugins]
+      summary: Run a plugin now
+      description: >-
+        The schedule keeps the mirror current; this is the button for somebody
+        who does not want to wait for it.
+      operationId: runPlugin
+      responses:
+        "200":
+          description: what the run did
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncResult" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/sync/{source}:
     post:
       tags: [sync]
@@ -1531,6 +1700,39 @@ components:
             The history, with its sequence numbers preserved. It is what makes
             an export a record rather than a snapshot.
           items: { $ref: "#/components/schemas/Event" }
+
+    Plugin:
+      type: object
+      required: [name, enabled, settings, interval_minutes, connected]
+      properties:
+        name: { type: string }
+        enabled: { type: boolean }
+        settings:
+          type: object
+          description: >-
+            The plugin's own shape. For planner: `plans`, and optionally
+            `task_url_template` and `endpoint`.
+        interval_minutes: { type: integer }
+        connected:
+          type: boolean
+          description: >-
+            Whether a credential is stored. The credential itself is never
+            returned by any route.
+        account:
+          type: string
+          description: Who the stored credential belongs to, for display.
+        last_run_at: { type: string, format: date-time }
+        last_result: { type: string }
+        last_error:
+          type: string
+          description: Cleared on a successful run, so a value always describes now.
+        last_unresolved:
+          type: array
+          description: >-
+            Upstream identities the last run would not guess at, kept so they
+            can be answered from the settings page rather than from CLI output
+            nobody was watching.
+          items: { type: object }
 
     SyncRequest:
       type: object

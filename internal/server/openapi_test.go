@@ -71,6 +71,11 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 		"/api/v1/undo":                              {"post"},
 		"/api/v1/sync/{source}":                     {"post"},
 		"/api/v1/export":                            {"get"},
+		"/api/v1/plugins/{name}":                    {"get", "put"},
+		"/api/v1/plugins/{name}/connect":            {"post"},
+		"/api/v1/plugins/{name}/poll":               {"post"},
+		"/api/v1/plugins/{name}/disconnect":         {"post"},
+		"/api/v1/plugins/{name}/run":                {"post"},
 		"/api/v1/import":                            {"post"},
 	}
 
@@ -101,6 +106,8 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 	for _, page := range []string{
 		"/", "/settings", "/help", "/triage", "/t/{ref}", "/w/add",
 		"/w/edit/{id}", "/w/approve", "/w/grants/{id}/revoke",
+		"/w/planner", "/w/planner/connect", "/w/planner/poll",
+		"/w/planner/disconnect", "/w/planner/run", "/w/planner/map",
 	} {
 		if doc.Paths.Find(page) != nil {
 			t.Errorf("openapi.yaml documents the browser route %s", page)

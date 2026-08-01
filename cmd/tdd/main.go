@@ -22,7 +22,9 @@ import (
 	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/blob"
 	"github.com/harpchad/td/internal/memos"
+	"github.com/harpchad/td/internal/msgraph"
 	"github.com/harpchad/td/internal/notify"
+	"github.com/harpchad/td/internal/plugins/planner"
 	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/server"
 	"github.com/harpchad/td/internal/store"
@@ -163,6 +165,12 @@ func run(args []string) error {
 		return fmt.Errorf("oauth signing keys: %w", err)
 	}
 
+	// The sync mirrors run here rather than from a laptop, so a mirror stays
+	// current whether or not anybody is at a terminal. They are configured
+	// from the settings page; nothing about them lives in config.toml.
+	plannerRunner := &planner.Runner{Store: st, Identity: msgraph.New(), Loc: loc}
+	srv.AttachPlugins(plannerRunner)
+
 	// Config resolves flags over environment over file, and a commented
 	// default is written on first start.
 	cfgPath := *configPath
@@ -235,6 +243,10 @@ func run(args []string) error {
 		Now:         func() time.Time { return time.Now().In(loc) },
 		ActionToken: cfg.Notify.ActionToken,
 		Blobs:       blobs,
+		Plugins: &notify.Plugins{
+			Store:   st,
+			Runners: map[string]notify.Runner{plannerRunner.Name(): plannerRunner},
+		},
 		Journal: &notify.Journal{
 			Store: st, Poster: memos.NewHTTPPoster(cfg.Memos), Config: cfg.Memos,
 			BaseURL: *baseURL, Loc: loc,

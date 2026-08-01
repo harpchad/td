@@ -66,6 +66,11 @@ type Scheduler struct {
 	// Nil, or an unconfigured one, posts nothing.
 	Journal *Journal
 
+	// Plugins are the sync mirrors. They run here rather than from a laptop
+	// so a mirror stays current whether or not anybody is at a terminal,
+	// which is the same reason the journal runs here.
+	Plugins *Plugins
+
 	// sweptAt is when the last orphan collection ran. Zero means never, and
 	// the first tick after start does one.
 	sweptAt time.Time
@@ -122,6 +127,10 @@ func (s *Scheduler) Once(ctx context.Context) {
 	}
 
 	s.sweepBlobs(ctx, now)
+
+	if s.Plugins != nil {
+		s.Plugins.Once(ctx, now, s.Log)
+	}
 
 	// The journal is separate from reminders and is not gated on them: they
 	// answer different questions, and one being off is no reason for the

@@ -278,6 +278,24 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
 .td-upload { display: flex; gap: var(--td-gap); align-items: center; margin-top: var(--td-gap); }
 
 /* ---------------------------------------------------------------- */
+/* the device code panel                                            */
+/*                                                                  */
+/* The code is read off a screen and typed into a phone, so it is the  */
+/* one place in this stylesheet that gets large and widely spaced.  */
+
+.td-connect { margin: var(--td-row) 0; }
+.td-connect__code {
+  font-size: calc(var(--td-size) * 2);
+  font-weight: var(--td-weight-bold);
+  letter-spacing: 0.3ch;
+  line-height: calc(var(--td-row) * 2);
+  user-select: all;
+}
+.td-connect__poll { display: flex; gap: var(--td-gap); align-items: center; }
+
+.td-inline { display: inline-flex; gap: var(--td-gap); align-items: center; }
+
+/* ---------------------------------------------------------------- */
 /* mobile: same grid, bigger targets                                */
 
 @media (max-width: 60ch) {
