@@ -183,6 +183,13 @@ func (u *UI) savePlanner(w http.ResponseWriter, r *http.Request) {
 
 // ConnectPanel renders the device code for somebody to type elsewhere.
 //
+// A full page when the browser navigated here, a fragment when htmx is asking
+// for a swap. Getting that backwards is what broke this the first time: the
+// connect POST answered with a bare fragment, so the page had no layout, no
+// stylesheet, and no htmx. Nothing polled, and the only control that did
+// anything was the submit button, which fell back to a native GET at the
+// current URL and 404ed with the device code in the address bar.
+//
 // The device code itself rides in a hidden field and is posted back on each
 // poll, so the server keeps no pending-login state. It is single use, expires
 // in minutes, and is worthless without the sign-in that follows, so a table
@@ -190,7 +197,11 @@ func (u *UI) savePlanner(w http.ResponseWriter, r *http.Request) {
 func (u *UI) ConnectPanel(w http.ResponseWriter, r *http.Request, code ConnectCode) {
 	data := u.base(r, "Connect Planner")
 	data.Connect = code
-	u.renderFragment(w, "connect", data)
+	if r.Header.Get("HX-Request") == "true" {
+		u.renderFragment(w, "connect", data)
+		return
+	}
+	u.render(w, "connect", data)
 }
 
 // ConnectPending renders the "still waiting" state, which htmx replaces
@@ -201,11 +212,20 @@ func (u *UI) ConnectPending(w http.ResponseWriter, r *http.Request, code Connect
 	u.ConnectPanel(w, r, code)
 }
 
-// ConnectDone tells the browser to reload the settings page, which is where
-// the newly connected state is rendered from.
-func (u *UI) ConnectDone(w http.ResponseWriter) {
-	w.Header().Set("HX-Redirect", "/settings")
-	w.WriteHeader(http.StatusOK)
+// ConnectDone sends the browser back to the settings page, which is where the
+// newly connected state is rendered from.
+//
+// Two ways, because there are two kinds of caller. htmx swaps responses into
+// the page and needs to be told to navigate; a browser that submitted a form
+// needs an ordinary redirect. Sending only the header would leave somebody
+// with JavaScript off looking at a blank fragment after a successful sign-in.
+func (u *UI) ConnectDone(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", "/settings")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 // ConnectCode is what the connect fragment renders.

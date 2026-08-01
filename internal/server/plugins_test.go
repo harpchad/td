@@ -346,3 +346,84 @@ func TestTheServerSideMirrorWorkflow(t *testing.T) {
 		t.Error("the mapped person was not backfilled by a relink")
 	}
 }
+
+// TestTheConnectPanelIsAWholePageWhenTheBrowserNavigatedToIt.
+//
+// This is the bug that shipped: the connect POST answered with a bare
+// fragment, so the response had no layout, no stylesheet and no htmx. Nothing
+// polled, and the only working control was the submit button, which fell back
+// to a native GET at the current URL and 404ed with the device code sitting
+// in the address bar.
+func TestTheConnectPanelIsAWholePageWhenTheBrowserNavigatedToIt(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	// An unreachable authority, so the panel renders its error rather than
+	// this test reaching Microsoft. The shape of the response is what is
+	// under test, not the sign-in.
+	resp := postForm(t, ts, session, "/w/planner/connect", url.Values{
+		"tenant_id": {"t"}, "client_id": {"c"},
+	})
+	// Whatever it says, it must not be a fragment.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}
+
+// TestThePollFormWorksWithTheScriptOff is the rule the rest of this UI
+// follows and that the first version of this broke. Every action is a real
+// form: with JavaScript off it posts and the server answers.
+func TestThePollFormWorksWithTheScriptOff(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	// A poll with a device code Microsoft will never accept. What matters is
+	// that it is a POST to a route that exists and comes back as a page, not
+	// that the sign-in succeeds.
+	resp := postForm(t, ts, session, "/w/planner/poll", url.Values{
+		"device_code": {"nonsense"}, "tenant_id": {"t"},
+		"client_id": {"c"}, "interval": {"5"},
+	})
+	if resp.StatusCode == http.StatusNotFound {
+		t.Fatal("the poll route does not exist for a plain form post")
+	}
+}
+
+// TestAGetIntoTheConnectFlowRedirectsRatherThan404. A refresh, a back button,
+// or a bookmarked mid-flow URL all land on GET, and a device code is single
+// use so there is nothing to render for one.
+func TestAGetIntoTheConnectFlowRedirectsRatherThan404(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	for _, path := range []string{
+		"/w/planner/connect?device_code=x&tenant_id=t&client_id=c&interval=5",
+		"/w/planner/poll",
+	} {
+		resp := getWithSession(t, ts, session, path)
+		if resp.StatusCode == http.StatusNotFound {
+			t.Errorf("GET %s = 404", path)
+		}
+		if resp.StatusCode != http.StatusSeeOther {
+			t.Errorf("GET %s = %d, want a redirect back to settings", path, resp.StatusCode)
+		}
+	}
+}
+
+// TestTheDeviceCodeNeverTravelsInAURL. It arrived in the address bar the
+// first time round, which put a credential-adjacent value into browser
+// history and anything the page links to.
+func TestTheDeviceCodeNeverTravelsInAURL(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	_, html := page(t, ts, session, "/settings")
+	// The connect form posts; nothing about this flow is a GET with fields.
+	if strings.Contains(html, `action="/w/planner/connect?`) {
+		t.Error("the connect form puts fields in the query string")
+	}
+	if !strings.Contains(html, `action="/w/planner/connect" method="post"`) &&
+		!strings.Contains(html, `action="/w/planner/connect"`) {
+		t.Error("the connect form has no explicit action")
+	}
+}

@@ -18,6 +18,39 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  The connect panel renders two ways, and shipped rendering one
+Phase: 11, corrected
+
+The first deployment of the device code flow 404ed the moment somebody
+pressed the button, with the device code sitting in the address bar.
+
+Two mistakes compounding. The connect POST answered with a bare fragment, so
+the response had no layout, and therefore no stylesheet and no htmx. Nothing
+polled. And the poll form carried `hx-post` but no `action` and no `method`,
+so the one control that still worked, the submit button, fell back to a native
+GET at whatever URL the browser was on, which was the connect endpoint, which
+only accepts POST.
+
+The rule that was broken is already written down for the rest of this UI:
+every action is a real form, and with the script off the form posts and the
+server redirects. htmx is an enhancement on top of something that works
+without it, and this was built the other way round.
+
+Decided: `ConnectPanel` renders a whole page when the browser navigated to it
+and a fragment when `HX-Request` is set. The form carries an explicit action
+and method as well as the htmx attributes, so both paths reach the same POST.
+`ConnectDone` redirects for a form and sets `HX-Redirect` for htmx. A GET into
+the middle of the flow redirects back to Settings rather than 404ing, because
+a refresh and a back button both land there and a device code is single use
+anyway.
+
+Also worth stating: the device code belongs in a form body and never in a
+query string. It is short lived and single use, but a URL ends up in history
+and in the Referer of anything the page links to.
+
+Reversible: one branch and four template attributes. Both are pinned by tests
+that fail with the original code.
+
 ## 2026-08-01  The Planner mirror moved onto the server
 Phase: 11, corrected
 

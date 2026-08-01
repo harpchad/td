@@ -110,7 +110,16 @@ func (s *Server) plannerPoll(w http.ResponseWriter, r *http.Request) {
 	s.logAuth(r, api.KindPluginConnected, s.actorOf(r), map[string]any{
 		"plugin": "planner", "account": cred.Account,
 	})
-	s.ui.ConnectDone(w)
+	s.ui.ConnectDone(w, r)
+}
+
+// plannerRestart handles a GET into the middle of the connect flow.
+//
+// A device code is single use and short lived, so there is nothing to render
+// for one that arrived on a URL. Sending somebody back to where the flow
+// starts is the only useful answer, and it beats the 404 this used to give.
+func (s *Server) plannerRestart(w http.ResponseWriter, r *http.Request) {
+	s.plannerBack(w, r, "that sign-in link has expired. Start the connection again.")
 }
 
 // plannerDisconnect drops the stored credential.

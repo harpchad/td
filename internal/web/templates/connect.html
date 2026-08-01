@@ -1,32 +1,38 @@
 {{define "body"}}
-{{/* The device code panel. It replaces itself on a timer until Microsoft
-     says the sign-in finished, which is an htmx poll rather than a script so
-     the CSP still needs no unsafe-inline. */}}
+{{/* The device code panel.
+     It works two ways on purpose. With htmx it polls itself on the interval
+     Microsoft asked for and swaps in whatever comes back. With scripting off
+     the same form posts to the same place and the server answers with a whole
+     page, which is the rule the rest of this UI follows: every action works
+     with the script off. */}}
 <div class="td-connect" id="td-connect">
   {{if .Connect.Error}}
     <p class="td-notice--error">{{.Connect.Error}}</p>
-    <form action="/w/planner/connect" method="post">
-      <button class="td-btn" type="submit">Try again</button>
-    </form>
+    <div class="td-form__actions">
+      <a class="td-btn" href="/settings">Back to settings</a>
+    </div>
   {{else}}
+    <div class="td-section__title">Connect Planner</div>
     <p>Go to <a class="td-link" href="{{.Connect.VerificationURI}}" rel="noopener noreferrer">{{.Connect.VerificationURI}}</a> and enter this code:</p>
 
     <div class="td-connect__code">{{.Connect.UserCode}}</div>
 
-    {{/* Posts itself back every few seconds, at the interval Microsoft asked
-         for rather than one we guessed, and swaps in whatever comes back. */}}
     <form class="td-connect__poll"
+          action="/w/planner/poll" method="post"
           hx-post="/w/planner/poll"
           hx-trigger="load delay:{{.Connect.Interval}}s"
           hx-target="#td-connect"
           hx-swap="outerHTML">
+      {{/* The device code travels in the form rather than in a session, so
+           the server holds no pending-login state. It must not travel in a
+           query string, which is why this is a POST. */}}
       <input type="hidden" name="device_code" value="{{.Connect.DeviceCode}}">
       <input type="hidden" name="tenant_id" value="{{.Connect.TenantID}}">
       <input type="hidden" name="client_id" value="{{.Connect.ClientID}}">
       <input type="hidden" name="interval" value="{{.Connect.Interval}}">
       <span class="td-dim">{{if .Connect.Message}}{{.Connect.Message}}{{else}}Waiting for the sign-in…{{end}}</span>
-      {{/* With JavaScript off the poll never fires, so there is a button. */}}
-      <button class="td-btn td-btn--link" type="submit">Check now</button>
+      <button class="td-btn" type="submit">Check now</button>
+      <a class="td-btn td-btn--link" href="/settings">Cancel</a>
     </form>
   {{end}}
 </div>

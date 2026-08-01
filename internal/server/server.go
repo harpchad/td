@@ -197,6 +197,11 @@ func (s *Server) Handler() http.Handler {
 	// UI something to draw.
 	mux.HandleFunc("POST /w/planner/connect", s.plannerConnect)
 	mux.HandleFunc("POST /w/planner/poll", s.plannerPoll)
+	// A refresh, a back button, or a bookmarked mid-flow URL lands on GET.
+	// There is nothing to show without a fresh device code, so it goes back
+	// to where the flow starts rather than answering 404.
+	mux.HandleFunc("GET /w/planner/connect", s.plannerRestart)
+	mux.HandleFunc("GET /w/planner/poll", s.plannerRestart)
 	mux.HandleFunc("POST /w/planner/disconnect", s.plannerDisconnect)
 	mux.HandleFunc("POST /w/planner/run", s.plannerRunNow)
 	mux.HandleFunc("POST /w/planner/map", s.plannerMap)
