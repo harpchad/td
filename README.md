@@ -333,9 +333,31 @@ GET  /.well-known/oauth-authorization-server RFC 8414
 GET  /.well-known/jwks.json                  two live keys
 GET  /authorize    authorization code, PKCE S256 only
 POST /token        an ES256 JWT whose aud is the resource, plus a refresh token
-POST /register     Dynamic Client Registration
+POST /register     Dynamic Client Registration, deprecated but still spoken
 POST /revoke       RFC 7009
 ```
+
+### How a client gets a client id
+
+Two ways, and a client picks without being told. The 2026-07-28 revision sets
+the priority order: a pre-registered id first, then a **Client ID Metadata
+Document** if the server advertises one, then Dynamic Client Registration as a
+fallback. td supports the last two, and says so in its metadata.
+
+A Client ID Metadata Document means the `client_id` *is* an https URL that
+serves the client's own metadata, so a client and a server that have never met
+need no registration step. td fetches that URL, checks that the document names
+the same URL it was served from, and caches it until its `Cache-Control` says
+otherwise.
+
+That fetch is the only outbound request td makes to an address a stranger
+chose, so it is fenced: the dialer refuses any non-public address, checked on
+the resolved IP at connect time, redirects are refused, the body is capped, and
+the cache lifetime is clamped at both ends.
+
+The consent screen shows the host the authorization code would be sent to, not
+only the client's name. With a metadata document the name is a claim anybody
+can make; the redirect host is a fact.
 
 Add it to claude.ai as a custom connector pointing at `https://<host>/mcp`.
 The redirect URI to allow is `https://claude.ai/api/mcp/auth_callback`. Scopes

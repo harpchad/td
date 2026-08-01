@@ -8,6 +8,24 @@
       you would rather it did not have.
     </p>
 
+    {{/* The name above is a claim. With a Client ID Metadata Document anybody
+         who can host JSON can put any name in one, so the host that will
+         actually receive the authorization code is shown as well, which the
+         2026-07-28 revision requires. */}}
+    {{if .RedirectHost}}
+    <p class="td-consent__where td-dim">
+      Sending you back to <b>{{.RedirectHost}}</b>{{if .SelfDescribed}}, which is where this
+      client's own description came from{{end}}.
+    </p>
+    {{end}}
+
+    {{if .LoopbackOnly}}
+    <p class="td-consent__warn">
+      This client receives the code on this machine. Nothing can prove which
+      program is listening there, so approve it only if you started it.
+    </p>
+    {{end}}
+
     {{/* The original authorization request travels through the form so the
          server validates the same parameters whichever direction they arrived
          from, rather than trusting a round trip. */}}

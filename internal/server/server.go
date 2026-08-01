@@ -19,6 +19,7 @@ import (
 	"github.com/harpchad/td/internal/auth"
 	"github.com/harpchad/td/internal/blob"
 	"github.com/harpchad/td/internal/mcpsrv"
+	"github.com/harpchad/td/internal/oauth"
 	"github.com/harpchad/td/internal/query"
 	"github.com/harpchad/td/internal/store"
 	"github.com/harpchad/td/internal/web"
@@ -57,6 +58,12 @@ type Server struct {
 	// mcp serves the Model Context Protocol at /mcp. Nil leaves the route a
 	// 404, which is what the API-only tests get.
 	mcp *mcpsrv.Server
+
+	// cimd resolves Client ID Metadata Documents, which is how a client with
+	// no prior relationship to this server gets a client id under the
+	// 2026-07-28 revision. It is the only outbound request td makes to a URL
+	// somebody else chose, so its dialer refuses private addresses.
+	cimd *oauth.Resolver
 
 	// baseURL is the server's own public URL. Every OAuth and MCP discovery
 	// document is built from it, and a wrong value fails in ways that look
@@ -101,6 +108,7 @@ func New(s *store.Store, log *slog.Logger) (*Server, error) {
 		log:       log,
 		Now:       func() time.Time { return time.Now().In(loc) },
 		dummyHash: dummy,
+		cimd:      oauth.NewResolver(),
 	}, nil
 }
 

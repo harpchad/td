@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/harpchad/td/internal/auth"
 	"github.com/harpchad/td/internal/oauth"
 	"github.com/harpchad/td/internal/store"
+	"github.com/harpchad/td/internal/web"
 )
 
 // The OAuth 2.1 authorization server.
@@ -104,6 +107,84 @@ func (s *Server) jwks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, oauth.PublicJWKS(keys))
 }
 
+// resolveClient turns a client id into a client, whichever way it exists.
+//
+// Two mechanisms and the caller does not care which. A URL is a Client ID
+// Metadata Document, fetched from the client's own site and cached; anything
+// else is a row somebody registered. The 2026-07-28 revision prefers the
+// first and deprecates the second, and td advertises support for the first,
+// which is a promise this function keeps.
+//
+// The cached copy is used while it is fresh and refetched when it is not,
+// because the document is the authority on the client's name and redirect
+// URIs, and a stale name on a consent screen is a consent nobody gave.
+func (s *Server) resolveClient(ctx context.Context, clientID string) (store.OAuthClient, error) {
+	if !oauth.IsClientIDDocumentURL(clientID) {
+		return s.store.OAuthClientByID(ctx, clientID)
+	}
+	if s.cimd == nil {
+		return store.OAuthClient{}, errors.New("client id metadata documents are not available on this server")
+	}
+
+	now := s.Now()
+	cached, ok, err := s.store.CachedClientFresh(ctx, clientID, now)
+	if err != nil {
+		return store.OAuthClient{}, err
+	}
+	if ok {
+		return cached, nil
+	}
+
+	doc, ttl, err := s.cimd.Resolve(ctx, clientID)
+	if err != nil {
+		// Logged because this is the one failure here that is somebody else's
+		// server misbehaving, and the person at the browser cannot debug it.
+		s.log.Warn("resolving a client id metadata document", "client_id", clientID, "err", err)
+		return store.OAuthClient{}, err
+	}
+	return s.store.SaveResolvedClient(ctx, store.OAuthClient{
+		ID:           doc.ClientID,
+		Name:         doc.ClientName,
+		RedirectURIs: doc.RedirectURIs,
+		Scopes:       strings.Fields(doc.Scope),
+		Source:       "cimd",
+	}, now.Add(ttl), now)
+}
+
+// consentClient describes who is asking, for the screen that asks you about
+// them. The redirect host comes from the request rather than the client's list
+// because that is the one the code would actually go to.
+func consentClient(client store.OAuthClient, redirectURI string) web.ConsentClient {
+	out := web.ConsentClient{
+		Name:          client.Name,
+		SelfDescribed: client.Source == "cimd",
+	}
+	if u, err := url.Parse(redirectURI); err == nil {
+		out.RedirectHost = u.Host
+		out.LoopbackOnly = isLoopbackRedirect(u)
+	}
+	return out
+}
+
+func isLoopbackRedirect(u *url.URL) bool {
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// clientLookupMessage says what went wrong without turning this server into a
+// probe for what is reachable from it. A resolution failure names the document
+// as the problem; anything else is simply not registered.
+func clientLookupMessage(clientID string, err error) string {
+	if !oauth.IsClientIDDocumentURL(clientID) || errors.Is(err, store.ErrNotFound) {
+		return "That client is not registered."
+	}
+	return "That client's metadata document could not be used: " + err.Error()
+}
+
 // authorize is the consent screen.
 //
 // Two failure modes and they are answered very differently. If the client id
@@ -115,9 +196,9 @@ func (s *Server) jwks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
-	client, err := s.store.OAuthClientByID(r.Context(), q.Get("client_id"))
+	client, err := s.resolveClient(r.Context(), q.Get("client_id"))
 	if err != nil {
-		s.oauthPage(w, r, "That client is not registered.")
+		s.oauthPage(w, r, clientLookupMessage(q.Get("client_id"), err))
 		return
 	}
 	redirectURI := q.Get("redirect_uri")
@@ -171,7 +252,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		s.oauthPage(w, r, "The consent screen is not available on this server.")
 		return
 	}
-	s.ui.Consent(w, r, client.Name, scopes, q.Encode())
+	s.ui.Consent(w, r, consentClient(client, redirectURI), scopes, q.Encode())
 }
 
 // approve is the consent form's POST. Approving mints the code; the consent
@@ -195,9 +276,9 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := s.store.OAuthClientByID(r.Context(), q.Get("client_id"))
+	client, err := s.resolveClient(r.Context(), q.Get("client_id"))
 	if err != nil {
-		s.oauthPage(w, r, "That client is not registered.")
+		s.oauthPage(w, r, clientLookupMessage(q.Get("client_id"), err))
 		return
 	}
 	redirectURI := q.Get("redirect_uri")
@@ -312,7 +393,7 @@ func (s *Server) tokenFromCode(w http.ResponseWriter, r *http.Request) {
 	now := s.Now()
 
 	clientID, secret := clientCredentials(r)
-	client, err := s.store.AuthenticateClient(r.Context(), clientID, secret)
+	client, err := s.authenticateClient(r.Context(), clientID, secret)
 	if err != nil {
 		s.tokenError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
 		return
@@ -361,7 +442,7 @@ func (s *Server) tokenFromRefresh(w http.ResponseWriter, r *http.Request) {
 	now := s.Now()
 
 	clientID, secret := clientCredentials(r)
-	client, err := s.store.AuthenticateClient(r.Context(), clientID, secret)
+	client, err := s.authenticateClient(r.Context(), clientID, secret)
 	if err != nil {
 		s.tokenError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
 		return
@@ -540,6 +621,24 @@ func (s *Server) revokeGrant(w http.ResponseWriter, r *http.Request) {
 // requestedScopes narrows what was asked for against what the client
 // registered. An unknown scope is refused rather than dropped, because a
 // client that asked for something it cannot have should be told.
+// authenticateClient checks a client at the token endpoint.
+//
+// A CIMD client is public by construction: its document is world readable, so
+// nothing in it can be a secret. It is resolved rather than authenticated, and
+// PKCE is what binds the code to the client, which is what OAuth 2.1 expects
+// of anything that cannot keep a secret.
+func (s *Server) authenticateClient(ctx context.Context, id, secret string) (store.OAuthClient, error) {
+	if !oauth.IsClientIDDocumentURL(id) {
+		return s.store.AuthenticateClient(ctx, id, secret)
+	}
+	if secret != "" {
+		return store.OAuthClient{}, &api.Error{
+			Code: api.ErrUnauthorized, Message: "this client has no secret",
+		}
+	}
+	return s.resolveClient(ctx, id)
+}
+
 func (s *Server) requestedScopes(asked string, client store.OAuthClient) ([]string, error) {
 	want := strings.Fields(asked)
 	if len(want) == 0 {

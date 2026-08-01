@@ -178,6 +178,11 @@ type pageData struct {
 	Theme        string
 	AssetVersion string
 
+	// Consent screen: who is asking, and where the code would actually go.
+	RedirectHost  string
+	LoopbackOnly  bool
+	SelfDescribed bool
+
 	Filter     string
 	FilterName string
 	Saved      []api.SavedFilter

@@ -18,6 +18,60 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  Client ID Metadata Documents, because we said we supported them
+Phase: after v0.1
+
+A real connector attempt failed with "That client is not registered." The
+cause was in our metadata: `/​.well-known/oauth-authorization-server` advertised
+`client_id_metadata_document_supported: true`, and nothing in the codebase
+implemented it. The only occurrence of the phrase anywhere was the line making
+the claim.
+
+That is not a cosmetic lie. The 2026-07-28 client registration rules give an
+explicit priority order, and CIMD sits above Dynamic Client Registration
+precisely when the server says it supports it. A conforming client read the
+advertisement, skipped `/register` as it was supposed to, sent an https URL as
+its `client_id`, and `/authorize` did a table lookup that missed. We told it to
+take a door that was painted on.
+
+Implemented rather than un-advertised. DCR is deprecated in this revision and
+kept only for servers that cannot do CIMD, so removing the claim would have
+left td relying on the mechanism clients are moving off. 0004 had already
+reserved `source = 'cimd'` and written the comment describing this exact
+design, so the schema was waiting for it.
+
+The client row is a cache, not a registration. It exists so the foreign keys
+from oauth_code and oauth_grant hold and so the settings page can revoke the
+grant like any other, and it is refetched when its metadata expires. A stale
+name on a consent screen is a consent nobody gave.
+
+The security work is the bulk of it. This is the only outbound request td makes
+to a URL an unauthenticated stranger chose:
+
+- The dialer refuses any address that is not public, checked on the resolved IP
+  at connect time rather than on the hostname, so a name that answers publicly
+  once and 169.254.169.254 the next time is still refused.
+- Redirects are refused outright, since the document must name the URL it came
+  from and a redirect breaks that by construction.
+- The body is capped, the timeouts are short, keep-alives are off.
+- Cache-Control is honoured but clamped, so a client can neither pin itself in
+  this server nor force a fetch on every authorization.
+- The document must claim the exact URL it was served from. Without that check
+  anybody who can host JSON could serve a document naming itself Claude, and
+  the consent screen would show that name.
+- A resolved client can never overwrite a row that arrived another way.
+
+The consent screen now shows the host the code would be sent to, which the
+revision requires, and warns when every redirect is loopback. The name in a
+document is a claim; the host receiving the code is a fact, and only one of
+those is worth showing a person about to approve something.
+
+Rejected: deleting the advertisement, for the reason above. Rejected: a domain
+allowlist, which the draft permits and which would have made this work for
+claude.ai and nothing else, in a product whose point is that it is yours.
+
+Reversible: one resolver, two columns, one branch in three handlers.
+
 ## 2026-08-01  The filter is a place you are, not an argument you passed
 Phase: after v0.1
 

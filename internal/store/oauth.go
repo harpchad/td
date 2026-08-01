@@ -481,3 +481,89 @@ func (s *Store) RotateSigningKey(ctx context.Context, now time.Time) error {
 	}
 	return tx.Commit()
 }
+
+// CachedClientFresh returns a CIMD client whose metadata has not expired.
+//
+// The bool is false when there is no row or the cache is stale, which is the
+// caller's cue to refetch. A stale row is deliberately not returned: the
+// client's own document is the authority on its name and redirect URIs, and
+// serving a name somebody has since changed onto a consent screen is exactly
+// the mistake that makes consent meaningless.
+func (s *Store) CachedClientFresh(ctx context.Context, id string, now time.Time) (OAuthClient, bool, error) {
+	var expires sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT metadata_expires_at FROM oauth_client WHERE id = ? AND source = 'cimd'`, id).
+		Scan(&expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return OAuthClient{}, false, nil
+	}
+	if err != nil {
+		return OAuthClient{}, false, err
+	}
+	if !expires.Valid || !cacheStillGood(expires.String, now) {
+		return OAuthClient{}, false, nil
+	}
+
+	client, err := s.OAuthClientByID(ctx, id)
+	if err != nil {
+		return OAuthClient{}, false, err
+	}
+	return client, true, nil
+}
+
+// cacheStillGood reports whether a cached document may still be used.
+//
+// A timestamp that will not parse counts as expired rather than as an error.
+// The only consequence of refetching is one HTTP request, while trusting a
+// row whose expiry cannot be read means serving a name onto a consent screen
+// that the client may have changed.
+func cacheStillGood(stamp string, now time.Time) bool {
+	at, err := time.Parse(time.RFC3339, stamp)
+	return err == nil && now.Before(at)
+}
+
+// SaveResolvedClient records a Client ID Metadata Document.
+//
+// An upsert rather than an insert, because a client id is a URL that stays the
+// same while the document behind it changes. The row is a cache with a foreign
+// key pointed at it, not a registration.
+//
+// It refuses to overwrite a client that arrived any other way. Otherwise
+// anybody who could get a URL-shaped client id into the table could replace a
+// registered client's redirect URIs with their own by serving a document.
+func (s *Store) SaveResolvedClient(ctx context.Context, in OAuthClient, expiresAt, now time.Time) (OAuthClient, error) {
+	var source string
+	err := s.db.QueryRowContext(ctx, `SELECT source FROM oauth_client WHERE id = ?`, in.ID).Scan(&source)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return OAuthClient{}, err
+	case source != "cimd":
+		return OAuthClient{}, &api.Error{
+			Code:    api.ErrBadRequest,
+			Message: "that client id is already registered by another means",
+		}
+	}
+
+	uris, err := json.Marshal(in.RedirectURIs)
+	if err != nil {
+		return OAuthClient{}, err
+	}
+	stamp := now.UTC().Format(time.RFC3339)
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO oauth_client
+		   (id, secret_hash, name, redirect_uris, scopes, source,
+		    created_at, metadata_fetched_at, metadata_expires_at)
+		 VALUES (?, NULL, ?, ?, ?, 'cimd', ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   name = excluded.name,
+		   redirect_uris = excluded.redirect_uris,
+		   scopes = excluded.scopes,
+		   metadata_fetched_at = excluded.metadata_fetched_at,
+		   metadata_expires_at = excluded.metadata_expires_at`,
+		in.ID, in.Name, string(uris), strings.Join(in.Scopes, " "),
+		stamp, stamp, expiresAt.UTC().Format(time.RFC3339)); err != nil {
+		return OAuthClient{}, err
+	}
+	return s.OAuthClientByID(ctx, in.ID)
+}

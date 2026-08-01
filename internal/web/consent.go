@@ -17,10 +17,13 @@ import (
 // checkboxes exist because the point of a consent screen is that it can grant
 // less than was asked for; a screen with only an Approve button is a
 // notification, not a decision.
-func (u *UI) Consent(w http.ResponseWriter, r *http.Request, clientName string, scopes []string, request string) {
-	data := u.base(r, "Authorize "+clientName)
-	data.ClientName = clientName
+func (u *UI) Consent(w http.ResponseWriter, r *http.Request, client ConsentClient, scopes []string, request string) {
+	data := u.base(r, "Authorize "+client.Name)
+	data.ClientName = client.Name
 	data.Request = request
+	data.RedirectHost = client.RedirectHost
+	data.LoopbackOnly = client.LoopbackOnly
+	data.SelfDescribed = client.SelfDescribed
 	for _, scope := range scopes {
 		data.ConsentScopes = append(data.ConsentScopes, consentScope{
 			Value:     scope,
@@ -30,6 +33,25 @@ func (u *UI) Consent(w http.ResponseWriter, r *http.Request, clientName string, 
 		})
 	}
 	u.render(w, "consent", data)
+}
+
+// ConsentClient is what the consent screen needs to know about who is asking.
+//
+// The name is a claim: with a Client ID Metadata Document anybody who can host
+// JSON can put any name in it. The host receiving the authorization code is
+// the fact, and the 2026-07-28 revision requires it be displayed for exactly
+// that reason.
+type ConsentClient struct {
+	Name         string
+	RedirectHost string
+	// LoopbackOnly says every redirect points at this machine. A document
+	// cannot prove which program is listening on a loopback port, so the spec
+	// asks for a warning rather than a refusal.
+	LoopbackOnly bool
+	// SelfDescribed says the client described itself with a metadata document
+	// rather than being registered here. Worth saying plainly, since it is the
+	// difference between a name somebody vouched for and a name it chose.
+	SelfDescribed bool
 }
 
 // OAuthError renders a failure that must not be redirected anywhere.
