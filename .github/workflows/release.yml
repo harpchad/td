@@ -1,0 +1,185 @@
+name: release
+
+# Publishing, which ci.yml deliberately does not do. Two artifacts, because
+# section 13 says the client releases separately from the server: a linux/amd64
+# container image for tdd, and td binaries for the three platforms a laptop is.
+#
+# A push to main publishes a moving :main tag, which is what a homelab pulls.
+# A v* tag publishes an immutable version and a GitHub release with the client
+# binaries attached. Nothing here runs on a pull request: a fork must not be
+# able to push to the registry.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The gate. Publishing something that has not passed `make check` would
+  # make the image a different definition of passing, and there is only one.
+  check:
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Work out the tags
+        id: meta
+        run: |
+          # GHCR rejects an uppercase path, and a repository name is not
+          # guaranteed to be lowercase.
+          image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          version="${GITHUB_REF_NAME}"
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            # An immutable version, plus :latest for anyone who wants the
+            # newest release without reading the tag list.
+            tags="${image}:${version} ${image}:latest"
+          else
+            # A moving tag for main, plus the commit, so an image that is
+            # misbehaving can always be named exactly.
+            version="main-$(git rev-parse --short HEAD)"
+            tags="${image}:main ${image}:${version}"
+          fi
+
+          {
+            echo "image=${image}"
+            echo "version=${version}"
+            echo "tags=${tags}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        run: |
+          echo '${{ secrets.GITHUB_TOKEN }}' \
+            | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+
+      - name: Build
+        run: |
+          args=""
+          for tag in ${{ steps.meta.outputs.tags }}; do
+            args="${args} -t ${tag}"
+          done
+          # shellcheck disable=SC2086
+          docker build ${args} --build-arg VERSION='${{ steps.meta.outputs.version }}' .
+
+      # The image is proved to work before it is pushed, not after. An
+      # unauthenticated /healthz on a container started the way a person would
+      # start one is the smallest check that means anything: it needs the
+      # binary, the base URL guard, and the store to have all come up.
+      - name: It starts and serves
+        run: |
+          docker run -d --name smoke -p 8080:8080 \
+            -e TD_ADDR=0.0.0.0:8080 \
+            -e TD_BASE_URL=https://td.example.com \
+            '${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}'
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+              echo "serving after ${i}s"
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "never came up:"
+              docker logs smoke
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # And it reports the version it was built with, which is only true
+          # because main.version exists for the linker to write to. `-X` on a
+          # symbol nobody declared is discarded in silence.
+          got="$(docker run --rm '${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}' -version)"
+          echo "${got}"
+          case "${got}" in
+            *"${{ steps.meta.outputs.version }}"*) ;;
+            *) echo "the image does not report its build version"; exit 1 ;;
+          esac
+
+          docker rm -f smoke
+
+      - name: Push
+        run: |
+          for tag in ${{ steps.meta.outputs.tags }}; do
+            docker push "${tag}"
+          done
+
+  # The client. Pure Go and no cgo, so the three platforms are a loop rather
+  # than a build matrix with three runners.
+  client:
+    needs: check
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: false
+
+      - name: Build td for every platform a laptop is
+        run: |
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/amd64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            out="dist/td-${GITHUB_REF_NAME}-${os}-${arch}"
+            CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" \
+              go build -trimpath \
+                -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+                -o "${out}" ./cmd/td
+            echo "built ${out}"
+          done
+          cd dist && sha256sum td-* > SHA256SUMS && cat SHA256SUMS
+
+      # The binary that runs on this runner is the one that gets checked. The
+      # other two are cross-compiled and unrunnable here, which is the point of
+      # the version handshake: the client says what it is and the server says
+      # what it is.
+      - name: The linux build reports its version
+        run: |
+          got="$(./dist/td-${GITHUB_REF_NAME}-linux-amd64 --version)"
+          echo "${got}"
+          case "${got}" in
+            *"${GITHUB_REF_NAME}"*) ;;
+            *) echo "the client does not report its build version"; exit 1 ;;
+          esac
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          image="$(echo "${IMAGE}" | tr '[:upper:]' '[:lower:]')"
+          cat > notes.md <<NOTES
+          The server ships as a container image:
+
+              docker pull ${image}:${GITHUB_REF_NAME}
+
+          The client is a single binary with no cgo. Take the one for your
+          machine, check it against \`SHA256SUMS\`, and put it on your PATH as
+          \`td\`.
+
+          The client and the server release separately on purpose. They
+          exchange versions on every request, and the client warns once when
+          the major versions differ.
+          NOTES
+
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file notes.md \
+            dist/*

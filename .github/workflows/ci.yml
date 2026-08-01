@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Called by release.yml, so nothing is published that has not passed the
+  # same `make check` a pull request runs.
+  workflow_call:
 
 permissions:
   contents: read
@@ -49,4 +52,13 @@ jobs:
         run: docker build -t td:ci --build-arg VERSION=ci .
 
       - name: The image starts and reports its version
-        run: docker run --rm td:ci -version
+        run: |
+          got="$(docker run --rm td:ci -version)"
+          echo "${got}"
+          # Not just "it printed something". `-X` naming a symbol nobody
+          # declared is discarded in silence, which is how the build version
+          # was a no-op for several phases without anybody noticing.
+          case "${got}" in
+            *"ci"*) ;;
+            *) echo "the image does not report the version it was built with"; exit 1 ;;
+          esac

@@ -14,16 +14,26 @@ RUN go mod download
 COPY . .
 
 ARG VERSION=dev
+# main.version has to exist for this to do anything: `-X` naming a symbol
+# nobody declared is discarded by the linker in silence.
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
     -o /out/tdd ./cmd/tdd
 
+# The data directory is made here so it can be copied in with an owner. The
+# runtime stage is distroless and has no shell, so there is no mkdir there,
+# and a /data owned by root is a container that cannot create its own database
+# on a fresh volume.
+RUN mkdir -p /data
+
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /out/tdd /usr/local/bin/tdd
+COPY --from=build --chown=nonroot:nonroot /data /data
 
 # One volume. The database, the content-addressed blobs, and config.toml all
-# live under it.
+# live under it. Docker seeds a fresh named volume from the image, so the
+# ownership above is what the volume gets.
 VOLUME ["/data"]
 
 ENV TD_DB=/data/td.db \

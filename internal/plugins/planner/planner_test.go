@@ -17,9 +17,9 @@ import (
 )
 
 // Everything here runs against testdata/plugins/planner, written by hand from
-// Graph's published resource documentation. CLAUDE.md forbids pointing at
-// NCM's tenant to capture a fixture, and nothing in this package can reach a
-// real one: the Graph client is aimed at an httptest server.
+// Graph's published resource documentation. CLAUDE.md forbids pointing at a
+// real tenant to capture a fixture, and nothing in this package can reach one:
+// the Graph client is aimed at an httptest server.
 
 func fixture(t *testing.T, name string) []byte {
 	t.Helper()

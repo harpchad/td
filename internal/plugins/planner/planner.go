@@ -6,10 +6,9 @@
 // failures where a remote write half-succeeds and the two systems disagree
 // about what happened.
 //
-// Planner over Jira because Jira is being decommissioned and the Graph API is
-// cleaner. "Cleaner" has one large exception, handled below: Planner has no
-// delta query for tasks, so every run reads the whole plan and idempotence
-// rests entirely on the ETag.
+// Planner over Jira because the Graph API is cleaner. "Cleaner" has one large
+// exception, handled below: Planner has no delta query for tasks, so every run
+// reads the whole plan and idempotence rests entirely on the ETag.
 package planner
 
 import (

@@ -18,6 +18,77 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  Publishing is a separate workflow from checking
+Phase: release
+
+`make check` is the one definition of passing, and CI runs it. Adding push
+steps to that same workflow would have meant a pull request from a fork could
+reach the registry.
+
+Decided: `release.yml` calls `ci.yml` as a reusable workflow and publishes only
+if it passes. It never runs on a pull request. A push to main gets a moving
+`:main` tag plus the commit sha; a `v*` tag gets an immutable version, `:latest`,
+and a GitHub release with the client binaries. The image is smoke-tested
+before it is pushed rather than after.
+
+Reversible: two files under `.github/workflows`.
+
+## 2026-08-01  main.version had to exist before anything could be released
+Phase: release
+
+The Dockerfile was injecting `-ldflags "-X main.version=${VERSION}"` into a
+variable nobody had declared. The Go linker discards `-X` on an unknown symbol
+in silence, so every image reported the same number, and the CI step named
+"The image starts and reports its version" was only proving that the binary
+started.
+
+Decided: `main.version` is declared in both commands and printed alongside the
+API version, and both CI and release assert that the built artifact reports the
+version it was built with rather than merely printing something. Two numbers,
+because they answer different questions: which build this is, and what the skew
+handshake compares.
+
+The same check found that `td --version` and `td -h` had never worked. The
+switch only saw non-dash arguments, so both fell through to the TUI and came
+back as a flag parse error.
+
+## 2026-08-01  The container could not create its own database
+Phase: release
+
+Found by the new release smoke test within a minute of writing it, which is
+the argument for the test.
+
+The runtime stage runs as `nonroot` and `/data` did not exist in the image, so
+Docker created it root-owned and a fresh volume was unwritable:
+`migrations table: unable to open database file`. Every deployment onto a new
+volume would have failed on first start.
+
+The old CI check could not have caught it. `docker run --rm td:ci -version`
+exits before anything touches the store. The new one starts the container the
+way a person would and waits for `/healthz`, which needs the binary, the
+base-URL guard, and the store to have all come up.
+
+Decided: the directory is created in the build stage and copied in with
+`--chown=nonroot:nonroot`, because distroless has no shell and therefore no
+`mkdir` in the final stage. Docker seeds a fresh named volume from the image,
+so that ownership is what the volume gets.
+
+## 2026-08-01  Employer references removed before publishing
+Phase: release
+
+`CLAUDE.md` says not to rewrite `BUILD-SPEC.md`. This edit was directed
+explicitly, so it is recorded here rather than argued.
+
+The repository was published public, and a scan before that turned up no
+credentials anywhere in the tree or the history, but did find the author's
+employer named in four files and two remarks about that employer's internal
+tooling plans. None of it is secret and all of it is permanent once forked.
+The name was replaced with "a real tenant" and the two remarks dropped; the
+reasoning they supported ("Planner has a cleaner Graph API") stands on its own
+without them.
+
+The fixture first names were kept. They read as ordinary test data.
+
 ## 2026-08-01  A sync reports the people it will not guess at
 Phase: 11, corrected
 

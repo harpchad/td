@@ -60,12 +60,27 @@ func run(args []string) error {
 		cmd, rest = args[0], args[1:]
 	}
 
+	// The meta flags are read off args rather than off cmd, because cmd is
+	// only set for a non-dash argument and `td --version` is how everybody
+	// types it. Reading them off cmd meant they fell through to the TUI and
+	// came back as a flag parse error.
+	if len(args) > 0 {
+		switch args[0] {
+		case "-h", "--help", "help":
+			fmt.Print(usage)
+			return nil
+		case "-version", "--version", "version":
+			fmt.Printf("td %s (api %s)\n", version, api.Version)
+			return nil
+		}
+	}
+
 	switch cmd {
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return nil
 	case "--version", "version":
-		fmt.Println(api.Version)
+		fmt.Printf("td %s (api %s)\n", version, api.Version)
 		return nil
 	}
 

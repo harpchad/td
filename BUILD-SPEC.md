@@ -424,8 +424,7 @@ half-succeeds and the two systems disagree about what happened.
 
 If write-back arrives later, keep it to two actions: complete and
 comment, through `POST /api/v1/tasks/{id}/actions`, handed to the
-plugin's callback URL. Field-level bidirectional sync is a swamp, and
-you have a Jira decommission coming anyway.
+plugin's callback URL. Field-level bidirectional sync is a swamp.
 
 An outbound plugin is worth building too: on `task.completed`, POST to
 Memos so the journal fills itself. That is a webhook, not a plugin, and
@@ -975,8 +974,8 @@ you when the laptop falls behind the container.
 9. OAuth 2.1 authorization server. Required: the claude.ai connector
    cannot use a static token.
 10. Memos completion webhook.
-11. First sync plugin. Pick Planner over Jira, since Jira is being
-    decommissioned and Planner has a cleaner Graph API.
+11. First sync plugin. Pick Planner over Jira: Planner has a cleaner
+    Graph API.
 
 Stop after step 5 and use it for two weeks before building step 6. Half
 the requirements in this document will change.

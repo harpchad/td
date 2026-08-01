@@ -68,7 +68,8 @@ Run `go mod tidy` before every commit.
 
 ## Never touch production
 
-Do not use credentials for NCM's Planner, monday.com, or Jira. Sync
+Do not use credentials for the real Planner, monday.com, or Jira
+tenants. Sync
 plugin work uses recorded HTTP fixtures committed under
 `testdata/plugins/`. If you need a response shape you do not have,
 write the fixture by hand from the vendor's published API

@@ -55,13 +55,16 @@ func run(args []string) error {
 		"ntfy topic for reminders, overriding config.toml. Empty leaves reminders off")
 	blobDir := fs.String("blobs", envOr("TD_BLOB_DIR", ""),
 		"directory for attachment bytes. Defaults to <db directory>/blobs")
-	showVersion := fs.Bool("version", false, "print the API version and exit")
+	showVersion := fs.Bool("version", false, "print the build and API versions and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
 	if *showVersion {
-		fmt.Println(api.Version)
+		// Two numbers, because they answer different questions. The build is
+		// which image this is; the API version is what the client compares
+		// against in the skew handshake.
+		fmt.Printf("tdd %s (api %s)\n", version, api.Version)
 		return nil
 	}
 

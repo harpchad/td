@@ -2,7 +2,7 @@
 
 Written by hand from Microsoft Graph's published `plannerTask`,
 `plannerPlan`, and `user` resource documentation. No live tenant was
-contacted and no NCM credentials exist anywhere in this repository.
+contacted and no live credentials exist anywhere in this repository.
 
 The identifiers are structurally realistic and semantically fake. The
 GUIDs are made up; the base64-looking plan and task ids follow Graph's

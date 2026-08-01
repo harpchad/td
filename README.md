@@ -17,6 +17,22 @@ Section 16 says to stop after phase 5 and use it for two weeks before phase
 6, on the grounds that half the requirements will change. That was raised and
 overruled; see `DECISIONS.md`.
 
+## Install
+
+The server is a container image:
+
+```sh
+docker pull ghcr.io/harpchad/td:latest     # or :main for the tip
+```
+
+The client is a single binary with no cgo. Take the one for your machine from
+the [releases](https://github.com/harpchad/td/releases), check it against
+`SHA256SUMS`, and put it on your PATH as `td`.
+
+They release separately on purpose and exchange versions on every request; the
+client warns once when the major versions differ. `td --version` and
+`tdd -version` each print their build and the API version they speak.
+
 ## Build and check
 
 ```sh
@@ -27,6 +43,12 @@ make check     # the one definition of passing; CI runs this exact command
 `make check` runs, in order: gofumpt, golangci-lint, the tests, cross-builds
 for darwin/arm64 and linux/amd64 with `CGO_ENABLED=0`, govulncheck, the
 import boundary test, and the `openapi.yaml` schema lint.
+
+CI runs that exact command, and then builds the image and starts it. Release
+is a separate workflow that runs the same `make check` before publishing
+anything: a push to `main` gets `ghcr.io/harpchad/td:main`, and a `v*` tag
+gets an immutable image plus a GitHub release with the three client binaries
+and their checksums.
 
 ## Run it
 
