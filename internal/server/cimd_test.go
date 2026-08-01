@@ -201,3 +201,55 @@ func TestTheMetadataAdvertisementIsTrue(t *testing.T) {
 		t.Errorf("the server advertises CIMD but a URL client id did not reach consent:\n%s", firstLines(html, 12))
 	}
 }
+
+// TestTheConsentScreenLetsTheApprovalReachTheClient.
+//
+// An OAuth consent screen ends in a cross-origin navigation by construction:
+// approving carries a code to the client's redirect URI. Under the default
+// form-action 'self' Chrome blocks that redirect and the approval goes
+// nowhere, while Firefox allows it, so the bug only appears on some machines.
+// The consent page names the one origin being approved and nothing else.
+func TestTheConsentScreenLetsTheApprovalReachTheClient(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	clientID := hostDocument(t, ts, map[string]any{
+		"client_name":   "Claude",
+		"redirect_uris": []string{claudeRedirect},
+	})
+	q := authorizeQuery(ts, clientID, "td:read", newPKCE())
+
+	resp, html := page(t, ts, session, server.AuthorizePath+"?"+q.Encode())
+	if !strings.Contains(html, "Approve") {
+		t.Fatal("no consent screen to check")
+	}
+
+	csp := resp.Header.Get("Content-Security-Policy")
+	if !strings.Contains(csp, "form-action 'self' https://claude.ai") {
+		t.Errorf("the consent screen would block its own approval:\n  %s", csp)
+	}
+	// Widened for form-action and nothing else.
+	for _, must := range []string{"script-src 'self'", "frame-ancestors 'none'", "object-src 'none'"} {
+		if !strings.Contains(csp, must) {
+			t.Errorf("the consent policy dropped %q", must)
+		}
+	}
+	if strings.Contains(csp, "unsafe-inline") {
+		t.Error("the consent policy allows unsafe-inline")
+	}
+}
+
+// TestOnlyTheConsentScreenWidensFormAction, because a relaxation that leaks
+// onto every page is not a relaxation, it is a removal.
+func TestOnlyTheConsentScreenWidensFormAction(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	for _, path := range []string{"/", "/settings", "/help"} {
+		resp, _ := page(t, ts, session, path)
+		csp := resp.Header.Get("Content-Security-Policy")
+		if !strings.Contains(csp, "form-action 'self';") && !strings.HasSuffix(csp, "form-action 'self'") {
+			t.Errorf("%s has form-action %q, want 'self' alone", path, csp)
+		}
+	}
+}

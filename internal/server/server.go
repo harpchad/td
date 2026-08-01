@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -244,11 +245,23 @@ func securityHeaders(h http.Header) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
 
-	// No unsafe-inline and no unsafe-eval. htmx and the keymap are served as
-	// files rather than inlined, so 'self' covers both and the policy needs
-	// no per-page hash. htmx does evaluate hx- attributes, but it does not
-	// need eval to do it.
-	h.Set("Content-Security-Policy", strings.Join([]string{
+	h.Set("Content-Security-Policy", contentSecurityPolicy(""))
+}
+
+// contentSecurityPolicy builds the policy.
+//
+// No unsafe-inline and no unsafe-eval. htmx and the keymap are served as files
+// rather than inlined, so 'self' covers both and the policy needs no per-page
+// hash. htmx does evaluate hx- attributes, but it does not need eval to do it.
+//
+// formAction is the one part that is ever widened, and only on the consent
+// screen. Everywhere else it is empty and the policy is 'self' alone.
+func contentSecurityPolicy(formAction string) string {
+	form := "form-action 'self'"
+	if formAction != "" {
+		form += " " + formAction
+	}
+	return strings.Join([]string{
 		"default-src 'self'",
 		"script-src 'self'",
 		"style-src 'self'",
@@ -257,9 +270,29 @@ func securityHeaders(h http.Header) {
 		"font-src 'self'",
 		"object-src 'none'",
 		"base-uri 'none'",
-		"form-action 'self'",
+		form,
 		"frame-ancestors 'none'",
-	}, "; "))
+	}, "; ")
+}
+
+// allowConsentRedirect lets the consent form's approval reach the client.
+//
+// An OAuth consent screen ends in a cross-origin navigation by construction:
+// you approve, and the browser carries an authorization code to the client's
+// redirect URI. Under form-action 'self' Chrome kills that redirect and the
+// approval silently goes nowhere, which is what happened the first time this
+// was tried against a real connector. Firefox does not, which is worse: it
+// works on one machine and not the next.
+//
+// Widened to the exact origin of the redirect URI and no further, and only
+// after that URI has been matched against the client's registered list. It is
+// the one origin the person is looking at a screen approving.
+func allowConsentRedirect(h http.Header, redirectURI string) {
+	u, err := url.Parse(redirectURI)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return
+	}
+	h.Set("Content-Security-Policy", contentSecurityPolicy(u.Scheme+"://"+u.Host))
 }
 
 // standardHeaders stamps every response with the server's API version and its

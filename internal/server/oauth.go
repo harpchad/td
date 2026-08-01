@@ -252,6 +252,9 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		s.oauthPage(w, r, "The consent screen is not available on this server.")
 		return
 	}
+	// The approval ends in a navigation to the client, which the default
+	// policy would block. redirectURI is registered and matched by this point.
+	allowConsentRedirect(w.Header(), redirectURI)
 	s.ui.Consent(w, r, consentClient(client, redirectURI), scopes, q.Encode())
 }
 

@@ -18,6 +18,31 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  The consent screen has to be allowed to leave
+Phase: after v0.1
+
+Approving the connector minted a code, logged the grant, and answered 303 to
+claude.ai. The browser then refused to go. `form-action 'self'` was set on
+every response, and an OAuth consent screen ends in a cross-origin navigation
+by construction: you approve, and the browser carries the code to the client.
+
+The nasty part is the browser split. Whether `form-action` applies to a
+redirect after a form submission is unsettled and implementations disagree:
+Chrome blocks it, Firefox does not. So this works on one machine and fails
+silently on the next, and the server logs a successful authorization either
+way. Nothing server-side is wrong, which is why the logs were no help.
+
+The consent response now names the exact origin of the redirect URI, and only
+that origin, and only on that one response. Every other page keeps
+`form-action 'self'` with a test asserting it. The widening happens after the
+redirect URI has been matched against the client's registered list, so the
+origin allowed is the one the person is looking at a screen approving.
+
+Rejected: dropping `form-action` globally, which would give up clickjacking-
+adjacent protection everywhere to fix one page. Rejected: an interstitial
+"click here to continue" link, which turns a redirect the spec defines into a
+second thing to explain, and would still need the same policy to work.
+
 ## 2026-08-01  Client ID Metadata Documents, because we said we supported them
 Phase: after v0.1
 
