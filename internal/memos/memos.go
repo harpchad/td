@@ -142,7 +142,7 @@ func Compose(cfg Config, t api.Task, baseURL string, loc *time.Location) Memo {
 
 	// The details worth keeping in a journal are the ones that will not be
 	// obvious in six months: who it involved, what it was about, and when.
-	var facts []string
+	facts := make([]string, 0, 4+len(t.People))
 	if t.Priority != nil {
 		facts = append(facts, fmt.Sprintf("p%d", *t.Priority))
 	}

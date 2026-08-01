@@ -318,8 +318,9 @@ func parseTrustedProxies(list string) ([]*net.IPNet, error) {
 	if list == "" {
 		return nil, nil
 	}
-	var out []*net.IPNet
-	for _, entry := range strings.Split(list, ",") {
+	entries := strings.Split(list, ",")
+	out := make([]*net.IPNet, 0, len(entries))
+	for _, entry := range entries {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue

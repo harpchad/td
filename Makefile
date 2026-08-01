@@ -6,8 +6,19 @@ GOFUMPT_VERSION      := v0.9.1
 GOLANGCI_LINT_VERSION := v2.6.1
 GOVULNCHECK_VERSION  := v1.1.4
 
-GOBIN ?= $(shell go env GOPATH)/bin
 BUILD_DIR := build
+
+# The pinned tools live here, not on PATH.
+#
+# `make tools` used to skip golangci-lint when any golangci-lint was already
+# installed, so a machine with a newer one from Homebrew ran a different
+# linter than CI did and `make check` meant two different things. It found six
+# issues on the runner that it had never reported locally. A project-local bin,
+# invoked by path, is what makes the pin real.
+TOOLS_BIN := $(abspath $(BUILD_DIR)/tools)
+GOFUMPT := $(TOOLS_BIN)/gofumpt
+GOLANGCI_LINT := $(TOOLS_BIN)/golangci-lint
+GOVULNCHECK := $(TOOLS_BIN)/govulncheck
 
 SEED := testdata/seed.json
 
@@ -24,15 +35,15 @@ check: fmt lint test build vuln boundary schema
 	@echo "check: ok"
 
 .PHONY: fmt
-fmt:
+fmt: | $(GOFUMPT)
 	@echo "==> gofumpt"
-	@out=$$($(GOBIN)/gofumpt -l .); \
+	@out=$$($(GOFUMPT) -l .); \
 	if [ -n "$$out" ]; then echo "not gofumpt-clean:"; echo "$$out"; exit 1; fi
 
 .PHONY: lint
-lint:
+lint: | $(GOLANGCI_LINT)
 	@echo "==> golangci-lint"
-	@golangci-lint run
+	@$(GOLANGCI_LINT) run
 
 .PHONY: test
 test:
@@ -52,9 +63,9 @@ build:
 	@CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o $(BUILD_DIR)/tdd-darwin-arm64 ./cmd/tdd
 
 .PHONY: vuln
-vuln:
+vuln: | $(GOVULNCHECK)
 	@echo "==> govulncheck"
-	@$(GOBIN)/govulncheck ./...
+	@$(GOVULNCHECK) ./...
 
 .PHONY: boundary
 ## internal/store must never appear in the import graph of cmd/td.
@@ -71,10 +82,18 @@ schema:
 .PHONY: tools
 ## Install the pinned tools check needs.
 tools:
-	go install mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
-	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
-	@command -v golangci-lint >/dev/null || \
-		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	@mkdir -p $(TOOLS_BIN)
+	GOBIN=$(TOOLS_BIN) go install mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
+	GOBIN=$(TOOLS_BIN) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	GOBIN=$(TOOLS_BIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	@$(GOLANGCI_LINT) version
+
+# check refuses to run against tools it did not install, rather than falling
+# back to whatever is on PATH. A missing tool is a one-line fix; a silently
+# different one is six lint errors that only appear in CI.
+$(GOFUMPT) $(GOLANGCI_LINT) $(GOVULNCHECK):
+	@echo "missing $@. Run: make tools" >&2
+	@exit 1
 
 .PHONY: seed
 ## Load testdata/seed.json into a scratch database, including its fixed clock,

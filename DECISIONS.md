@@ -18,6 +18,30 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  The pinned tools are installed locally and invoked by path
+Phase: release
+
+`make check` passed on this machine and failed in CI with six lint errors it
+had never reported. `CLAUDE.md` says CI runs the same command and there is no
+second definition of passing. There were two.
+
+The cause: `make tools` ran `command -v golangci-lint >/dev/null || go install
+...@v2.6.1`, so a machine that already had golangci-lint from Homebrew kept it.
+This one had v2.12.2, which no longer reports `prealloc` on the six sites v2.6.1
+does. The pin was written down and not enforced, which is the same as not
+having one.
+
+Decided: the tools install into `build/tools` with `GOBIN`, and every recipe
+invokes them by absolute path. A missing tool is an error telling you to run
+`make tools`, never a fallback to whatever is on `PATH`. `make tools` prints
+the linter version it installed, so a mismatch is visible rather than
+inferred.
+
+The six findings were then real and were fixed rather than silenced: each one
+allocates a slice whose length is known a line earlier.
+
+Reversible: the Makefile. The rest of the change is six `make` calls.
+
 ## 2026-08-01  Publishing is a separate workflow from checking
 Phase: release
 

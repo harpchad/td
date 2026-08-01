@@ -363,7 +363,7 @@ func (s *Store) AdvanceSeries(ctx context.Context, actor string, series Series, 
 		return nil, err
 	}
 
-	var made []api.Task
+	made := make([]api.Task, 0, len(due))
 	for _, at := range due {
 		if series.Catchup == recur.CatchupSkip && open > 0 {
 			// The previous instance is still sitting there. Firing again would

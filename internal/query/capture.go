@@ -27,9 +27,10 @@ type Capture struct {
 // far more likely to be part of the thought than a mistyped predicate.
 func ParseCapture(line string, now time.Time) Capture {
 	var c Capture
-	var title []string
+	fields := strings.Fields(line)
+	title := make([]string, 0, len(fields))
 
-	for _, field := range strings.Fields(line) {
+	for _, field := range fields {
 		if consumeCaptureToken(&c, field, now) {
 			continue
 		}

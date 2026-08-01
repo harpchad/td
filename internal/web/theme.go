@@ -44,8 +44,9 @@ var (
 
 // ParseThemes reads every [data-theme="..."] block out of a stylesheet.
 func ParseThemes(css string) []Theme {
-	var out []Theme
-	for _, match := range themeBlockRE.FindAllStringSubmatch(css, -1) {
+	matches := themeBlockRE.FindAllStringSubmatch(css, -1)
+	out := make([]Theme, 0, len(matches))
+	for _, match := range matches {
 		name, body := match[1], match[2]
 		if name == "light" {
 			// The light palette lives on :root, not in a theme block.

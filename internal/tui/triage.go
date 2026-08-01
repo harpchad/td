@@ -280,8 +280,9 @@ func wrap(text string, width int) []string {
 	if width < 1 {
 		width = 1
 	}
-	var out []string
-	for _, paragraph := range strings.Split(text, "\n") {
+	paragraphs := strings.Split(text, "\n")
+	out := make([]string, 0, len(paragraphs))
+	for _, paragraph := range paragraphs {
 		line := ""
 		for _, word := range strings.Fields(paragraph) {
 			for len(word) > width {
