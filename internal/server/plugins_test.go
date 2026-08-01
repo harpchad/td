@@ -3,6 +3,7 @@ package server_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -500,5 +501,50 @@ func TestAddingSomebodyNewFromTheUnmatchedList(t *testing.T) {
 	}
 	if _, err := ts.store.PersonByIdentity(t.Context(), "planner", "graph-stewart"); err == nil {
 		t.Error("a colliding handle was accepted and mapped anyway")
+	}
+}
+
+// TestAPollEchoesTheCodeBack is the bug that made the code disappear about
+// five seconds after it appeared, with nobody having touched anything.
+//
+// The poll handler rebuilt the panel from only the fields it needed to talk
+// to Microsoft, so the swap replaced a panel that had the code and the link
+// with one that had neither. What the person saw was "Go to and enter this
+// code:" followed by nothing.
+func TestAPollEchoesTheCodeBack(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	// A stub identity platform that says the sign-in has not finished, which
+	// is the state the panel spends nearly all of its life in and the one
+	// that was broken. Pointing the authority at it is the same field a
+	// sovereign cloud uses.
+	entra := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"authorization_pending"}`))
+	}))
+	defer entra.Close()
+
+	body := postFormBody(t, ts, session, "/w/planner/poll", url.Values{
+		"device_code": {"still-waiting"}, "user_code": {"FJDNSKQP"},
+		"verification_uri": {"https://microsoft.com/devicelogin"},
+		"tenant_id":        {"t"}, "client_id": {"c"},
+		"authority": {entra.URL}, "interval": {"5"},
+	})
+
+	if !strings.Contains(body, "FJDNSKQP") {
+		t.Errorf("a pending poll dropped the code, which is what somebody is reading off the screen")
+	}
+	if !strings.Contains(body, "microsoft.com/devicelogin") {
+		t.Error(`a pending poll dropped the link, leaving "Go to and enter this code"`)
+	}
+	// And it carries them forward, so the poll after this one does not drop
+	// them either.
+	if !strings.Contains(body, `name="user_code" value="FJDNSKQP"`) {
+		t.Error("the next poll would drop the code again")
+	}
+	if !strings.Contains(body, "Waiting for the sign-in") {
+		t.Error("a pending poll does not say it is still waiting")
 	}
 }

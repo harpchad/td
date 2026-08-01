@@ -115,3 +115,56 @@ func TestTheErrorPanelOffersAWayOut(t *testing.T) {
 		t.Error("no way back to settings from a failed sign-in")
 	}
 }
+
+// TestThePanelCarriesEverythingItNeedsToRedrawItself.
+//
+// Each poll re-renders the whole panel, so every field it draws with has to
+// travel in the form. Leaving the code and the link out is what made them
+// vanish about five seconds after they appeared: the first swap replaced a
+// panel that had them with one that did not, and the person watching had done
+// nothing but wait.
+func TestThePanelCarriesEverythingItNeedsToRedrawItself(t *testing.T) {
+	body := renderConnect(t, false)
+
+	for _, field := range []string{
+		"device_code", "user_code", "verification_uri",
+		"tenant_id", "client_id", "interval",
+	} {
+		if !strings.Contains(body, `name="`+field+`"`) {
+			t.Errorf("the form does not carry %s, so a poll cannot redraw it", field)
+		}
+	}
+
+	// And the two that are visible are actually populated, not just declared.
+	if !strings.Contains(body, `name="user_code" value="FJDNSKQP"`) {
+		t.Error("the code is not carried forward")
+	}
+	if !strings.Contains(body, `name="verification_uri" value="https://microsoft.com/devicelogin"`) {
+		t.Error("the verification link is not carried forward")
+	}
+}
+
+// TestAPendingPollStillShowsTheCode is the same rule from the other side: what
+// the poll renders has to look like what it replaced, apart from the message.
+func TestAPendingPollStillShowsTheCode(t *testing.T) {
+	ui := testUI(t)
+	r := httptest.NewRequest(http.MethodPost, "/w/planner/poll", nil)
+	r.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	ui.ConnectPending(w, r, ConnectCode{
+		UserCode: "FJDNSKQP", VerificationURI: "https://microsoft.com/devicelogin",
+		DeviceCode: "the-secret-half", TenantID: "t", ClientID: "c", Interval: 5,
+	}, "Waiting for the sign-in…")
+
+	body := w.Body.String()
+	if !strings.Contains(body, "FJDNSKQP") {
+		t.Fatal("a pending poll dropped the code, which is what somebody is reading off the screen")
+	}
+	if !strings.Contains(body, "microsoft.com/devicelogin") {
+		t.Error("a pending poll dropped the link, leaving \"Go to and enter this code\"")
+	}
+	if !strings.Contains(body, "Waiting for the sign-in") {
+		t.Error("the pending message is missing")
+	}
+}

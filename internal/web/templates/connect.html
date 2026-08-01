@@ -23,12 +23,22 @@
           hx-trigger="load delay:{{.Connect.Interval}}s"
           hx-target="#td-connect"
           hx-swap="outerHTML">
-      {{/* The device code travels in the form rather than in a session, so
-           the server holds no pending-login state. It must not travel in a
-           query string, which is why this is a POST. */}}
+      {{/* Everything the panel needs to draw itself again travels with the
+           form, because each poll re-renders the whole panel. Leaving the
+           code and the link out of this is what made them vanish about five
+           seconds after they appeared: the first swap replaced a panel that
+           had them with one that did not.
+
+           None of this is secret. The code is the thing on screen in large
+           type. It is a POST rather than a GET because the device code should
+           not end up in browser history or in a Referer header, and because
+           the server holds no pending-login state of its own. */}}
       <input type="hidden" name="device_code" value="{{.Connect.DeviceCode}}">
+      <input type="hidden" name="user_code" value="{{.Connect.UserCode}}">
+      <input type="hidden" name="verification_uri" value="{{.Connect.VerificationURI}}">
       <input type="hidden" name="tenant_id" value="{{.Connect.TenantID}}">
       <input type="hidden" name="client_id" value="{{.Connect.ClientID}}">
+      <input type="hidden" name="authority" value="{{.Connect.Authority}}">
       <input type="hidden" name="interval" value="{{.Connect.Interval}}">
       <span class="td-dim">{{if .Connect.Message}}{{.Connect.Message}}{{else}}Waiting for the sign-in…{{end}}</span>
       <button class="td-btn" type="submit">Check now</button>

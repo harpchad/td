@@ -18,6 +18,39 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  The poll dropped what the panel was showing
+Phase: 11, corrected
+
+Reported twice. The first time as "the code disappears when I highlight it",
+which I took at face value and chased into `::selection`. That was a real gap
+and worth closing, but it was not this. The second report said "still quickly
+disappears", and the screenshot showed the answer: the line read "Go to and
+enter this code:" with the link text missing and no code under it. Nothing to
+do with selection. It was time.
+
+`plannerPoll` rebuilt the panel from only the fields it needed to talk to
+Microsoft: the device code, the tenant, the client, the interval. The user
+code and the verification URI were not among them, because the handler does
+not use them. But the poll re-renders the whole panel, so the first swap, five
+seconds in, replaced a panel that had them with one that did not.
+
+Decided: everything the panel draws with travels in the form. None of it is
+secret; the code is the thing on screen in large type. The rule is that a
+fragment which replaces itself has to carry its own state, and the way to
+notice a violation is to ask what the second render looks like rather than the
+first.
+
+The lesson about the diagnosis is the more useful one. "It disappears when I
+highlight it" was a description of what somebody did immediately before
+noticing, not of what caused it. A five second timer and a person moving a
+mouse look identical from the inside. What settled it was the screenshot, and
+what should have settled it sooner was asking what else happens five seconds
+after that panel appears.
+
+The authority is now carried through the web flow as well. It is what a
+sovereign cloud needs, and it is what lets a test drive the pending path, which
+is the state the panel spends nearly all of its life in and the one that broke.
+
 ## 2026-08-01  The mirror takes what is assigned to you, not the whole board
 Phase: 11, corrected
 

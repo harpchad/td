@@ -265,6 +265,9 @@ type ConnectCode struct {
 	DeviceCode      string
 	TenantID        string
 	ClientID        string
+	// Authority is the login host, which differs on a sovereign cloud. Empty
+	// is the public one.
+	Authority string
 	// Interval is how many seconds htmx waits between polls, as Microsoft
 	// asked for rather than as we guessed.
 	Interval int

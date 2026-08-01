@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -102,6 +103,32 @@ func postForm(t *testing.T, ts *harness, session, path string, form url.Values) 
 	}
 	_ = resp.Body.Close()
 	return respMeta{StatusCode: resp.StatusCode, Header: resp.Header}
+}
+
+// postFormBody is postForm when the answer's body is what matters.
+func postFormBody(t *testing.T, ts *harness, session, path string, form url.Values) string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		ts.URL+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "td_session", Value: session})
+
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
 }
 
 // TestHomeRendersTheFixtureOrder covers parity with the TUI: the same filter

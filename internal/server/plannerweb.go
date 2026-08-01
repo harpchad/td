@@ -32,8 +32,9 @@ func (s *Server) plannerConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := msgraph.Config{
-		TenantID: strings.TrimSpace(r.PostFormValue("tenant_id")),
-		ClientID: strings.TrimSpace(r.PostFormValue("client_id")),
+		TenantID:  strings.TrimSpace(r.PostFormValue("tenant_id")),
+		ClientID:  strings.TrimSpace(r.PostFormValue("client_id")),
+		Authority: strings.TrimSpace(r.PostFormValue("authority")),
 	}
 	if cfg.ClientID == "" {
 		s.plannerBack(w, r, "an app registration client id is required")
@@ -48,7 +49,7 @@ func (s *Server) plannerConnect(w http.ResponseWriter, r *http.Request) {
 	s.ui.ConnectPanel(w, r, web.ConnectCode{
 		UserCode: code.UserCode, VerificationURI: code.VerificationURI,
 		DeviceCode: code.DeviceCode, TenantID: cfg.TenantID, ClientID: cfg.ClientID,
-		Interval: code.Interval,
+		Authority: cfg.Authority, Interval: code.Interval,
 	})
 }
 
@@ -68,16 +69,24 @@ func (s *Server) plannerPoll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := msgraph.Config{
-		TenantID: r.PostFormValue("tenant_id"),
-		ClientID: r.PostFormValue("client_id"),
+		TenantID:  r.PostFormValue("tenant_id"),
+		ClientID:  r.PostFormValue("client_id"),
+		Authority: r.PostFormValue("authority"),
 	}
 	interval, _ := strconv.Atoi(r.PostFormValue("interval"))
 	if interval <= 0 {
 		interval = 5
 	}
+	// Every field the panel draws with comes back off the form, because each
+	// poll re-renders the whole panel. Rebuilding it from only what the poll
+	// strictly needs is what made the code and the link disappear five
+	// seconds in.
 	panel := web.ConnectCode{
-		DeviceCode: r.PostFormValue("device_code"),
-		TenantID:   cfg.TenantID, ClientID: cfg.ClientID, Interval: interval,
+		DeviceCode:      r.PostFormValue("device_code"),
+		UserCode:        r.PostFormValue("user_code"),
+		VerificationURI: r.PostFormValue("verification_uri"),
+		TenantID:        cfg.TenantID, ClientID: cfg.ClientID,
+		Authority: cfg.Authority, Interval: interval,
 	}
 
 	cred, err := msgraph.New().PollDeviceCode(r.Context(), cfg, panel.DeviceCode)
