@@ -20,7 +20,7 @@ import (
 func testUI(t *testing.T) *UI {
 	t.Helper()
 	ui, err := New(nil, Load("", slog.New(slog.DiscardHandler)),
-		slog.New(slog.DiscardHandler), func() time.Time { return time.Now() })
+		slog.New(slog.DiscardHandler), time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
