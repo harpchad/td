@@ -471,3 +471,41 @@ func waitingDays(t api.Task, now time.Time, loc *time.Location) int {
 	}
 	return days
 }
+
+// PersonByEmail finds a person by address, case-insensitively.
+//
+// It is how a sync attaches an upstream identity to somebody td already
+// knows. An address is an identity, which a display name is not: two people
+// called Stacey is ordinary, two people at the same address is not. An
+// ambiguous match reports nothing found rather than picking one, because the
+// whole point of preferring email over name is that it does not guess.
+func (s *Store) PersonByEmail(ctx context.Context, email string) (api.Person, error) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return api.Person{}, ErrNotFound
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, handle, name, coalesce(email, ''), notes
+		 FROM person WHERE lower(email) = lower(?)`, email)
+	if err != nil {
+		return api.Person{}, err
+	}
+	defer rows.Close()
+
+	var found []api.Person
+	for rows.Next() {
+		var p api.Person
+		if err := rows.Scan(&p.ID, &p.Handle, &p.Name, &p.Email, &p.Notes); err != nil {
+			return api.Person{}, err
+		}
+		found = append(found, p)
+	}
+	if err := rows.Err(); err != nil {
+		return api.Person{}, err
+	}
+	if len(found) != 1 {
+		return api.Person{}, ErrNotFound
+	}
+	return found[0], nil
+}

@@ -41,6 +41,7 @@ const usage = `td - task manager
   td undo              reverse your last change
   td people            list people
   td person <handle>   the person page: what they owe you, what you owe them
+  td person map <handle> <source> <id>   attach an upstream account to them
   td filters           list saved filters
   td whoami            show which credential is in use and what it may do
   td flush             send anything queued while offline
@@ -408,6 +409,13 @@ func flush(ctx context.Context, c *client.Client) error {
 
 // person renders the screen you open before a 1:1, in section 5's order.
 func person(ctx context.Context, c *client.Client, args []string) error {
+	// `td person map <handle> <source> <external-id>` attaches an upstream
+	// account to somebody. It is the answer to what a sync reports when it
+	// finds an identity it will not guess at.
+	if len(args) > 0 && args[0] == "map" {
+		return personMap(ctx, c, args[1:])
+	}
+
 	fs := flag.NewFlagSet("person", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the page as JSON")
 	if err := parseArgs(fs, args); err != nil {

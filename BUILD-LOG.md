@@ -961,3 +961,55 @@ timer is cron's job and does not need code here.
 Markdown export is one-way. It writes frontmatter and notes for Obsidian and
 nothing reads it back, because the JSON is the format that round-trips and two
 import paths is one more than is worth maintaining.
+
+---
+
+## Phase 11, corrected: who an upstream identity belongs to
+
+2026-08-01
+
+### What changed
+
+Asked whether "a first Planner sync links nobody" was a real problem. It was,
+and worse than the phrase suggested. A probe against the seeded fixture: given
+a board with Stacey, who td already knows, and Dana, who it does not, the sync
+**dropped Stacey and created and linked Dana**.
+
+The old resolution was: mapped identity, else create a person from the display
+name, else skip. A handle collision took the skip. But a handle collision
+means the person is somebody you already track, so the silent failure was
+reserved for exactly the people who mattered, while strangers sailed through.
+
+Now, in descending order of evidence: an existing mapping; an email matching a
+person's exactly and uniquely, which records the mapping as a side effect; or
+nobody holding that handle, so a new person is created with their address
+kept. Names are never matched on. Everything left is returned in
+`Result.Unresolved` with a reason, and `td sync planner` prints each with the
+`td person map` command that fixes it.
+
+`td sync planner -relink` was added alongside, because an unchanged revision
+is skipped entirely and a person mapped after the fact would otherwise wait
+for somebody to edit the card upstream.
+
+### What was learned
+
+**The silence was the bug, not the guessing.** Refusing to merge two people
+called Stacey is right. Refusing without saying so is what made it invisible,
+and the first version of that refusal did not even distinguish "somebody has
+that handle" from "the plugin sent nothing", so neither could be reported.
+
+**The linter caught a swallowed error class.** `CreatePerson` failing was read
+as "handle taken", which would have reported a database fault as an ambiguous
+name. `nilerr` flagged it. It now asks whether the handle is taken and treats
+anything else as the failure it is.
+
+**The end-to-end test was papering over it.** `TestPlannerMirrorsIntoTd`
+mapped the three identities by hand before syncing, which made it pass while
+demonstrating nothing about a first run. It now sets addresses on the fixture
+people and maps nothing, so it proves the resolution rather than bypassing it.
+
+### What is still true and worth knowing
+
+A first sync against people with no `email` recorded reports everybody and you
+map them once. That is the deliberate cost of never guessing on a name, and
+filling in addresses removes it.

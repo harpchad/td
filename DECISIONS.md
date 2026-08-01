@@ -18,6 +18,64 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  A sync reports the people it will not guess at
+Phase: 11, corrected
+
+The first build resolved an upstream identity by looking for an existing
+mapping, and failing that created a person from the display name. A handle
+collision was swallowed and the link dropped.
+
+That was backwards in the worst way, and a probe made it obvious. Given a
+Planner board with Stacey, who td already knows, and Dana, who it does not:
+the sync **dropped** Stacey and **created and linked** Dana. A handle
+collision means the person is somebody you already track, which is exactly
+when the link matters, so the failure mode was reserved for the cases that
+mattered most. It was also silent, which is what made it a bug rather than a
+trade-off.
+
+Decided, in order of evidence:
+
+1. An identity already mapped. Certain.
+2. An email that matches a person's, exactly and uniquely. An address is an
+   identity; a display name is not. The match records the mapping, so the next
+   sync takes path 1.
+3. Nobody holds that handle, so this is somebody new and a person is created
+   for them with their address kept.
+
+Anything left is returned in `Result.Unresolved`, one entry per identity
+however many tasks it appeared on, with a reason. `td sync planner` prints
+each with the `td person map` command that fixes it.
+
+Rejected: matching on name, which merges two people irreversibly and cannot
+be spotted by reading the list afterwards. Rejected: disambiguating into
+`stacey2`, which is the three-Brandisses outcome section 5 exists to prevent.
+Rejected: dropping the auto-create for unknown people, which would make a
+first sync link nobody at all and turn a short report into thirty commands.
+
+The residual cost is stated rather than hidden: a first sync against people
+with no email recorded reports everybody, and you map them once. Filling in
+`email` avoids it entirely.
+
+Reversible: `resolveIdentity` in `internal/store/sync.go`, one function.
+
+## 2026-08-01  -relink, because idempotence has one cost
+Phase: 11, corrected
+
+An item whose revision has not moved is not looked at, which is what makes a
+replay free. It also means a person you map after the first sync is not
+attached until somebody happens to edit that card upstream, which could be
+never.
+
+Decided: `td sync planner -relink` drops the revision from every item, so the
+server cannot tell them from changes and re-applies the lot. It changes what
+the server may skip, not what it is told.
+
+Rejected: making the server re-resolve people on an unchanged item, which
+would mean every sync walks every person link forever to catch a case that
+happens once after a mapping.
+
+Reversible: one flag and one line in `Translate`.
+
 ## 2026-07-31  The journal follows the event log rather than firing inline
 Phase: 10
 

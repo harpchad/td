@@ -94,8 +94,12 @@ type GraphPlan struct {
 
 // GraphUser is enough of a user to name a person.
 type GraphUser struct {
-	ID                string `json:"id"`
-	DisplayName       string `json:"displayName"`
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	// Mail is the address, which is what lets the server attach this identity
+	// to somebody td already knows. UserPrincipalName stands in when Mail is
+	// empty, which happens for accounts with no mailbox.
+	Mail              string `json:"mail"`
 	UserPrincipalName string `json:"userPrincipalName"`
 }
 
@@ -124,6 +128,16 @@ type Config struct {
 	// Endpoint is the Graph base URL, overridable for a sovereign cloud and
 	// for tests.
 	Endpoint string `toml:"endpoint"`
+
+	// Relink drops the revision from every item so the server re-applies the
+	// whole plan instead of skipping what has not moved.
+	//
+	// It exists because idempotence has one cost: an item whose rev matches is
+	// not looked at, so a person link that could now be resolved is not
+	// resolved until something upstream happens to change. After mapping an
+	// identity you want the backfill now, not whenever somebody edits the
+	// card. Not a TOML field: it is a decision about one run.
+	Relink bool `toml:"-"`
 }
 
 // DefaultTaskURL is the documented Planner deep link.
@@ -235,7 +249,7 @@ func (c *Client) get(ctx context.Context, endpoint string, out any) error {
 // Planner's description is not read either. It is the field most likely to
 // contain text written by an external reporter, td's notes are yours, and the
 // two would fight over the same column.
-func Translate(tasks []GraphTask, users map[string]GraphUser, urlTemplate string, loc *time.Location) []sync.Item {
+func Translate(tasks []GraphTask, users map[string]GraphUser, urlTemplate string, loc *time.Location, relink bool) []sync.Item {
 	out := make([]sync.Item, 0, len(tasks))
 
 	for _, t := range tasks {
@@ -244,6 +258,11 @@ func Translate(tasks []GraphTask, users map[string]GraphUser, urlTemplate string
 			Title:      strings.TrimSpace(t.Title),
 			Status:     statusOf(t),
 			Rev:        strings.TrimSpace(t.ETag),
+		}
+		if relink {
+			// No rev means the server cannot tell this from a change, so it
+			// re-applies the item and resolves the people again.
+			item.Rev = ""
 		}
 		if item.Title == "" {
 			item.Title = "(untitled Planner task)"
@@ -266,14 +285,16 @@ func Translate(tasks []GraphTask, users map[string]GraphUser, urlTemplate string
 
 		for _, id := range assignees {
 			item.People = append(item.People, sync.ItemPerson{
-				Role: api.RoleAssignee, SourceUser: id, Name: nameOf(users, id),
+				Role: api.RoleAssignee, SourceUser: id,
+				Name: nameOf(users, id), Email: emailOf(users, id),
 			})
 		}
 		// Whoever put it on your board is the assigner, and that is the
 		// person you go back to when it turns out to be the wrong thing.
 		if by := t.CreatedBy.User.ID; by != "" && !containsAssignee(assignees, by) {
 			item.People = append(item.People, sync.ItemPerson{
-				Role: api.RoleAssigner, SourceUser: by, Name: nameOf(users, by),
+				Role: api.RoleAssigner, SourceUser: by,
+				Name: nameOf(users, by), Email: emailOf(users, by),
 			})
 		}
 
@@ -328,6 +349,23 @@ func nameOf(users map[string]GraphUser, id string) string {
 		if user.DisplayName != "" {
 			return user.DisplayName
 		}
+		return user.UserPrincipalName
+	}
+	return ""
+}
+
+// emailOf is the address to match a person on. Mail first, then the
+// principal name, which is an address in every tenant that has not gone out
+// of its way.
+func emailOf(users map[string]GraphUser, id string) string {
+	user, ok := users[id]
+	if !ok {
+		return ""
+	}
+	if user.Mail != "" {
+		return user.Mail
+	}
+	if strings.Contains(user.UserPrincipalName, "@") {
 		return user.UserPrincipalName
 	}
 	return ""

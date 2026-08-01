@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,7 +33,8 @@ func (s *Store) Sync(ctx context.Context, actor, source string, in sync.Request,
 				Code: api.ErrBadRequest, Message: "every item needs an external_id",
 			}
 		}
-		kind, err := s.syncOne(ctx, actor, source, item, now)
+		kind, unresolved, err := s.syncOne(ctx, actor, source, item, now)
+		out.Unresolved = mergeUnresolved(out.Unresolved, unresolved)
 		if err != nil {
 			return out, err
 		}
@@ -45,6 +47,10 @@ func (s *Store) Sync(ctx context.Context, actor, source string, in sync.Request,
 			out.Unchanged++
 		}
 	}
+
+	sort.Slice(out.Unresolved, func(i, j int) bool {
+		return out.Unresolved[i].SourceUser < out.Unresolved[j].SourceUser
+	})
 
 	for _, external := range in.Gone {
 		gone, err := s.markGone(ctx, actor, source, external, now)
@@ -66,20 +72,21 @@ const (
 	syncUpdated
 )
 
-func (s *Store) syncOne(ctx context.Context, actor, source string, item sync.Item, now time.Time) (syncOutcome, error) {
+func (s *Store) syncOne(ctx context.Context, actor, source string, item sync.Item, now time.Time) (syncOutcome, []sync.Unresolved, error) {
 	existing, err := s.bySourceID(ctx, source, item.ExternalID)
 	if errors.Is(err, ErrNotFound) {
-		return syncCreated, s.createMirror(ctx, actor, source, item, now)
+		unresolved, err := s.createMirror(ctx, actor, source, item, now)
+		return syncCreated, unresolved, err
 	}
 	if err != nil {
-		return syncUnchanged, err
+		return syncUnchanged, nil, err
 	}
 
 	// The rev is the cheap idempotence check. A plugin replaying its window
 	// sends the same rev, and an item that has not moved upstream is left
 	// untouched: no write, no event, no updated_at churn.
 	if item.Rev != "" && existing.ExternalRev != nil && *existing.ExternalRev == item.Rev && !existing.UpstreamGone {
-		return syncUnchanged, nil
+		return syncUnchanged, nil, nil
 	}
 
 	patch := api.TaskPatch{Presence: map[string]bool{}}
@@ -106,19 +113,20 @@ func (s *Store) syncOne(ctx context.Context, actor, source string, item sync.Ite
 	// any other locally-owned field. That is the whole rule, and the test
 	// that proves it sets all of them and syncs twice.
 	if _, err := s.Patch(ctx, actor, existing.ID, patch, "", now); err != nil {
-		return syncUnchanged, err
+		return syncUnchanged, nil, err
 	}
 	if err := s.setMirrorColumns(ctx, existing.ID, item); err != nil {
-		return syncUnchanged, err
+		return syncUnchanged, nil, err
 	}
-	if err := s.linkSourcePeople(ctx, actor, source, existing.ID, item.People, now); err != nil {
-		return syncUnchanged, err
+	unresolved, err := s.linkSourcePeople(ctx, actor, source, existing.ID, item.People, now)
+	if err != nil {
+		return syncUnchanged, unresolved, err
 	}
-	return syncUpdated, nil
+	return syncUpdated, unresolved, nil
 }
 
 // createMirror inserts a task the plugin has never reported before.
-func (s *Store) createMirror(ctx context.Context, actor, source string, item sync.Item, now time.Time) error {
+func (s *Store) createMirror(ctx context.Context, actor, source string, item sync.Item, now time.Time) ([]sync.Unresolved, error) {
 	status := normalizeStatus(item.Status)
 	if status == "" {
 		status = api.StatusTodo
@@ -139,10 +147,10 @@ func (s *Store) createMirror(ctx context.Context, actor, source string, item syn
 	}
 	task, err := s.Create(ctx, actor, in, now)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := s.setMirrorColumns(ctx, task.ID, item); err != nil {
-		return err
+		return nil, err
 	}
 	return s.linkSourcePeople(ctx, actor, source, task.ID, item.People, now)
 }
@@ -166,17 +174,31 @@ func (s *Store) setMirrorColumns(ctx context.Context, taskID string, item sync.I
 	return err
 }
 
-// linkSourcePeople resolves upstream identities onto people.
+// linkSourcePeople resolves upstream identities onto people, and reports the
+// ones it could not.
 //
 // This is what person_identity exists for: a Jira account id, a monday user
 // id, and a Graph object id all land on one person row, so "everything
 // involving Brandiss" spans three systems instead of producing three
 // Brandisses.
 //
-// An identity nobody has mapped yet creates a person when the plugin supplied
-// a name, and is skipped otherwise. Dropping the link silently would be worse:
-// the task still arrives, just without the one detail that made it findable.
-func (s *Store) linkSourcePeople(ctx context.Context, actor, source, taskID string, people []sync.ItemPerson, now time.Time) error {
+// Three ways an identity resolves, in descending order of evidence:
+//
+//  1. It is already mapped. Certain.
+//  2. Its email matches a person's, exactly and uniquely. An address is an
+//     identity; this is evidence rather than a guess, and it is what makes a
+//     first sync attach the people you already track.
+//  3. Nobody has that handle yet, so a new person is created for them.
+//
+// What it deliberately does not do is match on name. Two people called Stacey
+// is an ordinary situation and merging them is not something you can see by
+// looking at the list afterwards. An identity that gets this far is returned
+// unresolved so the caller can say so, because dropping the link in silence
+// was the original bug: it lost exactly the people who matter, since a handle
+// collision means somebody you already track.
+func (s *Store) linkSourcePeople(ctx context.Context, actor, source, taskID string, people []sync.ItemPerson, now time.Time) ([]sync.Unresolved, error) {
+	var unresolved []sync.Unresolved
+
 	for _, link := range people {
 		if strings.TrimSpace(link.SourceUser) == "" {
 			continue
@@ -186,32 +208,116 @@ func (s *Store) linkSourcePeople(ctx context.Context, actor, source, taskID stri
 			role = api.RoleInvolved
 		}
 
-		person, err := s.PersonByIdentity(ctx, source, link.SourceUser)
-		if errors.Is(err, ErrNotFound) {
-			if strings.TrimSpace(link.Name) == "" {
-				continue
-			}
-			person, err = s.CreatePerson(ctx, api.Person{
-				Name: link.Name, Handle: handleFor(link.Name),
-			}, now)
-			if err != nil {
-				// A handle collision means somebody with that first name is
-				// already known and this is a different person. Skipping the
-				// link is better than merging two people.
-				continue
-			}
-			if err := s.LinkIdentity(ctx, person.ID, source, link.SourceUser); err != nil {
-				return err
-			}
-		} else if err != nil {
-			return err
+		person, reason, err := s.resolveIdentity(ctx, source, link, now)
+		if err != nil {
+			return unresolved, err
 		}
-
+		if reason != "" {
+			unresolved = append(unresolved, sync.Unresolved{
+				Source: source, SourceUser: link.SourceUser,
+				Name: link.Name, Email: link.Email, Reason: reason,
+			})
+			continue
+		}
 		if err := s.LinkPerson(ctx, actor, taskID, person.ID, role, now); err != nil {
-			return err
+			return unresolved, err
 		}
 	}
-	return nil
+	return unresolved, nil
+}
+
+// Reasons an identity did not resolve. They are separate strings because the
+// fixes are different: one needs `td person map`, the other needs the plugin
+// to send more.
+const (
+	reasonHandleTaken = "somebody already has that handle, so this was not guessed at"
+	reasonNoName      = "the plugin sent no name or email to go on"
+)
+
+// resolveIdentity returns the person behind an upstream identity, or the
+// reason there is not one.
+func (s *Store) resolveIdentity(ctx context.Context, source string, link sync.ItemPerson, now time.Time) (api.Person, string, error) {
+	// 1. Already mapped.
+	person, err := s.PersonByIdentity(ctx, source, link.SourceUser)
+	if err == nil {
+		return person, "", nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return api.Person{}, "", err
+	}
+
+	// 2. The email matches somebody. An address is an identity, so this is
+	// evidence rather than a guess, and the mapping is recorded so the next
+	// sync takes the certain path.
+	if email := strings.TrimSpace(link.Email); email != "" {
+		person, err := s.PersonByEmail(ctx, email)
+		if err == nil {
+			if err := s.LinkIdentity(ctx, person.ID, source, link.SourceUser); err != nil {
+				return api.Person{}, "", err
+			}
+			return person, "", nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return api.Person{}, "", err
+		}
+	}
+
+	// 3. Nobody by that handle yet, so this is somebody new.
+	handle := handleFor(link.Name)
+	if handle == "" {
+		// A name that is entirely non-ASCII, or absent. The address is the
+		// next best thing to build a handle from.
+		handle = handleFor(localPart(link.Email))
+	}
+	name := strings.TrimSpace(link.Name)
+	if name == "" {
+		name = strings.TrimSpace(link.Email)
+	}
+	if handle == "" || name == "" {
+		return api.Person{}, reasonNoName, nil
+	}
+
+	// Asked rather than attempted, so a database fault stays a fault instead
+	// of being reported as an ambiguous name.
+	taken, err := s.handleTaken(ctx, handle)
+	if err != nil {
+		return api.Person{}, "", err
+	}
+	if taken {
+		// Somebody with that first name is already known, which is the case
+		// worth reporting rather than resolving: it is either the same person,
+		// and one `td person map` fixes it forever, or a different one, and
+		// guessing would have merged two people irreversibly.
+		return api.Person{}, reasonHandleTaken, nil
+	}
+
+	created, err := s.CreatePerson(ctx, api.Person{
+		Name: name, Handle: handle, Email: strings.TrimSpace(link.Email),
+	}, now)
+	if err != nil {
+		return api.Person{}, "", err
+	}
+	if err := s.LinkIdentity(ctx, created.ID, source, link.SourceUser); err != nil {
+		return api.Person{}, "", err
+	}
+	return created, "", nil
+}
+
+// handleTaken reports whether a handle is already in use.
+func (s *Store) handleTaken(ctx context.Context, handle string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM person WHERE lower(handle) = lower(?)`, handle).Scan(&n)
+	return n > 0, err
+}
+
+// localPart is the part of an address before the @.
+func localPart(email string) string {
+	at := strings.IndexByte(email, '@')
+	if at <= 0 {
+		return ""
+	}
+	return email[:at]
 }
 
 // markGone flags an item that disappeared upstream.
@@ -301,4 +407,23 @@ func handleFor(name string) string {
 		}
 	}
 	return b.String()
+}
+
+// mergeUnresolved keeps one entry per identity. The same person appears on
+// every task they touch, and a report that listed them thirty times would be
+// a report nobody reads.
+func mergeUnresolved(into, add []sync.Unresolved) []sync.Unresolved {
+	for _, candidate := range add {
+		seen := false
+		for _, existing := range into {
+			if existing.SourceUser == candidate.SourceUser {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			into = append(into, candidate)
+		}
+	}
+	return into
 }

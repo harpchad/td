@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/harpchad/td/internal/api"
@@ -492,5 +493,286 @@ func TestSyncIsAttributedToThePlugin(t *testing.T) {
 		if e.Actor != "plugin:planner" {
 			t.Errorf("actor = %q, want plugin:planner", e.Actor)
 		}
+	}
+}
+
+// The identity resolution tests. The original build linked whoever it could
+// invent a handle for and silently dropped whoever it could not, which meant
+// it attached strangers and lost the people you already track. These pin the
+// three ways an identity resolves and the one way it is reported instead.
+
+// TestAnEmailMatchAttachesSomebodyYouAlreadyKnow is the fix for the case that
+// mattered. An address is an identity; a display name is not.
+func TestAnEmailMatchAttachesSomebodyYouAlreadyKnow(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	stacey, err := s.PersonByHandle(ctx, "stacey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stacey.Email = "stacey@example.invalid"
+	if _, err := s.UpdatePerson(ctx, stacey.ID, stacey); err != nil {
+		t.Fatal(err)
+	}
+
+	mirrored := item("PLAN-1", "Renew the certificate", api.StatusTodo)
+	mirrored.People = []sync.ItemPerson{{
+		Role: api.RoleAssignee, SourceUser: "graph-1",
+		// The display name differs from what td calls her, which is normal:
+		// a directory has a full name and you type a first one.
+		Name: "Stacey Whitlock", Email: "Stacey@Example.Invalid",
+	}}
+
+	res, err := s.Sync(ctx, "plugin:planner", "planner",
+		sync.Request{Items: []sync.Item{mirrored}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Unresolved) != 0 {
+		t.Errorf("unresolved = %+v, want the email match to have worked", res.Unresolved)
+	}
+
+	tasks, err := s.List(ctx, "src:planner", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks[0].People) != 1 || tasks[0].People[0].PersonID != stacey.ID {
+		t.Fatalf("people = %+v, want the existing Stacey", tasks[0].People)
+	}
+
+	// One Stacey, not two.
+	people, err := s.People(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, p := range people {
+		if strings.HasPrefix(p.Name, "Stacey") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("%d Staceys", count)
+	}
+
+	// And the mapping was recorded, so the next sync does not have to match
+	// on anything at all.
+	found, err := s.PersonByIdentity(ctx, "planner", "graph-1")
+	if err != nil || found.ID != stacey.ID {
+		t.Errorf("the email match did not record an identity: %v", err)
+	}
+}
+
+// TestAnAmbiguousEmailDoesNotResolve. The whole reason to prefer an address
+// over a name is that it does not guess, so two people sharing one is not a
+// coin flip.
+func TestAnAmbiguousEmailDoesNotResolve(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	for _, handle := range []string{"stacey", "mikah"} {
+		p, err := s.PersonByHandle(ctx, handle)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Email = "shared@example.invalid"
+		if _, err := s.UpdatePerson(ctx, p.ID, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mirrored := item("PLAN-1", "Something", api.StatusTodo)
+	mirrored.People = []sync.ItemPerson{{
+		Role: api.RoleAssignee, SourceUser: "graph-1",
+		Name: "Stacey Whitlock", Email: "shared@example.invalid",
+	}}
+	res, err := s.Sync(ctx, "plugin:planner", "planner",
+		sync.Request{Items: []sync.Item{mirrored}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Unresolved) != 1 {
+		t.Fatalf("unresolved = %+v, want the ambiguous address reported", res.Unresolved)
+	}
+}
+
+// TestACollidingNameIsReportedNotGuessed is the behaviour that used to be a
+// silent drop. Two people called Stacey is ordinary and merging them cannot
+// be undone by looking at the list, so the sync asks instead.
+func TestACollidingNameIsReportedNotGuessed(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	mirrored := item("PLAN-1", "Renew the certificate", api.StatusTodo)
+	mirrored.People = []sync.ItemPerson{{
+		Role: api.RoleAssignee, SourceUser: "graph-1", Name: "Stacey Whitlock",
+	}}
+
+	res, err := s.Sync(ctx, "plugin:planner", "planner",
+		sync.Request{Items: []sync.Item{mirrored}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Unresolved) != 1 {
+		t.Fatalf("unresolved = %+v, want one report", res.Unresolved)
+	}
+	report := res.Unresolved[0]
+	if report.SourceUser != "graph-1" || report.Name != "Stacey Whitlock" {
+		t.Errorf("report = %+v", report)
+	}
+	if report.Source != "planner" {
+		t.Errorf("source = %q, and without it the fix command cannot be printed", report.Source)
+	}
+	if report.Reason == "" {
+		t.Error("no reason, so the message cannot say what to do about it")
+	}
+
+	// It was not guessed at: there is still one Stacey and no link.
+	people, err := s.People(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(people) != 3 {
+		t.Errorf("%d people, want the fixture's three untouched", len(people))
+	}
+
+	// The task still arrived, which is the trade: a mirror missing one link
+	// beats a mirror missing the task.
+	tasks, err := s.List(ctx, "src:planner", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("%d tasks", len(tasks))
+	}
+}
+
+// TestMappingOnceFixesItForever is what the report is for. The answer is
+// permanent and the next sync takes the certain path.
+func TestMappingOnceFixesItForever(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	mirrored := item("PLAN-1", "Renew the certificate", api.StatusTodo)
+	mirrored.People = []sync.ItemPerson{{
+		Role: api.RoleAssignee, SourceUser: "graph-1", Name: "Stacey Whitlock",
+	}}
+	res, err := s.Sync(ctx, "plugin:planner", "planner",
+		sync.Request{Items: []sync.Item{mirrored}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Unresolved) != 1 {
+		t.Fatalf("unresolved = %+v", res.Unresolved)
+	}
+
+	// What `td person map stacey planner graph-1` does.
+	stacey, err := s.PersonByHandle(ctx, "stacey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkIdentity(ctx, stacey.ID, "planner", "graph-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The next sync, with the item moved so it is not a no-op.
+	mirrored.Rev = "2"
+	res, err = s.Sync(ctx, "plugin:planner", "planner",
+		sync.Request{Items: []sync.Item{mirrored}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Unresolved) != 0 {
+		t.Errorf("still unresolved after mapping: %+v", res.Unresolved)
+	}
+
+	tasks, err := s.List(ctx, "src:planner", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks[0].People) != 1 || tasks[0].People[0].PersonID != stacey.ID {
+		t.Errorf("people = %+v, want Stacey linked", tasks[0].People)
+	}
+}
+
+// TestOneReportPerIdentity, however many tasks that person is on. A report
+// that listed the same colleague thirty times is a report nobody reads.
+func TestOneReportPerIdentity(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	link := sync.ItemPerson{Role: api.RoleAssignee, SourceUser: "graph-1", Name: "Stacey Whitlock"}
+	var items []sync.Item
+	for _, id := range []string{"PLAN-1", "PLAN-2", "PLAN-3"} {
+		one := item(id, "Something "+id, api.StatusTodo)
+		one.People = []sync.ItemPerson{link}
+		items = append(items, one)
+	}
+
+	res, err := s.Sync(ctx, "plugin:planner", "planner", sync.Request{Items: items}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Unresolved) != 1 {
+		t.Errorf("%d reports for one person on three tasks", len(res.Unresolved))
+	}
+}
+
+// TestAnUnknownPersonStillGetsCreated. Reporting is for the ambiguous case;
+// somebody genuinely new is not ambiguous, and a first sync that linked
+// nobody at all would be worse than one that occasionally asks.
+func TestAnUnknownPersonStillGetsCreated(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	mirrored := item("PLAN-1", "Something", api.StatusTodo)
+	mirrored.People = []sync.ItemPerson{{
+		Role: api.RoleAssignee, SourceUser: "graph-9",
+		Name: "Dana Kowalczyk", Email: "dana@example.invalid",
+	}}
+	res, err := s.Sync(ctx, "plugin:planner", "planner",
+		sync.Request{Items: []sync.Item{mirrored}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Unresolved) != 0 {
+		t.Errorf("unresolved = %+v, want a new person created", res.Unresolved)
+	}
+
+	dana, err := s.PersonByHandle(ctx, "dana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The address is kept, so a second source reporting the same person
+	// resolves on it rather than asking again.
+	if dana.Email != "dana@example.invalid" {
+		t.Errorf("email = %q, so a second source would have to ask", dana.Email)
+	}
+}
+
+// TestAnIdentityWithNothingToGoOnIsReported rather than dropped, so a plugin
+// that sends only opaque ids is a fixable problem rather than a mystery.
+func TestAnIdentityWithNothingToGoOnIsReported(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	mirrored := item("PLAN-1", "Something", api.StatusTodo)
+	mirrored.People = []sync.ItemPerson{
+		{Role: api.RoleAssignee, SourceUser: "graph-8"},
+		// A name with no ASCII to build a handle from falls back to the
+		// address rather than being dropped.
+		{Role: api.RoleAssigner, SourceUser: "graph-7", Name: "李雷", Email: "lilei@example.invalid"},
+	}
+	res, err := s.Sync(ctx, "plugin:planner", "planner",
+		sync.Request{Items: []sync.Item{mirrored}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Unresolved) != 1 || res.Unresolved[0].SourceUser != "graph-8" {
+		t.Errorf("unresolved = %+v, want only the one with nothing to go on", res.Unresolved)
+	}
+	if _, err := s.PersonByIdentity(ctx, "planner", "graph-7"); err != nil {
+		t.Errorf("a non-ASCII name was dropped instead of using the address: %v", err)
 	}
 }

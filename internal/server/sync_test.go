@@ -83,21 +83,22 @@ func TestPlannerMirrorsIntoTd(t *testing.T) {
 	graph := newFakeGraph(t)
 	ctx := context.Background()
 
-	// The Graph object ids are mapped onto people first, which is what
-	// person_identity is for. Without this a first sync links nobody: an
-	// unmapped identity whose name collides with somebody already known is
-	// skipped rather than guessed at, because merging two different people is
-	// worse than a missing link.
-	for handle, objectID := range map[string]string{
-		"stacey":   "8f3d2e11-0000-4a2b-9c3d-000000000001",
-		"mikah":    "8f3d2e11-0000-4a2b-9c3d-000000000002",
-		"brandiss": "8f3d2e11-0000-4a2b-9c3d-000000000003",
+	// Nothing is mapped by hand. The people carry the addresses their
+	// directory entries carry, and the sync attaches them on that: an address
+	// is an identity, so this is evidence rather than a guess, and it is what
+	// makes a first sync link the people you already track instead of
+	// silently dropping them.
+	for handle, email := range map[string]string{
+		"stacey":   "stacey@example.invalid",
+		"mikah":    "mikah@example.invalid",
+		"brandiss": "brandiss@example.invalid",
 	} {
 		person, err := ts.store.PersonByHandle(ctx, handle)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ts.store.LinkIdentity(ctx, person.ID, planner.Source, objectID); err != nil {
+		person.Email = email
+		if _, err := ts.store.UpdatePerson(ctx, person.ID, person); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -115,6 +116,9 @@ func TestPlannerMirrorsIntoTd(t *testing.T) {
 	}
 	if res.Created != 3 {
 		t.Fatalf("created %d, want the fixture's 3", res.Created)
+	}
+	if len(res.Unresolved) != 0 {
+		t.Errorf("unresolved = %+v, want the addresses to have matched", res.Unresolved)
 	}
 
 	mirrored, err := ts.store.List(ctx, "src:planner", ts.now)
@@ -158,8 +162,12 @@ func TestPlannerMirrorsIntoTd(t *testing.T) {
 		t.Errorf("assigner = %q, want the person the identity maps onto", roles[api.RoleAssigner])
 	}
 
-	// One Stacey, not two. This is the whole reason identities are mapped
-	// rather than matched on a name.
+	// One Stacey, not two, and the match recorded a mapping so the next sync
+	// does not have to compare anything.
+	if _, err := ts.store.PersonByIdentity(ctx, planner.Source,
+		"8f3d2e11-0000-4a2b-9c3d-000000000001"); err != nil {
+		t.Errorf("the email match recorded no identity: %v", err)
+	}
 	people, err := ts.store.People(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -386,5 +394,89 @@ func TestExportRoundTripsOverTheAPI(t *testing.T) {
 	resp, _ = do(t, restored, http.MethodPost, "/api/v1/import", doc)
 	if resp.StatusCode == http.StatusOK {
 		t.Error("a second import was accepted")
+	}
+}
+
+// TestRelinkBackfillsAPersonMappedAfterTheFirstSync is the workflow the
+// unresolved report sets up: the sync says it could not place somebody, you
+// map them, and the links appear without waiting for the board to change.
+func TestRelinkBackfillsAPersonMappedAfterTheFirstSync(t *testing.T) {
+	ts := newServer(t)
+	graph := newFakeGraph(t)
+	ctx := context.Background()
+
+	c := pluginClient(t, ts)
+	cfg := planner.Config{
+		PlanIDs:    []string{"xqQg5FS2LkCp935s-FIFm2QAFkHM"},
+		GraphToken: "graph-token",
+		Endpoint:   graph.URL + "/v1.0",
+	}
+
+	// Nobody has an address, so the first run cannot place the people the
+	// fixture already knows.
+	res, err := planner.Run(ctx, planner.New(cfg), c, ts.now, ts.now.Location())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Unresolved) == 0 {
+		t.Fatal("nothing was reported, so this proves nothing")
+	}
+
+	var renew api.Task
+	mirrored, err := ts.store.List(ctx, "src:planner", ts.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range mirrored {
+		if task.ExternalID != nil && *task.ExternalID == "01_TASK_RENEW" {
+			renew = task
+		}
+	}
+	if len(renew.People) != 0 {
+		t.Fatalf("people = %+v, want none placed yet", renew.People)
+	}
+
+	// What the report tells you to run.
+	stacey, err := ts.store.PersonByHandle(ctx, "stacey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.store.LinkIdentity(ctx, stacey.ID, planner.Source,
+		"8f3d2e11-0000-4a2b-9c3d-000000000001"); err != nil {
+		t.Fatal(err)
+	}
+
+	// An ordinary run changes nothing: no rev moved, so nothing is looked at.
+	if res, err = planner.Run(ctx, planner.New(cfg), c, ts.now, ts.now.Location()); err != nil {
+		t.Fatal(err)
+	}
+	if res.Updated != 0 {
+		t.Errorf("an ordinary run updated %d; idempotence should have skipped everything", res.Updated)
+	}
+	after, err := ts.store.Get(ctx, renew.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.People) != 0 {
+		t.Error("an ordinary run backfilled, which means it stopped being idempotent")
+	}
+
+	// Relink re-applies, and the mapping takes effect.
+	cfg.Relink = true
+	if _, err := planner.Run(ctx, planner.New(cfg), c, ts.now, ts.now.Location()); err != nil {
+		t.Fatal(err)
+	}
+	after, err = ts.store.Get(ctx, renew.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var linked bool
+	for _, p := range after.People {
+		if p.PersonID == stacey.ID {
+			linked = true
+		}
+	}
+	if !linked {
+		t.Errorf("people = %+v, want Stacey backfilled", after.People)
 	}
 }

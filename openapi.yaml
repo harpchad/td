@@ -1592,8 +1592,15 @@ components:
                 type: string
                 description: >-
                   Used to create the person the first time an identity is
-                  seen. Without it an unknown identity is skipped and the task
-                  still arrives.
+                  seen, when nobody already holds that handle.
+              email:
+                type: string
+                description: >-
+                  The strongest evidence a plugin can offer that this identity
+                  is somebody td already knows. An exact, unique match attaches
+                  the link and records the mapping. A name is never matched on:
+                  two people called Stacey is ordinary, and merging them cannot
+                  be undone by looking at the list.
 
     SyncResult:
       type: object
@@ -1609,6 +1616,27 @@ components:
             Items whose rev matched. A plugin replaying its window should see
             mostly this, which is how idempotence is visible rather than
             merely claimed.
+        unresolved:
+          type: array
+          description: >-
+            Upstream identities that could not be attached to a person, so a
+            plugin can report them instead of dropping the links in silence.
+            One entry per identity however many tasks it appeared on. The fix
+            is one `POST /people/{id}/identities`, and it is permanent.
+          items:
+            type: object
+            required: [source, source_user, reason]
+            properties:
+              source: { type: string }
+              source_user: { type: string }
+              name: { type: string }
+              email: { type: string }
+              reason:
+                type: string
+                description: >-
+                  Which way it failed, because "somebody already has that
+                  handle" and "the plugin sent nothing to go on" need
+                  different fixes.
 
     Attachment:
       type: object

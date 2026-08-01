@@ -36,3 +36,15 @@ func (c *Client) Mirrored(ctx context.Context, source string) ([]string, error) 
 	}
 	return out, nil
 }
+
+// MapIdentity attaches an external account to a person, so a sync stops
+// having to guess who they are.
+func (c *Client) MapIdentity(ctx context.Context, personRef, source, externalID string) error {
+	person, err := c.Person(ctx, personRef)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost,
+		"/api/v1/people/"+url.PathEscape(person.ID)+"/identities",
+		map[string]string{"source": source, "external_id": externalID}, nil, nil)
+}

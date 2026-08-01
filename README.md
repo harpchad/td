@@ -424,6 +424,34 @@ Planner's own priority is deliberately not mapped. It is set by whoever made
 the card; td's priority is your answer to "what should I do next", and those
 are different questions.
 
+### Who is who
+
+An upstream account has to be attached to a person, or the mirror arrives with
+nobody on it. A sync resolves that three ways, in descending order of
+evidence: an identity already mapped, an email that matches a person's exactly
+and uniquely, or nobody holding that handle yet, in which case a new person is
+created.
+
+It never matches on a name. Two people called Stacey is ordinary, and merging
+them is not something you notice afterwards by looking at the list. Anything
+it will not place is **reported**, once per person, with the command that
+fixes it:
+
+```text
+td: 3 upstream people could not be matched to anybody, so those links are missing:
+  Stacey Whitlock <stacey@example.invalid>
+      somebody already has that handle, so this was not guessed at
+      td person map <handle> planner 8f3d2e11-0000-4a2b-9c3d-000000000001
+```
+
+Mapping is permanent and the next sync takes the certain path. Filling in
+`email` on your people is the cheaper route: the match then happens on the
+first sync and records the mapping for you.
+
+Because an item whose revision has not moved is skipped entirely, a person you
+map after the fact is not backfilled until something upstream changes.
+`td sync planner -relink` re-applies everything and does it now.
+
 Items that disappear upstream are marked `upstream_gone`, never deleted: a
 ticket you can no longer see is not a ticket that never existed, and
 something in your notes probably refers to it. Planner has no delta query, so

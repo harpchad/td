@@ -113,7 +113,7 @@ func TestTranslateReadsTheFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	items := planner.Translate(tasks, users, planner.DefaultTaskURL, chicago(t))
+	items := planner.Translate(tasks, users, planner.DefaultTaskURL, chicago(t), false)
 
 	byID := map[string]sync.Item{}
 	for _, item := range items {
@@ -192,7 +192,7 @@ func TestPlannerPriorityIsNotTranslated(t *testing.T) {
 		t.Fatal("the fixture has one priority, so this proves nothing")
 	}
 
-	items := planner.Translate(tasks, nil, "", nil)
+	items := planner.Translate(tasks, nil, "", nil, false)
 	body, err := json.Marshal(items)
 	if err != nil {
 		t.Fatal(err)
@@ -222,12 +222,12 @@ func TestTranslationIsStable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := json.Marshal(planner.Translate(tasks, users, planner.DefaultTaskURL, chicago(t)))
+	first, err := json.Marshal(planner.Translate(tasks, users, planner.DefaultTaskURL, chicago(t), false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for range 20 {
-		again, err := json.Marshal(planner.Translate(tasks, users, planner.DefaultTaskURL, chicago(t)))
+		again, err := json.Marshal(planner.Translate(tasks, users, planner.DefaultTaskURL, chicago(t), false))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -377,5 +377,106 @@ func TestTheGraphTokenIsSent(t *testing.T) {
 	}
 	if g.token != "graph-token" {
 		t.Errorf("Authorization carried %q", g.token)
+	}
+}
+
+// TestTheEmailTravels is what lets the server attach an identity to somebody
+// td already knows without guessing on a name. Graph leaves displayName null
+// on the identities inside a task, so both the name and the address come from
+// the directory lookup.
+func TestTheEmailTravels(t *testing.T) {
+	g := newGraph(t)
+	c := newClient(t, g)
+	ctx := context.Background()
+
+	tasks, err := c.Tasks(ctx, c.Config.PlanIDs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, err := c.Users(ctx, planner.UserIDs(tasks))
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := planner.Translate(tasks, users, planner.DefaultTaskURL, chicago(t), false)
+
+	var checked int
+	for _, item := range items {
+		for _, p := range item.People {
+			if p.Email == "" {
+				t.Errorf("%s on %s has no address, so the server can only guess",
+					p.Role, item.ExternalID)
+				continue
+			}
+			if !strings.Contains(p.Email, "@") {
+				t.Errorf("email = %q", p.Email)
+			}
+			checked++
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no person links at all, so this proves nothing")
+	}
+}
+
+// TestUnresolvedIdentitiesAreCollectedAcrossBatches, so the report a person
+// reads names each colleague once rather than once per batch.
+func TestUnresolvedIdentitiesAreCollectedAcrossBatches(t *testing.T) {
+	g := newGraph(t)
+	c := newClient(t, g)
+	ctx := context.Background()
+
+	rec := &recorder{result: sync.Result{Unresolved: []sync.Unresolved{
+		{
+			Source: "planner", SourceUser: "8f3d2e11-0000-4a2b-9c3d-000000000001",
+			Name: "Stacey Whitlock", Reason: "somebody already has that handle",
+		},
+	}}}
+	res, err := planner.Run(ctx, c, rec, time.Now(), chicago(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Unresolved) != 1 {
+		t.Errorf("unresolved = %+v, want one entry however many batches reported it", res.Unresolved)
+	}
+}
+
+// TestRelinkDropsTheRevSoTheServerReappliesEverything. Idempotence has one
+// cost: an item whose rev matches is not looked at, so a person link that
+// could now be resolved is not resolved until something upstream happens to
+// change. After mapping an identity you want the backfill now.
+func TestRelinkDropsTheRevSoTheServerReappliesEverything(t *testing.T) {
+	g := newGraph(t)
+	c := newClient(t, g)
+	ctx := context.Background()
+
+	tasks, err := c.Tasks(ctx, c.Config.PlanIDs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ordinary := planner.Translate(tasks, nil, "", nil, false)
+	for _, item := range ordinary {
+		if item.Rev == "" {
+			t.Fatalf("%s has no rev, so an ordinary run cannot skip it", item.ExternalID)
+		}
+	}
+
+	relinked := planner.Translate(tasks, nil, "", nil, true)
+	for _, item := range relinked {
+		if item.Rev != "" {
+			t.Errorf("%s kept its rev, so the server would skip it", item.ExternalID)
+		}
+	}
+	// Everything else is untouched: relink changes what the server may skip,
+	// not what it is told.
+	if len(relinked) != len(ordinary) {
+		t.Fatalf("%d items relinked, %d ordinary", len(relinked), len(ordinary))
+	}
+	for i := range ordinary {
+		if relinked[i].ExternalID != ordinary[i].ExternalID ||
+			relinked[i].Title != ordinary[i].Title ||
+			relinked[i].Status != ordinary[i].Status {
+			t.Errorf("relink changed item %d", i)
+		}
 	}
 }

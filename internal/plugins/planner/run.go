@@ -44,7 +44,7 @@ func Run(ctx context.Context, c *Client, api Poster, now time.Time, loc *time.Lo
 	if err != nil {
 		return total, err
 	}
-	items := Translate(everything, users, c.Config.TaskURLTemplate, loc)
+	items := Translate(everything, users, c.Config.TaskURLTemplate, loc, c.Config.Relink)
 
 	cursor := now.UTC().Format(time.RFC3339)
 	for start := 0; start < len(items); start += BatchSize {
@@ -58,6 +58,7 @@ func Run(ctx context.Context, c *Client, api Poster, now time.Time, loc *time.Lo
 		total.Created += res.Created
 		total.Updated += res.Updated
 		total.Unchanged += res.Unchanged
+		total.Unresolved = mergeUnresolved(total.Unresolved, res.Unresolved)
 	}
 
 	// The gone pass is skipped when the read produced nothing.
@@ -88,4 +89,23 @@ func Run(ctx context.Context, c *Client, api Poster, now time.Time, loc *time.Lo
 
 	total.Cursor = cursor
 	return total, nil
+}
+
+// mergeUnresolved keeps one entry per identity across batches. The same
+// person appears on tasks in several batches, and a report that listed them
+// once per batch would be a report nobody reads.
+func mergeUnresolved(into, add []sync.Unresolved) []sync.Unresolved {
+	for _, candidate := range add {
+		seen := false
+		for _, existing := range into {
+			if existing.SourceUser == candidate.SourceUser {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			into = append(into, candidate)
+		}
+	}
+	return into
 }

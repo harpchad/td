@@ -81,6 +81,10 @@ type ItemPerson struct {
 	// plugin that supplies it lets the server create the person rather than
 	// dropping the link.
 	Name string `json:"name,omitempty"`
+	// Email is the strongest evidence a plugin can offer that this identity
+	// is somebody td already knows. A name match is a guess and merges two
+	// different Staceys; an address is an identity.
+	Email string `json:"email,omitempty"`
 }
 
 // Request is the body of POST /api/v1/sync/{source}.
@@ -105,6 +109,28 @@ type Result struct {
 	// plugin replaying its whole window should see mostly this, which is how
 	// idempotence is visible rather than merely claimed.
 	Unchanged int `json:"unchanged"`
+
+	// Unresolved is every upstream identity that could not be attached to a
+	// person, so a plugin can say so instead of dropping the link in silence.
+	//
+	// This list exists because the silence was the actual bug. An identity
+	// nobody has mapped, whose name collides with somebody already known, is
+	// exactly the case where the person matters most: it is somebody you
+	// already track. Guessing merges two people and cannot be undone by
+	// looking at it; saying nothing loses the link and nobody finds out.
+	// Reporting is the only option that is both safe and visible.
+	Unresolved []Unresolved `json:"unresolved,omitempty"`
+}
+
+// Unresolved is one upstream identity with no person behind it.
+type Unresolved struct {
+	Source     string `json:"source"`
+	SourceUser string `json:"source_user"`
+	Name       string `json:"name,omitempty"`
+	Email      string `json:"email,omitempty"`
+	// Reason says which way it failed, because "somebody with that handle
+	// already exists" and "the plugin sent no name" need different fixes.
+	Reason string `json:"reason"`
 }
 
 // LocalStatus reports whether a status is one the mirror must not overwrite.
