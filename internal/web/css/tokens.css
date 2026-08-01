@@ -118,6 +118,20 @@
   height: var(--td-row); padding: 0 var(--td-pad);
   white-space: nowrap; cursor: default;
 }
+/* Selected text is ink on paper, inverted, the same idiom a selected row
+ * uses. Without this the browser picks, and what it picks is only ever right
+ * by luck: on a themed page its default highlight can land on top of text of
+ * a similar colour and the text vanishes while you are dragging over it,
+ * which is what happened to the device code somebody was trying to copy.
+ *
+ * The contrast is guaranteed rather than hoped for. Ink on paper already has
+ * to clear 4.5:1 for every shipped theme, and contrast is symmetric, so
+ * swapping them clears it too. */
+::selection {
+  background: var(--td-ink);
+  color: var(--td-paper);
+}
+
 .td-row--selected { background: var(--td-ink); color: var(--td-paper); }
 .td-row--selected .td-due--overdue { color: var(--td-alert-inv); }
 .td-row--sub { padding-left: calc(var(--td-pad) + 4ch); }

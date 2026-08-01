@@ -18,6 +18,17 @@ func readCSS(t *testing.T, name string) string {
 	return string(body)
 }
 
+// readStatic reads the embedded stylesheet, which is the one the browser
+// actually gets.
+func readStatic(t *testing.T, name string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("static", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
 // TestShippedThemesClearTheContrastFloor is the check section 12 calls a unit
 // test rather than a runtime nicety. It runs over the palettes in themes.css,
 // which are the ones a user is most likely to pick.
@@ -379,4 +390,58 @@ func baseRules(css, fragment string) string {
 		out.WriteString(";")
 	}
 	return out.String()
+}
+
+// TestSelectedTextStaysLegible covers the rule whose absence made a device
+// code vanish while somebody dragged across it to copy.
+//
+// With no ::selection of our own the browser picks, and on a themed page what
+// it picks can land on top of text of a similar colour. Ink on paper inverted
+// is the same idiom a selected row uses, and its contrast is already
+// guaranteed: every theme has to clear 4.5:1 for ink on paper, and contrast
+// is symmetric, so the swap clears it too.
+func TestSelectedTextStaysLegible(t *testing.T) {
+	tokens := readCSS(t, "tokens.css")
+
+	if !strings.Contains(tokens, "::selection") {
+		t.Fatal("no ::selection rule, so selected text is at the browser's mercy")
+	}
+
+	// The rule has to set both halves. A background with no colour is exactly
+	// the failure: the highlight changes and the text does not.
+	rule := cssRule(t, tokens, "::selection")
+	for _, want := range []string{"background", "color"} {
+		if !strings.Contains(rule, want+":") {
+			t.Errorf("::selection sets no %s, so one half is the browser's default", want)
+		}
+	}
+	if !strings.Contains(rule, "var(--td-ink)") || !strings.Contains(rule, "var(--td-paper)") {
+		t.Errorf("::selection does not use the theme's own ink and paper:\n%s", rule)
+	}
+}
+
+// TestTheDeviceCodeIsSelectableInOneGesture. It is read off a screen and typed
+// into a phone, and the one thing somebody does with it is copy it.
+func TestTheDeviceCodeIsSelectableInOneGesture(t *testing.T) {
+	app := readStatic(t, "app.css")
+
+	block := cssRule(t, app, ".td-connect__code")
+	if !strings.Contains(block, "user-select: all") {
+		t.Error("the code does not select as one unit, so copying it takes a careful drag")
+	}
+}
+
+// cssRule returns the declarations of the first rule with a selector, so a
+// test asserts on one block rather than on the whole file.
+func cssRule(t *testing.T, css, selector string) string {
+	t.Helper()
+	_, after, found := strings.Cut(css, selector)
+	if !found {
+		t.Fatalf("no %s rule in the stylesheet", selector)
+	}
+	body, _, found := strings.Cut(after, "}")
+	if !found {
+		t.Fatalf("the %s rule is never closed", selector)
+	}
+	return body
 }

@@ -18,6 +18,32 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  Selected text is styled, rather than left to the browser
+Phase: 11, corrected
+
+Reported: the device code disappeared while it was being dragged over, so it
+could not be copied.
+
+The stylesheet had no `::selection` rule at all, anywhere. Selection colours
+were therefore whatever the browser chose, and on a themed page what it
+chooses can land close enough to the text colour that the text vanishes under
+the highlight. It was not specific to the device code; every selectable string
+in the product had the same exposure, and the code only made it obvious
+because it is large, bold, and the one thing somebody is definitely trying to
+copy.
+
+Decided: `::selection` is ink on paper inverted, the same idiom a selected row
+already uses. The contrast is guaranteed rather than hoped for, because every
+shipped theme has to clear 4.5:1 for ink on paper and contrast is symmetric,
+so the swap clears it too. It lives in `tokens.css`, which is the authority for
+the visual system, and reaches the embedded copy through `make sync-css`.
+
+A test asserts the rule exists and sets both halves. A background with no
+colour is exactly the failure mode: the highlight changes and the text does
+not.
+
+Reversible: four lines. The test fails without them.
+
 ## 2026-08-01  The connect panel renders two ways, and shipped rendering one
 Phase: 11, corrected
 

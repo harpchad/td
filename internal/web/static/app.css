@@ -287,9 +287,17 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
 .td-connect__code {
   font-size: calc(var(--td-size) * 2);
   font-weight: var(--td-weight-bold);
+  /* Spaced for reading off a screen while typing into a phone. Not so wide
+   * that a copied string carries the gaps: letter-spacing is drawing, not
+   * content. */
   letter-spacing: 0.3ch;
   line-height: calc(var(--td-row) * 2);
+  /* One click takes the whole code rather than a word of it. Dragging still
+   * works; this only makes the easy gesture the right one. */
   user-select: all;
+  -webkit-user-select: all;
+  /* And it has to stay legible while selected, which is what ::selection in
+   * tokens.css now guarantees for every theme. */
 }
 .td-connect__poll { display: flex; gap: var(--td-gap); align-items: center; }
 
