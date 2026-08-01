@@ -318,6 +318,21 @@ type FoldRequest struct {
 	Collapsed bool `json:"collapsed"`
 }
 
+// ViewFilter is the body of GET and PUT /ui/filter: the list a client is
+// currently reading.
+//
+// View state like the folds above, and out of an export for the same reason.
+// It is server-side rather than per-client so that closing a tab, opening a
+// task, or restarting the TUI all put you back where you were.
+//
+// Chosen is what separates "nobody has picked a filter yet", which opens on
+// the saved filter in slot 1, from "somebody emptied the box on purpose",
+// which has to stay empty. An empty Filter alone cannot say which.
+type ViewFilter struct {
+	Filter string `json:"filter"`
+	Chosen bool   `json:"chosen"`
+}
+
 // Error is the body every failing request returns. Message is written for a
 // human and says what to do about it; Code is what a client branches on.
 type Error struct {

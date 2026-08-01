@@ -45,6 +45,14 @@ type Model struct {
 
 	tasks []api.Task
 	rows  []query.Row
+	// filterChosen says the opening list is settled, either because -filter
+	// named one, because the server remembered one, or because the first-run
+	// default was applied. savedLoaded and viewLoaded are the two answers it
+	// waits on, which arrive in either order.
+	filterChosen bool
+	savedLoaded  bool
+	viewLoaded   bool
+
 	// collapsed is the fold state, keyed by task id. It lives on the server
 	// so it follows you between clients.
 	collapsed map[string]bool
@@ -134,10 +142,13 @@ func New(ctx context.Context, c *client.Client, opts Options) *Model {
 		mode = modeTriage
 	}
 	return &Model{
-		client:       c,
-		ctx:          ctx,
-		mode:         mode,
-		filter:       opts.Filter,
+		client: c,
+		ctx:    ctx,
+		mode:   mode,
+		filter: opts.Filter,
+		// A filter given on the command line is already a choice, so neither
+		// the remembered filter nor the first-run default may replace it.
+		filterChosen: opts.Filter != "",
 		collapsed:    map[string]bool{},
 		addInput:     add,
 		filterInput:  filter,
@@ -152,10 +163,33 @@ func New(ctx context.Context, c *client.Client, opts Options) *Model {
 
 // Init loads the saved filters, the fold state, and the first list.
 func (m *Model) Init() tea.Cmd {
+	// The opening list is decided by two answers that arrive independently: the
+	// filter somebody was last reading, and the saved filters that supply the
+	// first-run default. startFilter below applies whichever wins once both are
+	// in, so neither ordering can leave the wrong list on screen.
 	if m.mode == modeTriage {
-		return tea.Batch(m.loadFilters(), m.loadFolds(), m.reload(), m.loadTriage())
+		return tea.Batch(m.loadFilters(), m.loadViewFilter(), m.loadFolds(), m.reload(), m.loadTriage())
 	}
-	return tea.Batch(m.loadFilters(), m.loadFolds(), m.reload())
+	return tea.Batch(m.loadFilters(), m.loadViewFilter(), m.loadFolds(), m.reload())
+}
+
+// startFilter settles which list to open on, once both answers are in.
+//
+// An explicit -filter on the command line has already been honoured and is not
+// overridden. Otherwise the remembered filter wins, and slot 1 is what a first
+// run gets, before anybody has chosen anything.
+func (m *Model) startFilter() tea.Cmd {
+	if !m.savedLoaded || !m.viewLoaded || m.filterChosen {
+		return nil
+	}
+	m.filterChosen = true
+	for _, f := range m.saved {
+		if f.Slot == 1 {
+			m.filter, m.filterName = f.Query, f.Name
+			return m.reload()
+		}
+	}
+	return nil
 }
 
 // --- messages ---
@@ -178,6 +212,13 @@ type foldsMsg struct {
 
 // actionMsg is the result of anything that changes data. Reload says whether
 // the list has to be fetched again.
+// viewFilterMsg carries the remembered filter back from the server.
+type viewFilterMsg struct {
+	filter string
+	chosen bool
+	err    error
+}
+
 type actionMsg struct {
 	status string
 	err    error
@@ -207,6 +248,46 @@ func (m *Model) loadFilters() tea.Cmd {
 		defer cancel()
 		filters, err := m.client.Filters(ctx)
 		return filtersMsg{filters: filters, err: err}
+	}
+}
+
+// chooseFilter is the one way the filter changes, so that remembering it
+// cannot be forgotten at a new call site. Every caller that sets m.filter
+// directly is a caller whose filter is gone the next time td starts.
+//
+// The save runs alongside the reload rather than before it: where you are
+// looking is worth remembering, but not worth making you wait for, and a
+// token without write scope simply does not persist it.
+func (m *Model) chooseFilter(query, name string) tea.Cmd {
+	m.filter, m.filterName = query, name
+	m.cursor, m.offset = 0, 0
+	m.loading = true
+	m.status = ""
+	return tea.Batch(m.reload(), m.rememberFilter(query))
+}
+
+// rememberFilter records the filter server-side so the web UI and the next TUI
+// open on it. Best effort: failing to remember where you were looking is not
+// worth an error banner over the list you asked for.
+func (m *Model) rememberFilter(filter string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+		defer cancel()
+		if err := m.client.SetViewFilter(ctx, filter); err != nil {
+			return nil
+		}
+		return nil
+	}
+}
+
+// loadViewFilter fetches the list to open on, which is the one somebody was
+// last reading in either client.
+func (m *Model) loadViewFilter() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+		defer cancel()
+		view, err := m.client.ViewFilter(ctx)
+		return viewFilterMsg{filter: view.Filter, chosen: view.Chosen, err: err}
 	}
 }
 

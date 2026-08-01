@@ -67,6 +67,7 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 		"/api/v1/filters":                           {"get", "post"},
 		"/api/v1/ui/folds":                          {"get"},
 		"/api/v1/ui/folds/{id}":                     {"post"},
+		"/api/v1/ui/filter":                         {"get", "put"},
 		"/api/v1/events":                            {"get"},
 		"/api/v1/undo":                              {"post"},
 		"/api/v1/sync/{source}":                     {"post"},

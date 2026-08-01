@@ -18,6 +18,58 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  The filter is a place you are, not an argument you passed
+Phase: after v0.1
+
+The web UI kept the filter only in `?q=`, so it survived exactly as long as
+you stayed on one URL. Opening a task and pressing Escape landed on bare `/`
+and put you back on Today. Reproduced before it was fixed, along with a third
+problem nobody had asked about: emptying the filter box submitted `?q=`, which
+the handler could not tell from no `q` at all, so it fell through to slot 1.
+Clearing the filter was impossible, which means "persist unless cleared" was
+unreachable from both ends.
+
+The filter is now server state, in a `view_state` table alongside `ui_state`.
+Section 3's rule covers it for the same reason it covers folds: it generates no
+event, appears in no export, and syncs to no plugin. There is a test for each.
+
+Server-side rather than threaded through the URL because threading `?q=` into
+six templates would have fixed the back links and still lost the filter when
+you closed the tab. Making it state instead means `href="/"` already lands
+where you were, and not one template changed.
+
+Present-but-empty and absent are different requests. `?q=` is somebody
+emptying the box, which is a choice and sticks. No `q` is no opinion, which is
+every back link and every bookmark of the root, and gets the remembered filter.
+The stored form carries the same distinction: no row means nobody has ever
+chosen and opens slot 1, a row holding "" means cleared on purpose. Collapsing
+those two is the bug above, so the store returns a bool beside the string and
+`api.ViewFilter` carries a `chosen` field.
+
+Only a filter that parsed is remembered, in the handler and again in the PUT.
+Sticky state plus a query that cannot run is a home page you can only escape
+by editing the URL.
+
+The TUI shares it, through `GET`/`PUT /api/v1/ui/filter` next to the folds it
+already syncs. Every site that set `m.filter` now goes through one
+`chooseFilter`, because the failure mode of the alternative is a new call site
+years from now that quietly does not persist. A `-filter` argument still wins:
+ignoring your own argument would be absurd. The write is best effort, so a
+read-only token simply does not persist, rather than erroring over the list you
+asked for.
+
+Rejected: a cookie, which would not follow you between the TUI and the browser
+and would have made the two clients disagree about where you were. Rejected:
+one filter per client, which is more state to reason about and more to get
+wrong, for a product with one user.
+
+Known and accepted: two browser tabs on different filters both write, so the
+last page load wins for whichever one next visits the bare root. The URL always
+takes precedence when present, so neither tab changes under you while you are
+looking at it.
+
+Reversible: one table, one endpoint, one funnel in the TUI.
+
 ## 2026-08-01  The keystroke budget is p95, not the worst sample
 Phase: after v0.1
 

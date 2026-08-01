@@ -1356,6 +1356,52 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/ui/filter:
+    get:
+      tags: [tasks]
+      summary: The list you are currently reading
+      description: >-
+        View state like the folds above, stored server-side so it follows you
+        between clients. It is what makes a bare "/" in the web UI land on the
+        list you were reading rather than on the default, and what lets the TUI
+        reopen where you left it.
+
+
+        `chosen` separates "nobody has picked a filter yet", which opens on the
+        saved filter in slot 1, from "somebody emptied the box on purpose",
+        which stays empty. An empty `filter` alone cannot say which.
+      operationId: getViewFilter
+      responses:
+        "200":
+          description: the current filter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViewFilter"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+    put:
+      tags: [tasks]
+      summary: Remember the list you are reading
+      description: >-
+        Idempotent, because there is one of these. The filter is parsed before
+        it is stored: a saved query that does not parse is a home page nobody
+        can open.
+      operationId: setViewFilter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ViewFilter"
+      responses:
+        "204":
+          description: done
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
   /api/v1/events:
     get:
       tags: [history]
@@ -1448,6 +1494,19 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
+    ViewFilter:
+      type: object
+      required: [filter, chosen]
+      properties:
+        filter:
+          type: string
+          description: the query being read, empty when it was cleared on purpose
+        chosen:
+          type: boolean
+          description: >-
+            false only when nobody has ever picked one, which opens on the
+            saved filter in slot 1
+
     LoginRequest:
       type: object
       required: [username, password]

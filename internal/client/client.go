@@ -260,6 +260,21 @@ func (c *Client) SetFold(ctx context.Context, ref string, collapsed bool) error 
 		api.FoldRequest{Collapsed: collapsed}, nil, nil)
 }
 
+// ViewFilter returns the list this account was last reading, and whether
+// anybody has ever chosen one. Server-side for the same reason folds are: it
+// follows you between the TUI and the web UI.
+func (c *Client) ViewFilter(ctx context.Context) (api.ViewFilter, error) {
+	var out api.ViewFilter
+	err := c.do(ctx, http.MethodGet, "/api/v1/ui/filter", nil, nil, &out)
+	return out, err
+}
+
+// SetViewFilter remembers what is being read.
+func (c *Client) SetViewFilter(ctx context.Context, filter string) error {
+	return c.do(ctx, http.MethodPut, "/api/v1/ui/filter",
+		api.ViewFilter{Filter: filter, Chosen: true}, nil, nil)
+}
+
 // Events reads the change feed from seq onwards.
 func (c *Client) Events(ctx context.Context, since int64) ([]api.Event, error) {
 	var out []api.Event

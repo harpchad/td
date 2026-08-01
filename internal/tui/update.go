@@ -26,17 +26,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case filtersMsg:
 		if msg.err == nil {
 			m.saved = msg.filters
-			// An empty starting filter opens slot 1, which ships as Today.
-			if m.filter == "" && len(m.saved) > 0 {
-				for _, f := range m.saved {
-					if f.Slot == 1 {
-						m.filter, m.filterName = f.Query, f.Name
-						return m, m.reload()
-					}
-				}
-			}
 		}
-		return m, nil
+		m.savedLoaded = true
+		return m, m.startFilter()
+
+	case viewFilterMsg:
+		// A filter named on the command line outranks the remembered one: it is
+		// the more recent instruction, and `td -filter ...` that ignored its own
+		// argument would be absurd.
+		if msg.err == nil && msg.chosen && !m.filterChosen {
+			m.filterChosen = true
+			m.filter, m.filterName = msg.filter, ""
+			m.viewLoaded = true
+			return m, m.reload()
+		}
+		m.viewLoaded = true
+		return m, m.startFilter()
 
 	case foldsMsg:
 		if msg.err == nil {
@@ -327,11 +332,7 @@ func (m *Model) updateNotes(msg tea.KeyPressMsg, key string) (tea.Model, tea.Cmd
 func (m *Model) applySavedFilter(slot int) tea.Cmd {
 	for _, f := range m.saved {
 		if f.Slot == slot {
-			m.filter, m.filterName = f.Query, f.Name
-			m.cursor, m.offset = 0, 0
-			m.loading = true
-			m.status = ""
-			return m.reload()
+			return m.chooseFilter(f.Query, f.Name)
 		}
 	}
 	m.status = "no saved filter on " + itoa(int64(slot))
@@ -375,12 +376,9 @@ func (m *Model) updateFilter(msg tea.KeyPressMsg, key string) (tea.Model, tea.Cm
 			return m, nil
 		}
 		m.err = nil
-		m.filter, m.filterName = candidate, ""
-		m.cursor, m.offset = 0, 0
 		m.mode = modeList
 		m.filterInput.Blur()
-		m.loading = true
-		return m, m.reload()
+		return m, m.chooseFilter(candidate, "")
 	}
 
 	var cmd tea.Cmd

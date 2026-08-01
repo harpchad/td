@@ -39,13 +39,16 @@ type fakeServer struct {
 	tasks     []api.Task
 	collapsed map[string]bool
 	lastQuery string
-	completed []string
-	undos     int
-	created   []api.TaskCreate
-	patched   []map[string]any
-	snoozed   []api.SnoozeRequest
-	linked    []personLink
-	series    []map[string]any
+	// view is the remembered filter, as the real /ui/filter stores it.
+	view       api.ViewFilter
+	viewWrites []string
+	completed  []string
+	undos      int
+	created    []api.TaskCreate
+	patched    []map[string]any
+	snoozed    []api.SnoozeRequest
+	linked     []personLink
+	series     []map[string]any
 }
 
 type personLink struct{ person, role string }
@@ -99,6 +102,16 @@ func newFake(t *testing.T) *fakeServer {
 			}
 		}
 		writeJSON(w, api.Folds{Collapsed: ids})
+	})
+	mux.HandleFunc("GET /api/v1/ui/filter", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, f.view)
+	})
+	mux.HandleFunc("PUT /api/v1/ui/filter", func(w http.ResponseWriter, r *http.Request) {
+		var req api.ViewFilter
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		f.view = api.ViewFilter{Filter: req.Filter, Chosen: true}
+		f.viewWrites = append(f.viewWrites, req.Filter)
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /api/v1/ui/folds/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var req api.FoldRequest
@@ -360,4 +373,84 @@ func windowSize(w, h int) tea.WindowSizeMsg {
 func (h *harness) view() string {
 	h.t.Helper()
 	return h.model.View().Content
+}
+
+// The filter is a place you are. These cover the TUI half of that: it opens
+// where you left it, and it tells the server when you move.
+
+// TestTheTUIOpensOnTheRememberedFilter, so restarting td puts you back on the
+// list you were reading rather than on Today.
+func TestTheTUIOpensOnTheRememberedFilter(t *testing.T) {
+	f := newFake(t)
+	f.view = api.ViewFilter{Filter: "#certs", Chosen: true}
+
+	h := newHarness(t, f, tui.Options{})
+	_ = h.view()
+
+	if f.lastQuery != "#certs" {
+		t.Errorf("the TUI opened on %q, want the remembered %q", f.lastQuery, "#certs")
+	}
+}
+
+// TestAFirstRunOpensOnSlotOne. Nothing remembered is not the same as an empty
+// filter, and the difference is what the Chosen flag carries.
+func TestAFirstRunOpensOnSlotOne(t *testing.T) {
+	f := newFake(t)
+	f.view = api.ViewFilter{Chosen: false}
+
+	h := newHarness(t, f, tui.Options{})
+	_ = h.view()
+
+	if f.lastQuery == "" {
+		t.Error("a first run sent an empty filter, want the slot 1 default")
+	}
+}
+
+// TestAClearedFilterStaysCleared covers the other half of Chosen: an empty
+// filter somebody chose is not a first run and must not become Today.
+func TestAClearedFilterStaysCleared(t *testing.T) {
+	f := newFake(t)
+	f.view = api.ViewFilter{Filter: "", Chosen: true}
+
+	h := newHarness(t, f, tui.Options{})
+	_ = h.view()
+
+	if f.lastQuery != "" {
+		t.Errorf("a cleared filter opened on %q, want everything", f.lastQuery)
+	}
+}
+
+// TestAFilterOnTheCommandLineWins, because ignoring your own argument would be
+// absurd however recently something else was remembered.
+func TestAFilterOnTheCommandLineWins(t *testing.T) {
+	f := newFake(t)
+	f.view = api.ViewFilter{Filter: "#certs", Chosen: true}
+
+	h := newHarness(t, f, tui.Options{Filter: "is:inbox"})
+	_ = h.view()
+
+	if f.lastQuery != "is:inbox" {
+		t.Errorf("the TUI opened on %q, want the -filter argument", f.lastQuery)
+	}
+}
+
+// TestChangingTheFilterTellsTheServer, so the web UI and the next td agree.
+func TestChangingTheFilterTellsTheServer(t *testing.T) {
+	f := newFake(t)
+	h := newHarness(t, f, tui.Options{})
+	_ = h.view()
+
+	// The bar opens prefilled with the current filter, so this clears it the
+	// way a person would before typing a new one.
+	h.key("/")
+	for range 60 {
+		h.send(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	}
+	h.typeText("#certs")
+	h.key("enter")
+	_ = h.view()
+
+	if len(f.viewWrites) == 0 || f.viewWrites[len(f.viewWrites)-1] != "#certs" {
+		t.Errorf("filter writes = %v, want the last one to be %q", f.viewWrites, "#certs")
+	}
 }

@@ -176,6 +176,12 @@ func TestFoldStateIsNotExported(t *testing.T) {
 	if err := s.SetCollapsed(ctx, task.ID, true); err != nil {
 		t.Fatal(err)
 	}
+	// The filter somebody is reading is the same class of thing as a fold, and
+	// travels no further.
+	const reading = "#a-filter-somebody-was-reading"
+	if err := s.SetCurrentFilter(ctx, reading); err != nil {
+		t.Fatal(err)
+	}
 
 	out, err := s.Export(ctx, now)
 	if err != nil {
@@ -185,7 +191,7 @@ func TestFoldStateIsNotExported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, word := range []string{"collapsed", "ui_state", "fold"} {
+	for _, word := range []string{"collapsed", "ui_state", "fold", "view_state", reading} {
 		if strings.Contains(string(body), word) {
 			t.Errorf("the export mentions %q", word)
 		}

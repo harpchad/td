@@ -145,11 +145,7 @@ func (m *Model) onWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 // filterBy replaces the filter with a single token, which is what clicking a
 // tag or a person means.
 func (m *Model) filterBy(token string) tea.Cmd {
-	m.filter, m.filterName = token, ""
-	m.cursor, m.offset = 0, 0
-	m.loading = true
-	m.status = ""
-	return m.reload()
+	return m.chooseFilter(token, "")
 }
 
 // visibleRows is the window the list is currently showing, each row carrying

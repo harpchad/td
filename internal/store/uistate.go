@@ -1,6 +1,10 @@
 package store
 
-import "context"
+import (
+	"context"
+	"database/sql"
+	"errors"
+)
 
 // CollapsedTasks returns the ids of every folded parent.
 //
@@ -40,5 +44,34 @@ func (s *Store) SetCollapsed(ctx context.Context, taskID string, collapsed bool)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO ui_state (task_id, collapsed) VALUES (?, 1)
 		 ON CONFLICT(task_id) DO UPDATE SET collapsed = 1`, taskID)
+	return err
+}
+
+// CurrentFilter returns the filter last read, and whether anybody has ever
+// chosen one.
+//
+// The bool is the whole point. A stored empty string is somebody clearing the
+// box on purpose and has to be honoured, while no row at all is a first visit
+// and opens on the saved filter in slot 1. Collapsing those two into "" would
+// make clearing the filter impossible, which is the bug this was written for.
+func (s *Store) CurrentFilter(ctx context.Context) (string, bool, error) {
+	var filter string
+	err := s.db.QueryRowContext(ctx, `SELECT filter FROM view_state WHERE id = 1`).Scan(&filter)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return filter, true, nil
+}
+
+// SetCurrentFilter remembers what is being read. Like fold state it writes no
+// event and appears in no export: where you happen to be looking is not a
+// thing that happened to your tasks.
+func (s *Store) SetCurrentFilter(ctx context.Context, filter string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO view_state (id, filter) VALUES (1, ?)
+		 ON CONFLICT(id) DO UPDATE SET filter = excluded.filter`, filter)
 	return err
 }

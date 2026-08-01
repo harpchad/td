@@ -37,6 +37,8 @@ type Service interface {
 	SavedFilters(ctx context.Context) ([]api.SavedFilter, error)
 	CollapsedTasks(ctx context.Context) ([]string, error)
 	SetCollapsed(ctx context.Context, taskID string, collapsed bool) error
+	CurrentFilter(ctx context.Context) (string, bool, error)
+	SetCurrentFilter(ctx context.Context, filter string) error
 	Tokens(ctx context.Context) ([]api.Token, error)
 	RevokeToken(ctx context.Context, id string, now time.Time) error
 	HasAccount(ctx context.Context) (bool, error)
@@ -351,7 +353,6 @@ func (u *UI) home(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := u.base(r, "Today")
-	filter := r.URL.Query().Get("q")
 
 	saved, err := u.svc.SavedFilters(r.Context())
 	if err != nil {
@@ -360,17 +361,54 @@ func (u *UI) home(w http.ResponseWriter, r *http.Request) {
 	}
 	data.Saved = saved
 
-	if filter == "" {
-		for _, f := range saved {
-			if f.Slot == 1 {
-				filter = f.Query
-				break
-			}
-		}
+	// A `q` that is present but empty is somebody clearing the box, which is a
+	// choice. A `q` that is absent is no choice at all, which is what every
+	// back link and every bookmark of the bare root is.
+	remembered, known := u.rememberedFilter(r)
+	filter, chosen := r.URL.Query().Get("q"), r.URL.Query().Has("q")
+	if !chosen {
+		filter, chosen = remembered, known
+	}
+	if !chosen {
+		filter = slotOne(saved)
 	}
 	u.fillList(r, &data, filter, "")
 
+	// Only when it changed, so reading the same list twice is not two writes,
+	// and only after it parsed: remembering a filter that does not is how you
+	// wedge yourself out of your own home page with no way back but the URL bar.
+	if chosen && data.Error == "" && (!known || remembered != filter) {
+		if err := u.svc.SetCurrentFilter(r.Context(), filter); err != nil {
+			u.log.Error("remembering the filter", "err", err)
+		}
+	}
+
 	u.render(w, "home", data)
+}
+
+// rememberedFilter is where the list you were reading comes back from.
+//
+// The filter is server state rather than a query string that every link has to
+// carry, which is what makes `href="/"` on a back link land you where you
+// were. Threading `?q=` through six templates would have fixed the back links
+// and still lost the filter when you closed the tab.
+func (u *UI) rememberedFilter(r *http.Request) (string, bool) {
+	filter, ok, err := u.svc.CurrentFilter(r.Context())
+	if err != nil {
+		u.log.Error("reading the remembered filter", "err", err)
+		return "", false
+	}
+	return filter, ok
+}
+
+// slotOne is the first-run filter, before anybody has chosen anything.
+func slotOne(saved []api.SavedFilter) string {
+	for _, f := range saved {
+		if f.Slot == 1 {
+			return f.Query
+		}
+	}
+	return ""
 }
 
 // fillList loads the list into the page data, and reports a filter that does
@@ -423,17 +461,23 @@ func (u *UI) listFragment(w http.ResponseWriter, r *http.Request, status string)
 		data.Saved = saved
 	}
 
-	filter := r.FormValue("q")
-	if filter == "" {
-		filter = filterFromReferer(r)
-	}
-	if filter == "" {
-		for _, f := range data.Saved {
-			if f.Slot == 1 {
-				filter = f.Query
-				break
-			}
+	// Parsed up front, because the difference between an absent `q` and an
+	// empty one is the whole point and r.Form only exists once this has run.
+	_ = r.ParseForm()
+
+	// The same order as home, one step longer: an htmx action posts to its own
+	// URL, so the list it came from is in the referer rather than in the form.
+	filter, chosen := r.Form.Get("q"), r.Form.Has("q")
+	if !chosen {
+		if fromReferer := filterFromReferer(r); fromReferer != "" {
+			filter, chosen = fromReferer, true
 		}
+	}
+	if !chosen {
+		filter, chosen = u.rememberedFilter(r)
+	}
+	if !chosen {
+		filter = slotOne(data.Saved)
 	}
 	u.fillList(r, &data, filter, status)
 

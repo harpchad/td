@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -787,5 +788,173 @@ func TestASubtaskIsCreatedUnderItsParent(t *testing.T) {
 	_, html := page(t, ts, session, "/t/103")
 	if !strings.Contains(html, "call the dealer") {
 		t.Error("the parent's detail page does not list the subtask")
+	}
+}
+
+// A filter is a place you are, not an argument you passed. These cover the
+// rule that it stays put until you clear it.
+
+// activeFilter reads what the filter bar is actually showing.
+func activeFilter(t *testing.T, html string) string {
+	t.Helper()
+	m := regexp.MustCompile(`name="q" value="([^"]*)"`).FindStringSubmatch(html)
+	if m == nil {
+		t.Fatal("the page has no filter bar")
+	}
+	return html2text(m[1])
+}
+
+func html2text(s string) string {
+	r := strings.NewReplacer("&#34;", `"`, "&amp;", "&", "&lt;", "<", "&gt;", ">", "&#39;", "'")
+	return r.Replace(s)
+}
+
+// TestTheFilterSurvivesLeavingTheList. Open a task from a filtered list, press
+// Escape, and you should be back on the list you were reading.
+func TestTheFilterSurvivesLeavingTheList(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	const filter = "#certs"
+	if _, html := page(t, ts, session, "/?q="+url.QueryEscape(filter)); activeFilter(t, html) != filter {
+		t.Fatalf("the filtered list did not apply %q", filter)
+	}
+
+	// Whatever "back" points at has to land on that same list.
+	_, detail := page(t, ts, session, "/t/101")
+	m := regexp.MustCompile(`href="([^"]*)" data-back`).FindStringSubmatch(detail)
+	if m == nil {
+		t.Fatal("the detail page has no back link")
+	}
+	_, back := page(t, ts, session, m[1])
+	if got := activeFilter(t, back); got != filter {
+		t.Errorf("back from a task landed on %q, want the %q list still", got, filter)
+	}
+}
+
+// TestTheFilterSurvivesComingBackLater. Closing the tab is not clearing the
+// filter, so returning to the bare root gives you what you were last reading.
+func TestTheFilterSurvivesComingBackLater(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	const filter = "#certs"
+	page(t, ts, session, "/?q="+url.QueryEscape(filter))
+
+	if _, html := page(t, ts, session, "/"); activeFilter(t, html) != filter {
+		t.Errorf("the bare root showed %q, want %q", activeFilter(t, html), filter)
+	}
+}
+
+// TestClearingTheFilterClearsIt, which is the other half: sticky state you
+// cannot get rid of is worse than state that does not stick.
+func TestClearingTheFilterClearsIt(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	page(t, ts, session, "/?q="+url.QueryEscape("#certs"))
+
+	// An empty box submits as ?q= with the key present, which is the clear.
+	if _, html := page(t, ts, session, "/?q="); activeFilter(t, html) != "" {
+		t.Fatalf("clearing left %q in the bar", activeFilter(t, html))
+	}
+	if _, html := page(t, ts, session, "/"); activeFilter(t, html) != "" {
+		t.Errorf("a cleared filter came back as %q", activeFilter(t, html))
+	}
+}
+
+// TestABrokenFilterIsNotRemembered. Sticky state plus a filter that does not
+// parse is a home page you cannot get back to except by editing the URL, so
+// only a filter that actually ran is worth keeping.
+func TestABrokenFilterIsNotRemembered(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	const good = "#certs"
+	page(t, ts, session, "/?q="+url.QueryEscape(good))
+
+	_, broken := page(t, ts, session, "/?q="+url.QueryEscape("p:<=notanumber"))
+	if !strings.Contains(broken, "td-error") && !strings.Contains(broken, "error") {
+		t.Log("the broken filter did not render an error; the case may no longer be broken")
+	}
+
+	if _, html := page(t, ts, session, "/"); activeFilter(t, html) != good {
+		t.Errorf("home came back as %q, want the last filter that worked, %q",
+			activeFilter(t, html), good)
+	}
+}
+
+// TestAnActionKeepsTheFilterItWasFiredFrom covers the htmx path: completing a
+// task on a filtered list re-renders that list, not the default one.
+func TestAnActionKeepsTheFilterItWasFiredFrom(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	const filter = "#certs"
+	page(t, ts, session, "/?q="+url.QueryEscape(filter))
+
+	// No `q` in the form and no referer either, which is the case that used to
+	// fall all the way through to slot 1.
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		ts.URL+"/w/undo", strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "td_session", Value: session})
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if _, html := page(t, ts, session, "/"); activeFilter(t, html) != filter {
+		t.Errorf("after an action the list was %q, want %q", activeFilter(t, html), filter)
+	}
+}
+
+// TestTheFilterIsTheSameOneInBothClients. The done criterion says the TUI and
+// the web UI show the same list for the same filter; this is the other half of
+// that, which is that "the same filter" is one piece of state rather than two.
+// A filter set through the API, which is how the TUI sets it, is the list the
+// browser opens on.
+func TestTheFilterIsTheSameOneInBothClients(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	const filter = "#certs"
+	resp, _ := do(t, ts, http.MethodPut, "/api/v1/ui/filter", api.ViewFilter{Filter: filter})
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("PUT /ui/filter = %d", resp.StatusCode)
+	}
+
+	if _, html := page(t, ts, session, "/"); activeFilter(t, html) != filter {
+		t.Errorf("the browser opened on %q, want the %q the API set", activeFilter(t, html), filter)
+	}
+
+	// And back the other way, which is what the TUI reads on its next start.
+	page(t, ts, session, "/?q="+url.QueryEscape("is:inbox"))
+
+	var view api.ViewFilter
+	_, body := do(t, ts, http.MethodGet, "/api/v1/ui/filter", nil)
+	if err := json.Unmarshal(body, &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Filter != "is:inbox" || !view.Chosen {
+		t.Errorf("the API reports %+v, want the is:inbox the browser set", view)
+	}
+}
+
+// TestAStoredFilterThatDoesNotParseIsRefused. The store is read on every home
+// render, so a query that cannot run is a home page nobody can open.
+func TestAStoredFilterThatDoesNotParseIsRefused(t *testing.T) {
+	ts := newServer(t)
+
+	resp, _ := do(t, ts, http.MethodPut, "/api/v1/ui/filter", api.ViewFilter{Filter: "p:<=nonsense"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("PUT of an unparseable filter = %d, want 400", resp.StatusCode)
 	}
 }

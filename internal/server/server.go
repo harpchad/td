@@ -178,6 +178,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/filters", s.putFilter)
 	mux.HandleFunc("GET /api/v1/ui/folds", s.listFolds)
 	mux.HandleFunc("POST /api/v1/ui/folds/{id}", s.setFold)
+	mux.HandleFunc("GET /api/v1/ui/filter", s.getViewFilter)
+	mux.HandleFunc("PUT /api/v1/ui/filter", s.setViewFilter)
 	mux.HandleFunc("GET /api/v1/events", s.listEvents)
 	mux.HandleFunc("POST /api/v1/undo", s.undo)
 	mux.HandleFunc("POST /api/v1/sync/{source}", s.syncSource)
@@ -715,6 +717,45 @@ func (s *Server) setFold(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.SetCollapsed(r.Context(), id, req.Collapsed); err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// getViewFilter returns the list a client should open on.
+//
+// Alongside the folds above for the same reason: it is view state, it follows
+// you between clients, and a dotfile could not do either. It is also what
+// makes a bare "/" in the web UI land on the list you were reading rather than
+// on the default, which is why a back link needs no query string.
+func (s *Server) getViewFilter(w http.ResponseWriter, r *http.Request) {
+	filter, chosen, err := s.store.CurrentFilter(r.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, api.ViewFilter{Filter: filter, Chosen: chosen})
+}
+
+// setViewFilter records what is being read.
+//
+// PUT rather than POST: there is one of these and writing it twice with the
+// same body changes nothing. It parses the filter first, because a stored
+// query that does not parse is a home page nobody can open.
+func (s *Server) setViewFilter(w http.ResponseWriter, r *http.Request) {
+	var req api.ViewFilter
+	if err := decode(r, &req); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if strings.TrimSpace(req.Filter) != "" {
+		if _, err := query.Parse(req.Filter); err != nil {
+			s.fail(w, &api.Error{Code: api.ErrBadRequest, Message: err.Error()})
+			return
+		}
+	}
+	if err := s.store.SetCurrentFilter(r.Context(), req.Filter); err != nil {
 		s.fail(w, err)
 		return
 	}
