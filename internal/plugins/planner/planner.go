@@ -128,6 +128,15 @@ type Config struct {
 	// for tests.
 	Endpoint string `toml:"endpoint"`
 
+	// AssignedTo keeps only the tasks assigned to one directory object id.
+	// Empty mirrors the whole plan.
+	//
+	// A Planner plan is a team board. Mirroring all of it puts everybody
+	// else's work in a list whose entire job is answering "what should I do
+	// next", so the default is the assignments and the whole board is the
+	// thing you opt into.
+	AssignedTo string `toml:"-"`
+
 	// Relink drops the revision from every item so the server re-applies the
 	// whole plan instead of skipping what has not moved.
 	//
@@ -421,5 +430,24 @@ func Gone(mirrored []string, present []GraphTask) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// AssignedTo keeps the tasks assigned to one person.
+//
+// Planner keys assignments by directory object id and stores nothing else
+// about them, so this is an exact match on a map key rather than anything
+// fuzzier. A task with no assignees at all is not yours: an unassigned card on
+// a shared board is a card nobody has picked up.
+func AssignedTo(tasks []GraphTask, userID string) []GraphTask {
+	if userID == "" {
+		return tasks
+	}
+	out := make([]GraphTask, 0, len(tasks))
+	for _, t := range tasks {
+		if _, ok := t.Assignments[userID]; ok {
+			out = append(out, t)
+		}
+	}
 	return out
 }

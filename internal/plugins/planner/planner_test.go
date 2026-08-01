@@ -480,3 +480,92 @@ func TestRelinkDropsTheRevSoTheServerReappliesEverything(t *testing.T) {
 		}
 	}
 }
+
+// TestOnlyWhatIsAssignedToYouIsMirrored. A Planner plan is a team board.
+// Mirroring all of it puts everybody else's work into a list whose whole job
+// is answering "what should I do next", which is how a task nobody had
+// assigned to you turned up in it.
+func TestOnlyWhatIsAssignedToYouIsMirrored(t *testing.T) {
+	g := newGraph(t)
+	c := newClient(t, g)
+	ctx := context.Background()
+
+	tasks, err := c.Tasks(ctx, c.Config.PlanIDs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 3 {
+		t.Fatalf("%d tasks in the fixture", len(tasks))
+	}
+
+	// The fixture assigns exactly one task, to this id.
+	const me = "8f3d2e11-0000-4a2b-9c3d-000000000001"
+	mine := planner.AssignedTo(tasks, me)
+	if len(mine) != 1 {
+		t.Fatalf("%d tasks assigned to me, want the fixture's 1", len(mine))
+	}
+	if mine[0].ID != "01_TASK_RENEW" {
+		t.Errorf("kept %s", mine[0].ID)
+	}
+
+	// Somebody else's assignments are not mine.
+	if got := planner.AssignedTo(tasks, "8f3d2e11-0000-4a2b-9c3d-000000000009"); len(got) != 0 {
+		t.Errorf("%d tasks assigned to a stranger", len(got))
+	}
+
+	// An unassigned card on a shared board is not yours either. The fixture
+	// has two with no assignees at all.
+	unassigned := 0
+	for _, task := range tasks {
+		if len(task.Assignments) == 0 {
+			unassigned++
+		}
+	}
+	if unassigned == 0 {
+		t.Fatal("the fixture has no unassigned tasks, so this proves nothing")
+	}
+	for _, task := range mine {
+		if len(task.Assignments) == 0 {
+			t.Error("an unassigned task was treated as mine")
+		}
+	}
+
+	// An empty id is the whole-plan opt-in, and keeps everything.
+	if got := planner.AssignedTo(tasks, ""); len(got) != len(tasks) {
+		t.Errorf("the whole-plan setting kept %d of %d", len(got), len(tasks))
+	}
+}
+
+// TestTheAssigneeFilterRunsBeforeTheGonePass, so a task reassigned away from
+// you leaves the mirror the same way one that was deleted does, rather than
+// lingering forever because the read no longer mentions it.
+func TestTheAssigneeFilterRunsBeforeTheGonePass(t *testing.T) {
+	g := newGraph(t)
+	ctx := context.Background()
+
+	c := planner.New(planner.Config{
+		PlanIDs:    []string{"xqQg5FS2LkCp935s-FIFm2QAFkHM"},
+		GraphToken: "graph-token",
+		Endpoint:   g.URL + "/v1.0",
+		AssignedTo: "8f3d2e11-0000-4a2b-9c3d-000000000001",
+	})
+	rec := &recorder{mirrored: []string{"01_TASK_RENEW", "01_TASK_SOC2", "01_TASK_TIRES"}}
+	if _, err := planner.Run(ctx, c, rec, time.Now(), chicago(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	var posted, gone []string
+	for _, batch := range rec.batches {
+		for _, item := range batch.Items {
+			posted = append(posted, item.ExternalID)
+		}
+		gone = append(gone, batch.Gone...)
+	}
+	if len(posted) != 1 || posted[0] != "01_TASK_RENEW" {
+		t.Errorf("posted %v, want only what is assigned to me", posted)
+	}
+	// The two that are not mine are subtracted, so they leave the mirror.
+	if len(gone) != 2 {
+		t.Errorf("gone = %v, want the two that are not mine", gone)
+	}
+}

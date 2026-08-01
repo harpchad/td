@@ -63,10 +63,10 @@
     <div class="td-section">
       <div class="td-section__title">Microsoft Planner</div>
       <p class="td-dim">
-        A one-way mirror. Upstream owns the title, status and due date; your
-        priority, notes, tags and people links are never touched. It runs on
-        the server, so the mirror stays current whether or not anything of
-        yours is open.
+        A one-way mirror of what is assigned to you. Upstream owns the title,
+        status and due date; your priority, notes, tags and people links are
+        never touched. It runs on the server, so the mirror stays current
+        whether or not anything of yours is open.
       </p>
 
       <form action="/w/planner" method="post">
@@ -84,6 +84,15 @@
           <textarea class="td-textarea" name="plans" rows="3"
                     placeholder="one plan id per line">{{.Planner.Plans}}</textarea>
         </label>
+
+        <div class="td-form__row">
+          <span class="td-form__label">mirror what</span>
+          <label class="td-notify__choice">
+            <input class="td-check" type="checkbox" name="everything" value="1"
+                   {{if .Planner.Everything}}checked{{end}}>
+            <span>the whole plan, not just what is assigned to me</span>
+          </label>
+        </div>
 
         <label class="td-form__row">
           <span class="td-form__label">every</span>
@@ -144,23 +153,39 @@
       <div class="td-section__title">People it would not guess at</div>
       <p class="td-dim">
         Two people with the same first name is ordinary, and merging them is
-        not something you can see afterwards by looking at the list. Say who
-        each of these is and the answer is permanent.
+        not something you can see afterwards by looking at the list. Either
+        pick who somebody already is, or add them as a new person under a
+        handle that is free. Both answers are permanent.
       </p>
-      <table class="td-tokens">
+      <table class="td-tokens td-unresolved">
         {{range .Planner.Unresolved}}
         <tr>
           <td>{{.Who}}</td>
           <td class="td-dim">{{.Reason}}</td>
           <td>
+            {{/* Two answers, because there are two situations. Either this is
+                 somebody td already knows under a different handle, or it is
+                 a different person who happens to share a first name. The
+                 second is the common one here: the collision is why the row
+                 exists at all. */}}
             <form action="/w/planner/map" method="post" class="td-inline">
               <input type="hidden" name="source" value="{{.Source}}">
               <input type="hidden" name="source_user" value="{{.SourceUser}}">
+              <input type="hidden" name="name" value="{{.Name}}">
+              <input type="hidden" name="email" value="{{.Email}}">
+
               <select class="td-input" name="handle">
-                <option value="">who is this?</option>
+                <option value="">somebody already here…</option>
                 {{range $.Planner.People}}<option value="{{.Handle}}">{{.Name}} (@{{.Handle}})</option>{{end}}
               </select>
               <button class="td-linkbtn" type="submit">map</button>
+
+              <span class="td-dim">or</span>
+
+              <input class="td-input td-unresolved__handle" type="text"
+                     name="new_handle" value="{{.Suggested}}"
+                     placeholder="a new handle">
+              <button class="td-linkbtn" type="submit" name="create" value="1">add as new</button>
             </form>
           </td>
         </tr>

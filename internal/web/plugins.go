@@ -28,6 +28,9 @@ type plannerView struct {
 	Account   string
 	Plans     string
 	Interval  int
+	// Everything is the whole-plan opt-in. A Planner plan is a team board, so
+	// the default is what is assigned to you.
+	Everything bool
 
 	LastRunAt  string
 	LastResult string
@@ -43,6 +46,15 @@ type unresolvedRow struct {
 	SourceUser string
 	Who        string
 	Reason     string
+
+	// Name and Email travel with the row so a new person can be made from
+	// them without asking for anything already known.
+	Name  string
+	Email string
+	// Suggested is a free handle derived from the full name. The reason most
+	// of these are unresolved is that the first name is taken, so the useful
+	// default is the one that is not: stacey-kennedy rather than stacey.
+	Suggested string
 }
 
 type personChoice struct {
@@ -75,7 +87,8 @@ func (u *UI) plannerSection(ctx context.Context) plannerView {
 	}
 
 	var settings struct {
-		Plans []string `json:"plans"`
+		Plans   []string `json:"plans"`
+		Include string   `json:"include"`
 	}
 	if len(cfg.Settings) > 0 {
 		_ = json.Unmarshal(cfg.Settings, &settings)
@@ -83,6 +96,7 @@ func (u *UI) plannerSection(ctx context.Context) plannerView {
 	// One per line in the textarea: a plan id is long and opaque, and a
 	// comma-separated field of them is unreadable.
 	out.Plans = strings.Join(settings.Plans, "\n")
+	out.Everything = settings.Include == "all"
 
 	if cfg.LastRunAt != nil {
 		out.LastRunAt = *cfg.LastRunAt
@@ -102,35 +116,46 @@ func (u *UI) plannerSection(ctx context.Context) plannerView {
 		}
 	}
 
+	var pending []sync.Unresolved
 	if len(cfg.LastUnresolved) > 0 {
-		var pending []sync.Unresolved
-		if json.Unmarshal(cfg.LastUnresolved, &pending) == nil {
-			for _, p := range pending {
-				who := p.Name
-				if p.Email != "" {
-					who = strings.TrimSpace(who + " <" + p.Email + ">")
-				}
-				if who == "" {
-					who = p.SourceUser
-				}
-				out.Unresolved = append(out.Unresolved, unresolvedRow{
-					Source: p.Source, SourceUser: p.SourceUser,
-					Who: who, Reason: p.Reason,
-				})
+		_ = json.Unmarshal(cfg.LastUnresolved, &pending)
+	}
+	if len(pending) == 0 {
+		return out
+	}
+
+	// The existing people are needed twice: to offer as choices, and to know
+	// which handles are taken so a suggestion does not collide with one.
+	taken := map[string]bool{}
+	if lister, ok := u.svc.(interface {
+		People(ctx context.Context) ([]api.Person, error)
+	}); ok {
+		if people, err := lister.People(ctx); err == nil {
+			for _, p := range people {
+				out.People = append(out.People, personChoice{Handle: p.Handle, Name: p.Name})
+				taken[p.Handle] = true
 			}
 		}
 	}
-	if len(out.Unresolved) > 0 {
-		if lister, ok := u.svc.(interface {
-			People(ctx context.Context) ([]api.Person, error)
-		}); ok {
-			people, err := lister.People(ctx)
-			if err == nil {
-				for _, p := range people {
-					out.People = append(out.People, personChoice{Handle: p.Handle, Name: p.Name})
-				}
-			}
+
+	for _, p := range pending {
+		who := p.Name
+		if p.Email != "" {
+			who = strings.TrimSpace(who + " <" + p.Email + ">")
 		}
+		if who == "" {
+			who = p.SourceUser
+		}
+		suggested := suggestHandle(p.Name, p.Email, taken)
+		// Reserved as it is suggested, so two new people in the same batch do
+		// not both get offered the same handle and the second one fail.
+		taken[suggested] = true
+
+		out.Unresolved = append(out.Unresolved, unresolvedRow{
+			Source: p.Source, SourceUser: p.SourceUser,
+			Who: who, Reason: p.Reason,
+			Name: p.Name, Email: p.Email, Suggested: suggested,
+		})
 	}
 	return out
 }
@@ -157,7 +182,12 @@ func (u *UI) savePlanner(w http.ResponseWriter, r *http.Request) {
 			plans = append(plans, id)
 		}
 	}
-	settings, err := json.Marshal(map[string]any{"plans": plans})
+	// Assigned unless the whole board was asked for on purpose.
+	include := "assigned"
+	if r.PostFormValue("everything") != "" {
+		include = "all"
+	}
+	settings, err := json.Marshal(map[string]any{"plans": plans, "include": include})
 	if err != nil {
 		u.fail(w, r, err)
 		return
@@ -254,4 +284,62 @@ func (u *UI) renderFragment(w http.ResponseWriter, page string, data pageData) {
 	if err := t.ExecuteTemplate(w, "body", data); err != nil {
 		u.log.Error("render fragment", "page", page, "err", err)
 	}
+}
+
+// suggestHandle proposes a free handle for somebody new.
+//
+// The whole reason most of these are unresolved is that their first name is
+// already taken, so suggesting the first name again would be suggesting the
+// thing that does not work. The full name is what distinguishes them:
+// "Stacey Kennedy" becomes stacey-kennedy. A name with nothing usable in it
+// falls back to the address, and a collision gets a number rather than an
+// error somebody has to read and fix by hand.
+func suggestHandle(name, email string, taken map[string]bool) string {
+	base := slugHandle(name)
+	if base == "" {
+		base = slugHandle(localPart(email))
+	}
+	if base == "" {
+		return ""
+	}
+	if !taken[base] {
+		return base
+	}
+	for n := 2; n < 100; n++ {
+		candidate := base + "-" + strconv.Itoa(n)
+		if !taken[candidate] {
+			return candidate
+		}
+	}
+	return base
+}
+
+// slugHandle turns a display name into what you would type after @.
+func slugHandle(name string) string {
+	var parts []string
+	for _, word := range strings.Fields(strings.ToLower(name)) {
+		var b strings.Builder
+		for _, r := range word {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+				b.WriteRune(r)
+			}
+		}
+		if b.Len() > 0 {
+			parts = append(parts, b.String())
+		}
+	}
+	// Two parts at most. A middle name in a directory entry should not become
+	// a handle nobody wants to type.
+	if len(parts) > 2 {
+		parts = parts[:2]
+	}
+	return strings.Join(parts, "-")
+}
+
+func localPart(email string) string {
+	at := strings.IndexByte(email, '@')
+	if at <= 0 {
+		return ""
+	}
+	return email[:at]
 }

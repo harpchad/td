@@ -18,6 +18,63 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  The mirror takes what is assigned to you, not the whole board
+Phase: 11, corrected
+
+Reported from the deployment: a task nobody had assigned to the author turned
+up in their list.
+
+It was doing exactly what it was written to do. `GET /planner/plans/{id}/tasks`
+returns the whole plan, and there was no filter anywhere. A Planner plan is a
+team board, so the mirror was importing everybody's work into a list whose one
+job is answering "what should I do next".
+
+Decided: the default is what is assigned to the signed-in account, and the
+whole plan is a checkbox you tick on purpose. Planner keys assignments by
+directory object id and stores nothing else about them, so this is an exact
+match on a map key. A card with no assignees is not yours either: unassigned on
+a shared board means nobody has picked it up.
+
+Getting the object id needed `openid` and `profile` on the sign-in, which is
+what makes an id token come back. That is where `oid` is, it costs no extra
+call and no extra permission, and it also fixes the settings page, which had
+been showing an empty account name for the same reason. `sub` is deliberately
+not a fallback: it is per-application, not the directory id, and a wrong id
+here would silently mirror nothing.
+
+The filter runs before the gone pass, so a task reassigned away from you leaves
+the mirror the same way one that was deleted does. That conflates two reasons
+under one flag, which is the simpler rule and the one that matches what
+somebody wants to happen.
+
+A credential stored before this existed has no object id. Rather than silently
+mirroring the whole board, which is the behaviour somebody is trying to get
+away from, the run fails and says to reconnect.
+
+Reversible: one function and one setting.
+
+## 2026-08-01  The unmatched list can add somebody new
+Phase: 11, corrected
+
+The settings page offered a dropdown of existing people and nothing else, and
+the author hit the case that makes that useless: two different Staceys, neither
+of whom is the Stacey already in the list.
+
+That was the common case, not the edge one. A row appears there because of a
+handle collision, and a handle collision usually means a different person who
+happens to share a first name. Offering only "pick from the list" offered the
+one answer that is wrong.
+
+Decided: each row carries both answers. The name and address already travel
+with the unresolved record, so adding somebody new asks for nothing but a
+handle, and even that is pre-filled from the full name: Stacey Kennedy is
+offered `stacey-kennedy`, deduped against what is already taken and against
+the other suggestions in the same batch.
+
+This is also the first way to create a person from anywhere but the API.
+`POST /api/v1/people` existed and nothing reached it, which is worth noticing
+separately.
+
 ## 2026-08-01  Selected text is styled, rather than left to the browser
 Phase: 11, corrected
 

@@ -40,6 +40,12 @@ func Run(ctx context.Context, c *Client, api Poster, now time.Time, loc *time.Lo
 		everything = append(everything, tasks...)
 	}
 
+	// Only what is assigned to you, unless the whole plan was asked for. This
+	// happens before anything else looks at the list, so the gone pass below
+	// subtracts against the same set: a task reassigned away from you leaves
+	// the mirror the same way one that was deleted does.
+	everything = AssignedTo(everything, c.Config.AssignedTo)
+
 	users, err := c.Users(ctx, UserIDs(everything))
 	if err != nil {
 		return total, err

@@ -42,6 +42,12 @@ var Scopes = []string{
 	"https://graph.microsoft.com/Tasks.Read",
 	"https://graph.microsoft.com/User.ReadBasic.All",
 	"offline_access",
+	// openid and profile are what make an id token come back, and the id
+	// token is where the signed-in account's object id is. Without them the
+	// mirror cannot tell which assignments are yours, and the settings page
+	// cannot say who it is connected as.
+	"openid",
+	"profile",
 }
 
 // ErrAuthorizationPending is the poll result meaning the person has not
@@ -107,6 +113,11 @@ type Credential struct {
 	// Account is who signed in, shown on the settings page so it is obvious
 	// which identity the mirror is reading as.
 	Account string `json:"account,omitempty"`
+	// UserID is the signed-in account's directory object id. Planner keys its
+	// assignments by that id and nothing else, so it is what "assigned to me"
+	// is decided on. It comes off the id token, which costs no extra call and
+	// no extra permission.
+	UserID string `json:"user_id,omitempty"`
 	// AccessToken and ExpiresAt cache the short-lived half, so a run every
 	// fifteen minutes is not a token request every fifteen minutes.
 	AccessToken string `json:"access_token,omitempty"`
@@ -193,11 +204,13 @@ func (c *Client) PollDeviceCode(ctx context.Context, cfg Config, deviceCode stri
 		return Credential{}, errors.New("microsoft returned no refresh token: check that offline_access is consented and the app allows public client flows")
 	}
 
+	account, userID := identityFromIDToken(res.IDToken)
 	return Credential{
 		Config:       cfg,
 		RefreshToken: res.RefreshToken,
 		AccessToken:  res.AccessToken,
-		Account:      accountFromIDToken(res.IDToken),
+		Account:      account,
+		UserID:       userID,
 		ExpiresAt:    time.Now().Add(time.Duration(res.ExpiresIn) * time.Second).UTC().Format(time.RFC3339),
 	}, nil
 }
@@ -275,36 +288,42 @@ func (c *Client) post(ctx context.Context, endpoint string, form url.Values) ([]
 	return body, nil
 }
 
-// accountFromIDToken reads the sign-in name out of the id token for display.
+// identityFromIDToken reads who signed in out of the id token.
 //
-// The payload is read without verifying the signature, which is safe only
-// because of what it is used for: a label on a settings page. Nothing is
-// authorized on the strength of it. The token came from a TLS connection to
-// Microsoft in direct response to this request, and the thing that actually
-// carries authority is the refresh token beside it.
-func accountFromIDToken(idToken string) string {
+// The payload is read without verifying the signature, which is safe because
+// of what it is used for: a label on a settings page and a filter on which
+// tasks are yours. Nothing is authorized on the strength of it. The token came
+// from a TLS connection to Microsoft in direct response to this request, and
+// the thing that carries authority is the refresh token beside it.
+func identityFromIDToken(idToken string) (account, userID string) {
 	parts := strings.Split(idToken, ".")
 	if len(parts) != 3 {
-		return ""
+		return "", ""
 	}
 	payload, err := base64URLDecode(parts[1])
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	var claims struct {
+		OID               string `json:"oid"`
+		Subject           string `json:"sub"`
 		PreferredUsername string `json:"preferred_username"`
 		Email             string `json:"email"`
 		Name              string `json:"name"`
 	}
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return ""
+		return "", ""
 	}
 	for _, candidate := range []string{claims.PreferredUsername, claims.Email, claims.Name} {
 		if candidate != "" {
-			return candidate
+			account = candidate
+			break
 		}
 	}
-	return ""
+	// oid is the directory object id and is what Planner keys assignments by.
+	// sub is per-application and is not, so it is deliberately not a fallback:
+	// a wrong id here would silently mirror nothing.
+	return account, claims.OID
 }
 
 func truncate(body []byte) string {

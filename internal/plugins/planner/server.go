@@ -36,7 +36,17 @@ type Settings struct {
 	// Endpoint overrides the Graph base URL for a sovereign cloud, and is what
 	// the tests point at a local server.
 	Endpoint string `json:"endpoint,omitempty"`
+	// Include is "assigned" or "all". Empty means assigned.
+	//
+	// A Planner plan is a team board, and mirroring all of it puts everybody
+	// else's work into a list whose whole job is answering "what should I do
+	// next". Assigned is the default and the whole board is opt-in.
+	Include string `json:"include,omitempty"`
 }
+
+// EverythingInThePlan reports whether the settings ask for the whole board
+// rather than only what is assigned to the signed-in account.
+func (s Settings) EverythingInThePlan() bool { return s.Include == "all" }
 
 // ParseSettings reads what the web UI stored.
 func ParseSettings(raw json.RawMessage) (Settings, error) {
@@ -146,11 +156,24 @@ func (r *Runner) run(ctx context.Context, cfg store.PluginConfig, relink bool, n
 		}
 	}
 
+	assignedTo := refreshed.UserID
+	if settings.EverythingInThePlan() {
+		assignedTo = ""
+	} else if assignedTo == "" {
+		// A credential stored before the sign-in started asking for an id
+		// token. Mirroring the whole board silently would be the wrong way to
+		// fail: it is the behaviour somebody is trying to get away from.
+		return sync.Result{}, fmt.Errorf(
+			"this connection predates the assignee filter and does not know which account it is. " +
+				"Disconnect and connect again, or set the mirror to the whole plan on purpose")
+	}
+
 	graph := New(Config{
 		PlanIDs:         settings.PlanIDs,
 		GraphToken:      token,
 		TaskURLTemplate: settings.TaskURLTemplate,
 		Endpoint:        settings.Endpoint,
+		AssignedTo:      assignedTo,
 		Relink:          relink,
 	})
 	return Run(ctx, graph, storePoster{store: r.Store, now: now}, now, r.Loc)

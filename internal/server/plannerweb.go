@@ -154,7 +154,13 @@ func (s *Server) plannerRunNow(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
-// plannerMap answers one unresolved identity.
+// plannerMap answers one unresolved identity, either by naming somebody td
+// already knows or by adding them as a new person.
+//
+// The second half is not a nicety. The reason most of these rows exist is a
+// handle collision, and a collision usually means this is a different person
+// who happens to share a first name. Offering only "pick from the list" would
+// be offering the one answer that is wrong.
 func (s *Server) plannerMap(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		s.plannerBack(w, r, "could not read that form")
@@ -163,14 +169,36 @@ func (s *Server) plannerMap(w http.ResponseWriter, r *http.Request) {
 	handle := strings.TrimPrefix(strings.TrimSpace(r.PostFormValue("handle")), "@")
 	source := r.PostFormValue("source")
 	external := r.PostFormValue("source_user")
-	if handle == "" {
-		s.plannerBack(w, r, "pick who that is first")
-		return
-	}
 
-	person, err := s.store.ResolvePerson(r.Context(), handle)
-	if err != nil {
-		s.plannerBack(w, r, "no person @"+handle)
+	var person api.Person
+	var err error
+	switch {
+	case handle != "":
+		person, err = s.store.ResolvePerson(r.Context(), handle)
+		if err != nil {
+			s.plannerBack(w, r, "no person @"+handle)
+			return
+		}
+
+	case strings.TrimSpace(r.PostFormValue("new_handle")) != "":
+		newHandle := strings.TrimPrefix(strings.TrimSpace(r.PostFormValue("new_handle")), "@")
+		name := strings.TrimSpace(r.PostFormValue("name"))
+		if name == "" {
+			name = newHandle
+		}
+		person, err = s.store.CreatePerson(r.Context(), api.Person{
+			Name: name, Handle: newHandle,
+			// The address comes across too, so a second source reporting the
+			// same person resolves on it rather than asking again.
+			Email: strings.TrimSpace(r.PostFormValue("email")),
+		}, s.Now())
+		if err != nil {
+			s.plannerBack(w, r, "could not add @"+newHandle+": "+message(err))
+			return
+		}
+
+	default:
+		s.plannerBack(w, r, "pick who that is, or give a handle to add them as somebody new")
 		return
 	}
 	if err := s.store.LinkIdentity(r.Context(), person.ID, source, external); err != nil {

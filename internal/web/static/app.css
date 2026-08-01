@@ -303,6 +303,11 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
 
 .td-inline { display: inline-flex; gap: var(--td-gap); align-items: center; }
 
+/* The unresolved-people row carries two answers on one line, so it needs to
+ * wrap rather than push the table wide. */
+.td-unresolved .td-inline { flex-wrap: wrap; }
+.td-unresolved__handle { width: 18ch; }
+
 /* ---------------------------------------------------------------- */
 /* mobile: same grid, bigger targets                                */
 

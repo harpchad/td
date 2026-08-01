@@ -270,6 +270,10 @@ func TestTheServerSideMirrorWorkflow(t *testing.T) {
 	cred, err := json.Marshal(map[string]any{
 		"config":        map[string]string{"client_id": "c", "tenant_id": "t"},
 		"refresh_token": "rt", "account": "chad@example.invalid",
+		// The directory object id, which is what Planner keys assignments by
+		// and therefore what "assigned to me" is decided on. The fixture
+		// assigns exactly one task to it.
+		"user_id":      "8f3d2e11-0000-4a2b-9c3d-000000000001",
 		"access_token": "graph-token", "expires_at": ts.now.Add(time.Hour).UTC().Format(time.RFC3339),
 	})
 	if err != nil {
@@ -287,16 +291,24 @@ func TestTheServerSideMirrorWorkflow(t *testing.T) {
 	if len(due) != 1 {
 		t.Fatalf("%d plugins due, want the configured one", len(due))
 	}
-	if resp := postForm(t, ts, session, "/w/planner/run", url.Values{}); resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("run = %d", resp.StatusCode)
+	runResp := postForm(t, ts, session, "/w/planner/run", url.Values{})
+	if runResp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("run = %d", runResp.StatusCode)
+	}
+	// The redirect carries any failure, so a run that quietly did nothing is
+	// not mistaken for a run that worked.
+	if loc := runResp.Header.Get("Location"); strings.Contains(loc, "?e=") {
+		t.Fatalf("the run failed: %s", loc)
 	}
 
+	// Only what is assigned to this account. A plan is a team board, and the
+	// other two tasks in the fixture belong to nobody or to somebody else.
 	mirrored, err := ts.store.List(t.Context(), "src:planner", ts.now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mirrored) != 3 {
-		t.Fatalf("%d mirrored tasks, want the fixture's 3", len(mirrored))
+	if len(mirrored) != 1 {
+		t.Fatalf("%d mirrored tasks, want only the one assigned to me", len(mirrored))
 	}
 
 	// 4. The settings page shows who it would not guess at, with a dropdown.
@@ -304,7 +316,13 @@ func TestTheServerSideMirrorWorkflow(t *testing.T) {
 	if !strings.Contains(html, "People it would not guess at") {
 		t.Fatal("the settings page does not show the unmatched people")
 	}
-	for _, want := range []string{"Stacey Whitlock", `name="source_user"`, "who is this?"} {
+	// Both answers are offered: somebody already here, or add as new. The
+	// second is the common one, since a handle collision usually means a
+	// different person who shares a first name.
+	for _, want := range []string{
+		"Stacey Whitlock", `name="source_user"`,
+		"somebody already here", `name="new_handle"`, "add as new",
+	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("the unmatched list has no %q", want)
 		}
@@ -425,5 +443,62 @@ func TestTheDeviceCodeNeverTravelsInAURL(t *testing.T) {
 	if !strings.Contains(html, `action="/w/planner/connect" method="post"`) &&
 		!strings.Contains(html, `action="/w/planner/connect"`) {
 		t.Error("the connect form has no explicit action")
+	}
+}
+
+// TestAddingSomebodyNewFromTheUnmatchedList is the answer to the case that
+// actually happens: two different people who share a first name. Offering
+// only "pick from the list" would offer the one answer that is wrong.
+func TestAddingSomebodyNewFromTheUnmatchedList(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	// The fixture already has a Stacey, so this one cannot take that handle.
+	if resp := postForm(t, ts, session, "/w/planner/map", url.Values{
+		"source": {"planner"}, "source_user": {"graph-kennedy"},
+		"name": {"Stacey Kennedy"}, "email": {"skennedy@example.invalid"},
+		"new_handle": {"stacey-kennedy"}, "create": {"1"},
+	}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("add = %d", resp.StatusCode)
+	}
+
+	added, err := ts.store.PersonByHandle(t.Context(), "stacey-kennedy")
+	if err != nil {
+		t.Fatalf("the new person was not created: %v", err)
+	}
+	if added.Name != "Stacey Kennedy" {
+		t.Errorf("name = %q", added.Name)
+	}
+	// The address comes across, so a second source reporting the same person
+	// resolves on it rather than asking again.
+	if added.Email != "skennedy@example.invalid" {
+		t.Errorf("email = %q", added.Email)
+	}
+
+	// And the identity is mapped to them, not to the existing Stacey.
+	found, err := ts.store.PersonByIdentity(t.Context(), "planner", "graph-kennedy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.ID != added.ID {
+		t.Error("the identity landed on the wrong person")
+	}
+	existing, err := ts.store.PersonByHandle(t.Context(), "stacey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.ID == existing.ID {
+		t.Fatal("two different people were merged, which is the thing this exists to prevent")
+	}
+
+	// A handle already in use is refused rather than merging.
+	if resp := postForm(t, ts, session, "/w/planner/map", url.Values{
+		"source": {"planner"}, "source_user": {"graph-stewart"},
+		"name": {"Stacey Stewart"}, "new_handle": {"stacey"},
+	}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("collision = %d", resp.StatusCode)
+	}
+	if _, err := ts.store.PersonByIdentity(t.Context(), "planner", "graph-stewart"); err == nil {
+		t.Error("a colliding handle was accepted and mapped anyway")
 	}
 }

@@ -435,7 +435,10 @@ Then, in **Settings → Microsoft Planner**:
 1. Paste your plan ids, one per line. Find them with `GET /me/planner/plans`
    in [Graph Explorer](https://developer.microsoft.com/graph/graph-explorer),
    or lift one out of a Planner URL.
-2. Set the interval and tick **run this on a schedule**.
+2. Set the interval and tick **run this on a schedule**. By default only the
+   tasks assigned to you are mirrored; a plan is a team board, and everybody
+   else's work does not belong in a list whose job is answering what you
+   should do next. Tick **the whole plan** if you want all of it.
 3. **Connect**, enter the code it shows at
    [microsoft.com/devicelogin](https://microsoft.com/devicelogin), and sign in.
 
@@ -459,9 +462,13 @@ created.
 
 It never matches on a name. Two people called Stacey is ordinary, and merging
 them is not something you notice afterwards by looking at the list. Anything it
-will not place is listed on the settings page with a dropdown: say who each one
-is, and the answer is permanent. Filling in `email` on your people avoids the
-question entirely.
+will not place is listed on the settings page with two answers: pick somebody
+already there, or add them as a new person under a handle that is free. The
+second is usually the right one, because a handle collision normally means a
+different person who happens to share a first name; the handle is pre-filled
+from their full name, so Stacey Kennedy is offered `stacey-kennedy`. Either
+answer is permanent. Filling in `email` on your people avoids the question
+entirely.
 
 ### Field ownership
 
