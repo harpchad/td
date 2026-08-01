@@ -444,6 +444,17 @@ func subcommand(args []string, dbPath, tz string) error {
 			return fmt.Errorf("unknown account command %q", rest[0])
 		}
 
+	case "reset":
+		if len(rest) == 0 || rest[0] != "tasks" {
+			return errors.New(`reset takes: tasks [-source planner] [-yes]`)
+		}
+		st, err := openStore()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = st.Close() }()
+		return resetTasks(context.Background(), st, dbPath, rest[1:], os.Stdin, os.Stdout)
+
 	case "token":
 		st, err := openStore()
 		if err != nil {

@@ -785,3 +785,48 @@ func TestASyncBatchIsUndoable(t *testing.T) {
 		t.Errorf("undoing a plugin batch: %v", err)
 	}
 }
+
+// Assertion: nothing over HTTP can delete a task permanently.
+//
+// `tdd reset tasks` is the one hard delete in td and it is a command on the
+// server, never a route. That is the property that makes an operator-only
+// wrecking tool acceptable: a token cannot reach it, and neither can a
+// compromised client or a confused agent.
+func TestNoRouteHardDeletesATask(t *testing.T) {
+	ts := newServer(t)
+
+	before, err := ts.store.CountTasks(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == 0 {
+		t.Fatal("no tasks to try to delete")
+	}
+
+	// DELETE on a task is a drop, not a delete: the activity feed is supposed
+	// to show what you abandoned.
+	if resp, _ := do(t, ts, http.MethodDelete, "/api/v1/tasks/103", nil); resp.StatusCode != http.StatusOK {
+		t.Fatalf("drop = %d", resp.StatusCode)
+	}
+	after, err := ts.store.CountTasks(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Errorf("%d tasks before a drop, %d after: something hard deleted one", before, after)
+	}
+
+	// And no route spelled like a reset exists at all.
+	for _, path := range []string{
+		"/api/v1/reset", "/api/v1/tasks/reset", "/api/v1/reset/tasks",
+		"/api/v1/plugins/planner/reset", "/w/reset",
+	} {
+		for _, method := range []string{http.MethodPost, http.MethodDelete} {
+			resp, _ := do(t, ts, method, path, map[string]any{})
+			if resp.StatusCode != http.StatusNotFound {
+				t.Errorf("%s %s = %d, want 404: a wrecking route must not exist",
+					method, path, resp.StatusCode)
+			}
+		}
+	}
+}

@@ -18,6 +18,41 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-01  One hard delete, on the command line only
+Phase: after v0.1
+
+Section 6 says there is no hard delete anywhere in td, because the activity
+feed is supposed to show what you abandoned, and every ordinary path honours
+it: dropping sets a status, a vanished upstream item sets a flag.
+
+`tdd reset tasks` breaks that, deliberately and in one place. The reason is
+that testing a sync means running it, reading the result, and running it again
+from a known state, and the only way to do that was deleting the database file
+— which also destroys the account, the tokens, and a Microsoft connection
+somebody had just completed a device sign-in for. The friction was pushing
+towards a worse habit than the exception.
+
+What makes it acceptable is where it lives. It is a `tdd` subcommand, never a
+route. A token cannot reach it, nor can a compromised client or a confused
+agent, and a test asserts that no HTTP path hard deletes anything and that no
+route spelled like a reset exists. It also asks you to type `delete` in full
+rather than pressing y.
+
+Scoped two ways, because there are two situations: `-source planner` clears a
+mirror and leaves everything you typed yourself, which is the one you want
+while testing; no source clears the lot.
+
+What it keeps is the part that took the thought: the account and tokens,
+people and their identity mappings, saved filters, and plugin settings and
+credentials. Identity mappings especially, since redoing those by hand between
+two runs is exactly the tedium this exists to remove.
+
+Rejected: an API route, for the reason above. Rejected: making it delete the
+people and plugin config too, which would make it equivalent to deleting the
+file and therefore pointless.
+
+Reversible: one file, one subcommand, and nothing else depends on it.
+
 ## 2026-08-01  The poll dropped what the panel was showing
 Phase: 11, corrected
 

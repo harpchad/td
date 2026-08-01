@@ -498,6 +498,32 @@ like an emptied plan, and only one of those should delete your mirror.
 third-party plugin posts to with a `sync:<source>` token. Both paths land in
 the same code, so the ownership rules cannot differ between them.
 
+## Resetting during testing
+
+Iterating on a sync means running it, looking at what it did, and running it
+again from a known state. Deleting the database file does that, and also
+destroys the account, the tokens, and the Microsoft connection you just signed
+in for.
+
+```sh
+docker exec <container> tdd reset tasks                    # every task
+docker exec <container> tdd reset tasks -source planner    # just one mirror
+docker exec <container> tdd reset tasks -yes               # no prompt, for a script
+```
+
+It asks you to type `delete` in full first, because this is the only operation
+in td that removes something permanently and a reflexive keystroke should not
+be enough.
+
+Kept: the account, sessions and tokens; people, groups and their identity
+mappings; saved filters; and plugin settings and connections. The identity
+mappings especially — they are slow to rebuild and exactly what you do not
+want to redo between two runs of the thing you are testing.
+
+It is a command on the server, never a route. No token can reach it, which is
+what makes an operator-only wrecking tool acceptable at all; a test asserts
+that no HTTP path hard deletes anything.
+
 ## Backup
 
 ```sh

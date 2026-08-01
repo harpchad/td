@@ -314,6 +314,7 @@ const usage = `tdd - the td server
   tdd token create         mint an API token
   tdd token list           list tokens
   tdd token revoke <id>    revoke one
+  tdd reset tasks          delete every task, or one source's, for testing
 
 Flags for the server: see tdd -h
 `

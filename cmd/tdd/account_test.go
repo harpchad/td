@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/harpchad/td/internal/auth"
+	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/store"
 )
 
@@ -18,6 +20,21 @@ func scratchStore(t *testing.T) *store.Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
+
+// seededStore is a scratch store with the fixture's tasks in it, for the
+// commands whose job is removing them.
+func seededStore(t *testing.T) *store.Store {
+	t.Helper()
+	st := scratchStore(t)
+	d, err := seed.Load(filepath.Join("..", "..", "testdata", "seed.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Seed(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
 	return st
 }
 
@@ -257,6 +274,66 @@ func TestAccountLogReadsTheAuthHistory(t *testing.T) {
 	for _, e := range events {
 		if strings.HasPrefix(e.Kind, "auth.") {
 			t.Errorf("the change feed carries %s", e.Kind)
+		}
+	}
+}
+
+// TestResetAsksBeforeItDestroysAnything. This is the only operation in the
+// product that removes something permanently, so a reflexive keystroke must
+// not be enough to do it.
+func TestResetAsksBeforeItDestroysAnything(t *testing.T) {
+	ctx := context.Background()
+
+	for _, answer := range []string{"y\n", "yes\n", "\n", "DELETE\n", "no\n"} {
+		st := seededStore(t)
+		var out bytes.Buffer
+		if err := resetTasks(ctx, st, "test.db", nil, strings.NewReader(answer), &out); err != nil {
+			t.Fatal(err)
+		}
+		left, err := st.List(ctx, "", time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(left) == 0 {
+			t.Errorf("answering %q deleted everything", strings.TrimSpace(answer))
+		}
+		if !strings.Contains(out.String(), "Left alone") {
+			t.Errorf("answering %q did not say it left things alone", strings.TrimSpace(answer))
+		}
+	}
+
+	// Only the word itself goes through.
+	st := seededStore(t)
+	var out bytes.Buffer
+	if err := resetTasks(ctx, st, "test.db", nil, strings.NewReader("delete\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	left, err := st.List(ctx, "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Errorf("%d tasks left after confirming", len(left))
+	}
+	if !strings.Contains(out.String(), "Removed") {
+		t.Errorf("no summary of what went:\n%s", out.String())
+	}
+}
+
+// TestResetSaysWhatItWillKeep, because the reason it exists is that the blunt
+// alternative destroys the account and the connections too.
+func TestResetSaysWhatItWillKeep(t *testing.T) {
+	st := seededStore(t)
+	var out bytes.Buffer
+	if err := resetTasks(context.Background(), st, "/data/td.db", nil,
+		strings.NewReader("no\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+
+	prompt := out.String()
+	for _, want := range []string{"/data/td.db", "Kept:", "account", "identity mappings", "plugin settings"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the prompt does not mention %q:\n%s", want, prompt)
 		}
 	}
 }
