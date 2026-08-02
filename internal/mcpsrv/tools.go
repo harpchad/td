@@ -169,7 +169,10 @@ func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "search_tasks",
 		Description: "Find tasks with a td filter. The grammar is the same one " +
-			"the command line and the web UI use.",
+			"the command line and the web UI use. This is the tool for any " +
+			"question whats_next would narrow, including \"is anything open\": " +
+			"is:open covers every status except done and dropped, the inbox " +
+			"included. Results carry the tasks, not only a count.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.searchTasks)
 
@@ -183,7 +186,8 @@ func (s *Server) register(server *mcp.Server) {
 		Name: "capture",
 		Description: "Drop something into the inbox. This is the tool to reach " +
 			"for mid-conversation: it never asks for a priority or a date, and " +
-			"what lands in the inbox gets sorted later.",
+			"what lands in the inbox gets sorted later. What you capture will " +
+			"not show up in whats_next until the owner triages it.",
 	}, s.capture)
 
 	mcp.AddTool(server, &mcp.Tool{
