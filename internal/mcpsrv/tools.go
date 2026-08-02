@@ -72,6 +72,10 @@ type searchArgs struct {
 type taskListResult struct {
 	Tasks []TaskView `json:"tasks"`
 	Total int        `json:"total"`
+	// Filter is the query that produced this list. whats_next applies one of
+	// its own, and a caller comparing its count against a search of is:open
+	// has no way to see why they differ unless the answer says what it asked.
+	Filter string `json:"filter,omitempty"`
 }
 
 type refArgs struct {
@@ -219,9 +223,11 @@ func (s *Server) register(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "whats_next",
-		Description: "The top of the list in td's default order: overdue " +
+		Description: "The top of your own list in td's default order: overdue " +
 			"first, then due today, then by priority. Ask this for \"what " +
-			"should I do now\".",
+			"should I do now\". It applies the home filter, which excludes " +
+			"tasks synced from another system, the inbox, and anything " +
+			"snoozed or deferred. Use search_tasks when you want everything.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.whatsNext)
 
@@ -238,7 +244,8 @@ func (s *Server) searchTasks(ctx context.Context, _ *mcp.CallToolRequest, args s
 	if _, err := requireScope(ctx, api.ScopeRead); err != nil {
 		return fail(err)
 	}
-	tasks, err := s.store.List(ctx, trim(args.Query), s.clock())
+	filter := trim(args.Query)
+	tasks, err := s.store.List(ctx, filter, s.clock())
 	if err != nil {
 		return fail(err)
 	}
@@ -246,7 +253,9 @@ func (s *Server) searchTasks(ctx context.Context, _ *mcp.CallToolRequest, args s
 	if args.Limit > 0 && len(tasks) > args.Limit {
 		tasks = tasks[:args.Limit]
 	}
-	return ok(plural(total, "task", "tasks")+" match", taskListResult{Tasks: views(tasks), Total: total})
+	return ok(plural(total, "task", "tasks")+" match", taskListResult{
+		Tasks: views(tasks), Total: total, Filter: filter,
+	})
 }
 
 func (s *Server) getTask(ctx context.Context, _ *mcp.CallToolRequest, args refArgs) (*mcp.CallToolResult, any, error) {
@@ -272,7 +281,8 @@ func (s *Server) whatsNext(ctx context.Context, _ *mcp.CallToolRequest, args lim
 	// The same filter the home view uses. Mirrors are excluded because a
 	// read-only Jira backlog buries your own list, and snoozed and deferred
 	// tasks are hidden on purpose.
-	tasks, err := s.store.List(ctx, "is:open src:local -is:inbox -is:snoozed -is:deferred", s.clock())
+	const homeFilter = "is:open src:local -is:inbox -is:snoozed -is:deferred"
+	tasks, err := s.store.List(ctx, homeFilter, s.clock())
 	if err != nil {
 		return fail(err)
 	}
@@ -280,7 +290,17 @@ func (s *Server) whatsNext(ctx context.Context, _ *mcp.CallToolRequest, args lim
 	if len(tasks) > limit {
 		tasks = tasks[:limit]
 	}
-	return ok(plural(total, "task is", "tasks are")+" open", taskListResult{Tasks: views(tasks), Total: total})
+
+	// The summary names the filter rather than claiming something about every
+	// task. "0 tasks are open" was read, reasonably, as a statement about the
+	// whole list, and it disagreed with what search_tasks said about is:open a
+	// minute later. This tool answers a narrower question and now says so.
+	summary := plural(total, "task", "tasks") + " on your own list (" + homeFilter + ")"
+	if total == 0 {
+		summary = "nothing on your own list (" + homeFilter + "). " +
+			"Synced tasks and the inbox are excluded here; search_tasks with is:open counts everything."
+	}
+	return ok(summary, taskListResult{Tasks: views(tasks), Total: total, Filter: homeFilter})
 }
 
 func (s *Server) listPeople(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {

@@ -17,6 +17,7 @@ package mcpsrv
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -183,10 +184,39 @@ func message(err error) string {
 // ok wraps a structured result. The text content is a one-line summary so a
 // client that only renders text still says something useful; the structured
 // content is what a model should read.
+// ok builds a successful tool result.
+//
+// Two text blocks and the structured value. The summary is the one-line lead;
+// the second block is the same data serialized, which the specification asks
+// for in as many words: "For backwards compatibility, a tool that returns
+// structured content SHOULD also return the serialized JSON in a TextContent
+// block."
+//
+// Skipping it is not a theoretical incompatibility. A client that reads only
+// `content` saw "50 tasks match" and no tasks, then reported that this server
+// returns counts instead of results, which is exactly what it looked like from
+// the other end.
 func ok(summary string, out any) (*mcp.CallToolResult, any, error) {
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: summary}},
-	}, out, nil
+	content := []mcp.Content{&mcp.TextContent{Text: summary}}
+	if body := serialized(out); body != "" {
+		content = append(content, &mcp.TextContent{Text: body})
+	}
+	return &mcp.CallToolResult{Content: content}, out, nil
+}
+
+// serialized renders a tool result for the text block, or empty if it will not
+// encode. That failure needs no report here: the same value is marshalled
+// again as structured content, so a value that cannot be encoded surfaces
+// there rather than being silently dropped in two places.
+func serialized(out any) string {
+	if out == nil {
+		return ""
+	}
+	body, err := json.Marshal(out)
+	if err != nil {
+		return ""
+	}
+	return string(body)
 }
 
 func plural(n int, one, many string) string {

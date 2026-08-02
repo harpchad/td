@@ -18,6 +18,37 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-02  A tool result has to carry its data where clients look
+Phase: after v0.1
+
+A connector reported that td's search returns match counts and no tasks. It
+was right about the symptom and wrong about the cause, which it guessed was
+the handler building a list and sending only `len`. The handlers were building
+the list correctly and putting it in `structuredContent`. What they were not
+doing was the sentence in the tools specification: "For backwards
+compatibility, a tool that returns structured content SHOULD also return the
+serialized JSON in a TextContent block."
+
+`ok()` set `Content` to the one-line summary. Because the handler supplies
+`Content` itself, the SDK does not fill it in from the structured value, so a
+client reading `content` saw "50 tasks match" and nothing else. A SHOULD we
+skipped looked from the outside like a serialization bug in our handler.
+
+The second report was that `whats_next` said nothing was open while a search
+for `is:open` found three, and that the two code paths disagreed. They do not.
+`whats_next` applies the home filter, which excludes synced mirrors, the
+inbox, and anything snoozed or deferred. The bug there was the wording: "0
+tasks are open" is a claim about every task, and that is not what it measured.
+It now names the filter it ran, and both list results carry it in the payload.
+
+Not changed, and worth a decision of its own later: `whats_next` hardcodes the
+home filter, while the web UI's home reads saved filter slot 1. Edit slot 1 and
+the two diverge, and the comment claiming they are the same becomes false.
+Making the tool read slot 1 would fix that and would let somebody whose real
+work is a synced mirror put it back in their own list without a code change.
+That is a behavior change rather than a bug fix, so it is being offered rather
+than taken.
+
 ## 2026-08-01  The consent screen has to be allowed to leave
 Phase: after v0.1
 

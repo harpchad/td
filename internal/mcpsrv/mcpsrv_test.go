@@ -434,3 +434,51 @@ func TestCompletingSaysWhatItDidNotDo(t *testing.T) {
 		t.Errorf("the result does not mention the open subtask: %s", text(res))
 	}
 }
+
+// TestEveryResultCarriesItsDataAsText.
+//
+// The specification says a tool returning structured content SHOULD also
+// return the serialized JSON in a TextContent block, and skipping it is not a
+// theoretical incompatibility: a client reading only `content` saw
+// "50 tasks match" with no tasks and reported that this server returns counts
+// instead of results. From the other end that is exactly what it looked like.
+func TestEveryResultCarriesItsDataAsText(t *testing.T) {
+	_, session := serve(t, api.ScopeRead)
+
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+		want string
+	}{
+		{"search_tasks", map[string]any{"query": "is:open"}, `"tasks"`},
+		{"whats_next", map[string]any{"limit": 3}, `"tasks"`},
+		{"list_people", map[string]any{}, `"people"`},
+		{"recent_activity", map[string]any{"limit": 3}, `"events"`},
+	} {
+		res := call(t, session, tc.tool, tc.args, nil)
+		if res.IsError {
+			t.Errorf("%s: %s", tc.tool, text(res))
+			continue
+		}
+		body := text(res)
+		if !strings.Contains(body, tc.want) {
+			t.Errorf("%s returned no %s in its text content:\n  %s", tc.tool, tc.want, body)
+		}
+	}
+}
+
+// TestWhatsNextSaysWhichListItAnswered. Its zero was read as "you have no open
+// tasks" when it meant "none on your own list", and the next call disagreed
+// with it. A summary that names its filter cannot be misread that way.
+func TestWhatsNextSaysWhichListItAnswered(t *testing.T) {
+	_, session := serve(t, api.ScopeRead)
+
+	res := call(t, session, "whats_next", map[string]any{"limit": 3}, nil)
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	body := text(res)
+	if !strings.Contains(body, "src:local") {
+		t.Errorf("whats_next does not say what it filtered on:\n  %s", body)
+	}
+}
