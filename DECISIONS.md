@@ -41,6 +41,24 @@ inbox, and anything snoozed or deferred. The bug there was the wording: "0
 tasks are open" is a claim about every task, and that is not what it measured.
 It now names the filter it ran, and both list results carry it in the payload.
 
+A follow-up round reported the same divergence again, now with the theory that
+the two tools read status differently and that `whats_next` counts a status
+string nothing uses. It does not. `is:open` has exactly one definition,
+`status NOT IN ('done','dropped')`, and `whats_next` puts that literal token in
+its own filter and runs it through the same compiler. Reproduced against a
+container: capture one task, and `is:open` finds it while `whats_next` does
+not, because an inbox task is open by that definition and the home filter
+excludes the inbox. A test now asserts the two agree exactly when given the
+same filter, so the theory cannot be proposed a third time.
+
+The other half of that report was that the summary line is emitted immediately
+before the JSON with no separator, breaking any client parsing the body as
+JSON. That is not what goes over the wire: they are two separate TextContent
+objects in the content array, each with its own text field, and the body is
+valid JSON. Verified by capturing the raw JSON-RPC response. The summary did
+gain a trailing newline, purely so that a client joining the blocks together
+for a model does not render a sentence running into an opening brace.
+
 Not changed, and worth a decision of its own later: `whats_next` hardcodes the
 home filter, while the web UI's home reads saved filter slot 1. Edit slot 1 and
 the two diverge, and the comment claiming they are the same becomes false.

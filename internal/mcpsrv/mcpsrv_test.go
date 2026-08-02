@@ -482,3 +482,58 @@ func TestWhatsNextSaysWhichListItAnswered(t *testing.T) {
 		t.Errorf("whats_next does not say what it filtered on:\n  %s", body)
 	}
 }
+
+// TestWhatsNextAndSearchAgreeOnStatus.
+//
+// Reported from a connector as two code paths reading status differently, with
+// the guess that whats_next counts a status string nothing in the data uses.
+// It does not. `is:open` has one definition, `status NOT IN ('done','dropped')`,
+// and whats_next puts that literal token in its own filter and runs it through
+// the same compiler.
+//
+// What actually differs is the rest of the home filter. An inbox task is open
+// by that definition, and whats_next excludes the inbox, so capture something
+// and the two counts diverge for a reason that has nothing to do with status.
+func TestWhatsNextAndSearchAgreeOnStatus(t *testing.T) {
+	f, session := serve(t, api.ScopeRead, api.ScopeCapture)
+	_ = f
+
+	if res := call(t, session, "capture", map[string]any{"title": "lands in the inbox"}, nil); res.IsError {
+		t.Fatal(text(res))
+	}
+
+	var open, notInbox, home taskCount
+	if res := call(t, session, "search_tasks", map[string]any{"query": "is:open"}, &open); res.IsError {
+		t.Fatal(text(res))
+	}
+	if res := call(t, session, "search_tasks",
+		map[string]any{"query": "is:open -is:inbox"}, &notInbox); res.IsError {
+		t.Fatal(text(res))
+	}
+	// The exact filter whats_next applies, run through search_tasks.
+	if res := call(t, session, "search_tasks",
+		map[string]any{"query": "is:open src:local -is:inbox -is:snoozed -is:deferred"}, &home); res.IsError {
+		t.Fatal(text(res))
+	}
+
+	var next taskCount
+	if res := call(t, session, "whats_next", map[string]any{"limit": 100}, &next); res.IsError {
+		t.Fatal(text(res))
+	}
+
+	// The claim under test: given the same filter, the two tools agree exactly.
+	if next.Total != home.Total {
+		t.Errorf("whats_next = %d but the same filter through search_tasks = %d; "+
+			"these two do read status differently", next.Total, home.Total)
+	}
+	// And the divergence people notice is the inbox, not the status.
+	if open.Total <= notInbox.Total {
+		t.Errorf("is:open (%d) did not include the captured inbox task; "+
+			"is:open -is:inbox = %d", open.Total, notInbox.Total)
+	}
+}
+
+type taskCount struct {
+	Total  int    `json:"total"`
+	Filter string `json:"filter"`
+}

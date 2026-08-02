@@ -197,7 +197,12 @@ func message(err error) string {
 // returns counts instead of results, which is exactly what it looked like from
 // the other end.
 func ok(summary string, out any) (*mcp.CallToolResult, any, error) {
-	content := []mcp.Content{&mcp.TextContent{Text: summary}}
+	// Two blocks, not one string. Nothing is concatenated on the wire: each is
+	// its own TextContent with its own text field, and the response body is
+	// valid JSON either way. The trailing newline is for clients that join the
+	// blocks together to show a model, where a summary running straight into an
+	// opening brace is merely unpleasant to read.
+	content := []mcp.Content{&mcp.TextContent{Text: summary + "\n"}}
 	if body := serialized(out); body != "" {
 		content = append(content, &mcp.TextContent{Text: body})
 	}
