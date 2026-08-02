@@ -568,3 +568,41 @@ func TestTheInstructionsExplainTheModelNotJustTheRules(t *testing.T) {
 		}
 	}
 }
+
+// TestAnEmptyWhatsNextNamesWhatItIsHiding.
+//
+// "Nothing to do" is the wrong answer when a mirrored board is where all the
+// real work lives, and it is worse than wrong because it reads as reassurance.
+// If the only reason the list is empty is a term in the filter, the count that
+// term removed is the useful half of the reply.
+func TestAnEmptyWhatsNextNamesWhatItIsHiding(t *testing.T) {
+	f, session := serve(t, api.ScopeRead, api.ScopeCapture)
+
+	// Everything the owner wrote is done, so the home filter finds nothing.
+	const homeFilter = "is:open src:local -is:inbox -is:snoozed -is:deferred"
+	mine, err := f.store.List(t.Context(), homeFilter, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range mine {
+		if _, err := f.store.Complete(t.Context(), "me", task.ID, f.now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One thing in the inbox, which the home filter also excludes.
+	if res := call(t, session, "capture", map[string]any{"title": "unsorted"}, nil); res.IsError {
+		t.Fatal(text(res))
+	}
+
+	res := call(t, session, "whats_next", map[string]any{"limit": 5}, nil)
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	body := text(res)
+	if !strings.Contains(body, "inbox") {
+		t.Errorf("an empty whats_next did not mention the inbox it is hiding:\n  %s", body)
+	}
+	if strings.Contains(body, "Nothing else is open either") {
+		t.Errorf("it claimed nothing is open while the inbox has something:\n  %s", body)
+	}
+}

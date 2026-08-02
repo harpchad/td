@@ -301,10 +301,43 @@ func (s *Server) whatsNext(ctx context.Context, _ *mcp.CallToolRequest, args lim
 	// minute later. This tool answers a narrower question and now says so.
 	summary := plural(total, "task", "tasks") + " on your own list (" + homeFilter + ")"
 	if total == 0 {
-		summary = "nothing on your own list (" + homeFilter + "). " +
-			"Synced tasks and the inbox are excluded here; search_tasks with is:open counts everything."
+		summary = s.emptySummary(ctx, homeFilter)
 	}
 	return ok(summary, taskListResult{Tasks: views(tasks), Total: total, Filter: homeFilter})
+}
+
+// emptySummary says what an empty answer is hiding.
+//
+// "Nothing to do" is the wrong answer when a mirrored board is where all your
+// real work lives, and it is worse than wrong: it reads as reassurance. If the
+// only reason this list is empty is a term in the filter, the count that term
+// removed is the useful part of the reply, so it is counted and named.
+func (s *Server) emptySummary(ctx context.Context, homeFilter string) string {
+	out := "nothing on your own list (" + homeFilter + ")"
+
+	var hidden []string
+	if n := s.count(ctx, "is:open -src:local"); n > 0 {
+		hidden = append(hidden, plural(n, "synced task is", "synced tasks are")+" open")
+	}
+	if n := s.count(ctx, "is:inbox"); n > 0 {
+		hidden = append(hidden, plural(n, "is", "are")+" waiting in the inbox")
+	}
+	if len(hidden) == 0 {
+		return out + ". Nothing else is open either."
+	}
+	return out + ", but " + strings.Join(hidden, " and ") +
+		". Use search_tasks to read them."
+}
+
+// count runs a filter for its size alone, and reports zero rather than an
+// error: this only ever decorates a summary, and a failed count must not turn
+// a working answer into a failure.
+func (s *Server) count(ctx context.Context, filter string) int {
+	tasks, err := s.store.List(ctx, filter, s.clock())
+	if err != nil {
+		return 0
+	}
+	return len(tasks)
 }
 
 func (s *Server) listPeople(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
