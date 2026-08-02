@@ -155,10 +155,11 @@ and are replaced on the next sync.
 
 Which tool answers which question:
 
-- whats_next is "what should I do now". It answers about the owner's own list
-  only: it excludes mirrors, the inbox, and anything snoozed or deferred. A
+- whats_next is "what should I do now". It covers every source, mirrors
+  included, and excludes only the inbox and anything snoozed or deferred. A
   zero from it does not mean nothing is open, and it is not in conflict with a
-  larger count from search_tasks. It reports the filter it used; read it.
+  larger count from search_tasks. It reports the filter it used; read it, and
+  when it is empty it names what it left out.
 - search_tasks answers everything else. Reach for it whenever you want a count
   or a list that whats_next would narrow, and pass the filter you actually
   mean. Both tools compile the same grammar, so a filter you can write is a

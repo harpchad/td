@@ -18,6 +18,45 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-02  whats_next covers every source
+Phase: after v0.1
+Departs from: BUILD-SPEC section 16, note 4
+
+Note 4 says synced tasks are hidden from the default home filter, and
+`whats_next` copied that filter verbatim. The reasoning there is sound for the
+case the spec imagined: a read-only Jira backlog of four hundred tickets buries
+the eight things you actually wrote down.
+
+It inverts when the mirror is where the real work lives. On a deployment whose
+open work is all Planner, the tool whose entire job is answering "what should I
+do now" answered "nothing" while a board report was due on the 12th. That is
+not a narrow answer, it is a wrong one, and it reads as reassurance.
+
+`whats_next` now filters `is:open -is:inbox -is:snoozed -is:deferred`. Source
+is no longer part of it. The inbox stays out because it is a pile to sort
+rather than a list to work, and snoozed and deferred stay out because you
+already decided they are not for now.
+
+This is a departure from the spec's prose, not from `testdata/`. No fixture
+pins which filter this tool uses; the fixtures pin what a given query returns,
+and every one of them still passes untouched. The home filter case in
+filter_cases.json still describes the web home, which is unchanged: it is a
+saved filter in slot 1 and it still ships with `src:local`.
+
+So the web home and `whats_next` now answer slightly different questions. That
+is deliberate. Home is a list you look at, with an inbox count in the bar and
+a filter box you can edit in a second. `whats_next` is a question asked by
+something that cannot see any of that, and it gets one reply.
+
+Rejected: making the tool read saved filter slot 1, which would have kept the
+two in step and made this configurable. It was the tidier option and it was
+turned down in favour of the simpler default, on the grounds that a tool
+answering "what should I do now" should not need configuring to include the
+work you actually do.
+
+Kept from the previous round: an empty answer still names what it left out,
+now the inbox, snoozed and deferred counts rather than the synced one.
+
 ## 2026-08-02  An agent misusing a server is usually reading a bad server
 Phase: after v0.1
 

@@ -159,9 +159,13 @@ func TestWhatsNextIsTheDefaultOrder(t *testing.T) {
 		}
 	}
 	// Total reports the whole result, not the truncated page, or "3 of 3"
-	// reads as inbox zero when eight things are waiting.
-	if out.Total != 8 {
-		t.Errorf("total = %d, want the full open list", out.Total)
+	// reads as inbox zero when nine things are waiting.
+	//
+	// Nine rather than the home view's eight: whats_next covers every source,
+	// so the seed's one Jira task counts. It sorts fifth, on its due date,
+	// which is the comparator doing the same job it does for anything else.
+	if out.Total != 9 {
+		t.Errorf("total = %d, want the full actionable list", out.Total)
 	}
 }
 
@@ -478,8 +482,14 @@ func TestWhatsNextSaysWhichListItAnswered(t *testing.T) {
 		t.Fatal(text(res))
 	}
 	body := text(res)
-	if !strings.Contains(body, "src:local") {
-		t.Errorf("whats_next does not say what it filtered on:\n  %s", body)
+	for _, term := range []string{"is:open", "-is:inbox", "-is:snoozed", "-is:deferred"} {
+		if !strings.Contains(body, term) {
+			t.Errorf("whats_next does not say it filtered on %s:\n  %s", term, body)
+		}
+	}
+	// And it no longer narrows by source, so it must not claim to.
+	if strings.Contains(body, "src:local") {
+		t.Errorf("whats_next still reports a src:local filter it does not apply:\n  %s", body)
 	}
 }
 
@@ -512,7 +522,7 @@ func TestWhatsNextAndSearchAgreeOnStatus(t *testing.T) {
 	}
 	// The exact filter whats_next applies, run through search_tasks.
 	if res := call(t, session, "search_tasks",
-		map[string]any{"query": "is:open src:local -is:inbox -is:snoozed -is:deferred"}, &home); res.IsError {
+		map[string]any{"query": "is:open -is:inbox -is:snoozed -is:deferred"}, &home); res.IsError {
 		t.Fatal(text(res))
 	}
 
@@ -578,9 +588,9 @@ func TestTheInstructionsExplainTheModelNotJustTheRules(t *testing.T) {
 func TestAnEmptyWhatsNextNamesWhatItIsHiding(t *testing.T) {
 	f, session := serve(t, api.ScopeRead, api.ScopeCapture)
 
-	// Everything the owner wrote is done, so the home filter finds nothing.
-	const homeFilter = "is:open src:local -is:inbox -is:snoozed -is:deferred"
-	mine, err := f.store.List(t.Context(), homeFilter, f.now)
+	// Everything actionable is done, so the filter finds nothing.
+	const nextFilter = "is:open -is:inbox -is:snoozed -is:deferred"
+	mine, err := f.store.List(t.Context(), nextFilter, f.now)
 	if err != nil {
 		t.Fatal(err)
 	}

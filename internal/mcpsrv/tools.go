@@ -227,11 +227,11 @@ func (s *Server) register(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "whats_next",
-		Description: "The top of your own list in td's default order: overdue " +
+		Description: "What is actionable now, in td's default order: overdue " +
 			"first, then due today, then by priority. Ask this for \"what " +
-			"should I do now\". It applies the home filter, which excludes " +
-			"tasks synced from another system, the inbox, and anything " +
-			"snoozed or deferred. Use search_tasks when you want everything.",
+			"should I do now\". It covers tasks from every source, including " +
+			"synced ones, and excludes only the inbox and anything snoozed or " +
+			"deferred. Use search_tasks when you want those too.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.whatsNext)
 
@@ -282,11 +282,18 @@ func (s *Server) whatsNext(ctx context.Context, _ *mcp.CallToolRequest, args lim
 		limit = 5
 	}
 
-	// The same filter the home view uses. Mirrors are excluded because a
-	// read-only Jira backlog buries your own list, and snoozed and deferred
-	// tasks are hidden on purpose.
-	const homeFilter = "is:open src:local -is:inbox -is:snoozed -is:deferred"
-	tasks, err := s.store.List(ctx, homeFilter, s.clock())
+	// Everything actionable, whoever it came from. Snoozed and deferred tasks
+	// are hidden because you decided they are not for now, and the inbox is
+	// hidden because it is a pile to sort rather than a list to work.
+	//
+	// Mirrors are deliberately included, which is a departure from section 16
+	// note 4 and from the web home this used to copy. That note's reasoning
+	// was that a read-only backlog buries your own list. When the mirror is
+	// where the real work lives, the opposite happens: the tool for "what
+	// should I do now" answers "nothing" while a board report is due.
+	// DECISIONS.md carries the argument.
+	const nextFilter = "is:open -is:inbox -is:snoozed -is:deferred"
+	tasks, err := s.store.List(ctx, nextFilter, s.clock())
 	if err != nil {
 		return fail(err)
 	}
@@ -299,11 +306,11 @@ func (s *Server) whatsNext(ctx context.Context, _ *mcp.CallToolRequest, args lim
 	// task. "0 tasks are open" was read, reasonably, as a statement about the
 	// whole list, and it disagreed with what search_tasks said about is:open a
 	// minute later. This tool answers a narrower question and now says so.
-	summary := plural(total, "task", "tasks") + " on your own list (" + homeFilter + ")"
+	summary := plural(total, "task is", "tasks are") + " actionable now (" + nextFilter + ")"
 	if total == 0 {
-		summary = s.emptySummary(ctx, homeFilter)
+		summary = s.emptySummary(ctx, nextFilter)
 	}
-	return ok(summary, taskListResult{Tasks: views(tasks), Total: total, Filter: homeFilter})
+	return ok(summary, taskListResult{Tasks: views(tasks), Total: total, Filter: nextFilter})
 }
 
 // emptySummary says what an empty answer is hiding.
@@ -312,15 +319,18 @@ func (s *Server) whatsNext(ctx context.Context, _ *mcp.CallToolRequest, args lim
 // real work lives, and it is worse than wrong: it reads as reassurance. If the
 // only reason this list is empty is a term in the filter, the count that term
 // removed is the useful part of the reply, so it is counted and named.
-func (s *Server) emptySummary(ctx context.Context, homeFilter string) string {
-	out := "nothing on your own list (" + homeFilter + ")"
+func (s *Server) emptySummary(ctx context.Context, nextFilter string) string {
+	out := "nothing is actionable now (" + nextFilter + ")"
 
 	var hidden []string
-	if n := s.count(ctx, "is:open -src:local"); n > 0 {
-		hidden = append(hidden, plural(n, "synced task is", "synced tasks are")+" open")
-	}
 	if n := s.count(ctx, "is:inbox"); n > 0 {
 		hidden = append(hidden, plural(n, "is", "are")+" waiting in the inbox")
+	}
+	if n := s.count(ctx, "is:open is:snoozed"); n > 0 {
+		hidden = append(hidden, plural(n, "is", "are")+" snoozed")
+	}
+	if n := s.count(ctx, "is:open is:deferred"); n > 0 {
+		hidden = append(hidden, plural(n, "has", "have")+" not started yet")
 	}
 	if len(hidden) == 0 {
 		return out + ". Nothing else is open either."
