@@ -616,3 +616,35 @@ func TestAnEmptyWhatsNextNamesWhatItIsHiding(t *testing.T) {
 		t.Errorf("it claimed nothing is open while the inbox has something:\n  %s", body)
 	}
 }
+
+// TestToolScopesCoversEveryTool. The map is read by the HTTP layer to answer a
+// scope failure before the call is dispatched, so a tool missing from it would
+// be a tool nobody can be told how to reach.
+func TestToolScopesCoversEveryTool(t *testing.T) {
+	_, session := serve(t, api.ScopeRead, api.ScopeCapture, api.ScopeWrite)
+
+	tools, err := session.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tools.Tools) == 0 {
+		t.Fatal("the server lists no tools")
+	}
+	for _, tool := range tools.Tools {
+		if _, ok := mcpsrv.ScopeForTool(tool.Name); !ok {
+			t.Errorf("tool %q has no entry in ToolScopes", tool.Name)
+		}
+	}
+	for name := range mcpsrv.ToolScopes {
+		found := false
+		for _, tool := range tools.Tools {
+			if tool.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("ToolScopes names %q, which the server does not serve", name)
+		}
+	}
+}

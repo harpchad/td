@@ -314,10 +314,18 @@ lands there gets sorted by you. Agent mutations carry `actor = mcp:<name>` in
 the event log, so a bad batch is one `td undo` loop away from gone.
 
 An unauthenticated request answers 401 with
-`WWW-Authenticate: Bearer resource_metadata="...", scope="td:read"`. That
-header is the whole of client discovery. A valid credential missing a scope
-answers 403 with `error="insufficient_scope"` instead, which tells a client
-to ask for more scope rather than to start the authorization dance again.
+`WWW-Authenticate: Bearer resource_metadata="...", scope="td:read td:capture"`. That
+header is the whole of client discovery, and the scope in it is a decision
+rather than a hint: a client must treat it as authoritative, so whatever it
+names is what the connector comes back holding. Read plus capture is what the
+everyday assistant needs, and capture only ever creates an inbox item, which
+you sort.
+
+A valid credential missing a scope answers 403 with
+`error="insufficient_scope"` and the scope it needs, which tells a client to
+ask for more rather than start the authorization dance again. That is how
+write is reached: it is deliberately not granted up front, and a tool that
+needs it says so.
 
 **One deployment gotcha, because it looks like an application bug.** The
 reverse proxy has to pass `/.well-known/*` through to td.

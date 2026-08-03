@@ -18,6 +18,51 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-03  The challenge is the decision, not a hint
+Phase: after v0.1
+
+A connector came back with `td:read` and nothing else, and the owner went
+looking for SQL to widen the grant by hand. The scopes were not the problem.
+td's own 401 said `scope="td:read"`, and the specification says a client MUST
+treat the challenge scope as authoritative for the operation. Claude asked for
+read because we told it to, then behaved exactly as instructed.
+
+Meanwhile the README says the everyday assistant should get read plus capture.
+The intent and the wire disagreed, and the wire won, as it always does.
+
+The challenge now says `td:read td:capture`. Capture is the narrow write that
+only ever creates an inbox item, and what lands there is sorted by a person, so
+granting it up front is safe in a way write is not. Protected Resource Metadata
+was narrowed to the same pair, which is what that field is for: the minimal set
+for basic functionality, with more requested incrementally.
+
+Write is reachable, and that is the other half. A `tools/call` for a tool
+needing a scope the credential lacks is now refused before dispatch with 403
+and `error="insufficient_scope", scope="td:write"`, which is the step-up
+mechanism the revision provides. It was previously a tool error, which says no
+and leaves the client nothing to do about it. The 2026-07-28 revision puts the
+method and tool name in headers, so the scope a call needs is known without
+touching the body, which is what makes checking there possible at all.
+
+`ToolScopes` in internal/mcpsrv is now the one place a tool's scope is written
+down, with a test asserting it names every tool the server serves and no
+others. Two lists would drift, and the failure would be a tool nobody can be
+told how to reach.
+
+Fixed on the way past: `insufficientScope` was being handed internal scope
+names, so the challenge said `scope="read"` where a client needs `td:read`. It
+would have sent one off to request a scope that does not exist. Nothing caught
+it because nothing had read the header.
+
+Not changed: the authorization server metadata still lists all three scopes.
+That document says what the server can issue, which is a different question
+from what this resource needs, and write has to be issuable for the step-up to
+have anywhere to go.
+
+Verified against a container: an anonymous call is told read and capture, the
+resource metadata agrees, a read+capture credential calling create_task gets
+403 naming td:write, and the same credential captures successfully.
+
 ## 2026-08-03  Numeric dates, month first, hand written
 Phase: after v0.1
 

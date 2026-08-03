@@ -1,8 +1,11 @@
 package server_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,6 +13,7 @@ import (
 	"time"
 
 	"github.com/harpchad/td/internal/api"
+	"github.com/harpchad/td/internal/mcpsrv"
 	"github.com/harpchad/td/internal/oauth"
 	"github.com/harpchad/td/internal/server"
 )
@@ -673,10 +677,63 @@ func TestAnOAuthTokenReachesMCPAndATooCallRoundTrips(t *testing.T) {
 		t.Errorf("capture landed in %s", captured.Task.Status)
 	}
 
-	// Write was never granted, so it is refused at the tool.
-	if res := call(t, mcpSession, "create_task", map[string]any{"title": "nope"}, nil); !res.IsError {
-		t.Error("create_task ran on a grant with no write scope")
+	// Write was never granted, so it is refused before the call is dispatched,
+	// with a challenge naming the scope to go and get. A tool error would say
+	// no and leave the client with nothing to do about it.
+	resp, body = rawToolCall(t, ts, issued.AccessToken, "create_task",
+		map[string]any{"title": "nope"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("create_task on a grant with no write scope = %d: %s", resp.StatusCode, body)
 	}
+	challenge := resp.Header.Get("WWW-Authenticate")
+	for _, want := range []string{`error="insufficient_scope"`, `scope="td:write"`, "resource_metadata="} {
+		if !strings.Contains(challenge, want) {
+			t.Errorf("the challenge is missing %s: %s", want, challenge)
+		}
+	}
+}
+
+// rawToolCall posts a tools/call without the SDK, so a test can read the HTTP
+// status and headers of a refusal rather than only the tool result.
+func rawToolCall(t *testing.T, ts *harness, token, tool string, args map[string]any) (respMeta, []byte) {
+	t.Helper()
+	payload := map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{
+			"name": tool, "arguments": args,
+			"_meta": map[string]any{
+				"io.modelcontextprotocol/protocolVersion":    mcpsrv.Revision,
+				"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+				"io.modelcontextprotocol/clientInfo":         map[string]any{"name": "test", "version": "1"},
+			},
+		},
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		ts.URL+server.MCPPath, bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Mcp-Protocol-Version", mcpsrv.Revision)
+	req.Header.Set("Mcp-Method", "tools/call")
+	req.Header.Set("Mcp-Name", tool)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	out, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return respMeta{StatusCode: resp.StatusCode, Header: resp.Header}, out
 }
 
 // TestATokenForAnotherAudienceIsRefusedAtMCP is the replay case the spec

@@ -164,6 +164,34 @@ type activityResult struct {
 	Cursor int64 `json:"cursor"`
 }
 
+// ToolScopes is the scope each tool needs, and the only place that is written
+// down. The handlers check it through requireScope and the HTTP layer reads it
+// to answer a scope failure with a step-up challenge before the call is
+// dispatched, so the two cannot disagree about what a tool costs.
+var ToolScopes = map[string]string{
+	"search_tasks":    api.ScopeRead,
+	"get_task":        api.ScopeRead,
+	"list_people":     api.ScopeRead,
+	"person_agenda":   api.ScopeRead,
+	"whats_next":      api.ScopeRead,
+	"recent_activity": api.ScopeRead,
+
+	// Capture is the narrow write that only ever creates an inbox item, which
+	// is why the everyday assistant gets it and not write.
+	"capture": api.ScopeCapture,
+
+	"create_task":   api.ScopeWrite,
+	"update_task":   api.ScopeWrite,
+	"complete_task": api.ScopeWrite,
+	"add_note":      api.ScopeWrite,
+}
+
+// ScopeForTool reports what a tool needs, and whether it is a tool at all.
+func ScopeForTool(name string) (string, bool) {
+	scope, ok := ToolScopes[name]
+	return scope, ok
+}
+
 // register adds every tool in section 10.
 func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{

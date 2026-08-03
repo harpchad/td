@@ -42,7 +42,11 @@ func (s *Server) protectedResource(w http.ResponseWriter, _ *http.Request) {
 		Resource:             s.ResourceURL(),
 		AuthorizationServers: []string{s.baseURL},
 		ScopesSupported: []string{
-			api.MCPScopeRead, api.MCPScopeCapture, api.MCPScopeWrite,
+			// The minimal set for basic functionality, which is what this
+			// field is for. Write is not here because it is not needed to be
+			// useful, and a client that needs it is told so by a step-up
+			// challenge naming it rather than asking for it up front.
+			api.MCPScopeRead, api.MCPScopeCapture,
 		},
 		// Header only. There is no endpoint anywhere in td that accepts a
 		// token in a query string: it ends up in access logs, browser

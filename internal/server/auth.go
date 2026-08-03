@@ -159,7 +159,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				// discovery. Without it the client never finds the
 				// authorization server, and the symptom is this endpoint
 				// seeing traffic while the AS sees none.
-				s.mcpUnauthorized(w, r, api.MCPScopeRead)
+				s.mcpUnauthorized(w, r, mcpStartScopes)
 				return
 			}
 			if isBrowserPath(r.URL.Path) && wantsHTML(r) {

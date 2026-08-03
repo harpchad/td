@@ -181,8 +181,10 @@ func TestAnUnauthenticatedMCPRequestCarriesTheDiscoveryChain(t *testing.T) {
 	if !strings.Contains(challenge, want) {
 		t.Errorf("challenge = %q\nwant it to contain %s", challenge, want)
 	}
-	if !strings.Contains(challenge, `scope="td:read"`) {
-		t.Errorf("challenge = %q, want the scope it needs", challenge)
+	// Read and capture. TestTheFirstChallengeAsksForWhatTheAssistantNeeds
+	// covers why, and this only checks the header carries a scope at all.
+	if !strings.Contains(challenge, `scope="td:read td:capture"`) {
+		t.Errorf("challenge = %q, want the scopes it needs", challenge)
 	}
 }
 
@@ -213,10 +215,19 @@ func TestProtectedResourceMetadata(t *testing.T) {
 	if len(doc.AuthorizationServers) != 1 || doc.AuthorizationServers[0] != "https://td.example.com" {
 		t.Errorf("authorization_servers = %v", doc.AuthorizationServers)
 	}
-	for _, want := range []string{"td:read", "td:capture", "td:write"} {
+	// The minimal set for basic functionality, which is what this field is
+	// for: read to see the list, capture to add to it. A client falling back
+	// to this document when there is no challenge asks for exactly that.
+	for _, want := range []string{"td:read", "td:capture"} {
 		if !contains(doc.ScopesSupported, want) {
 			t.Errorf("scopes_supported = %v, want %s", doc.ScopesSupported, want)
 		}
+	}
+	// Write is deliberately absent. It is not needed to be useful, and a
+	// client that reaches a tool needing it is told so by a step-up challenge
+	// naming it, rather than everybody asking for it on day one.
+	if contains(doc.ScopesSupported, "td:write") {
+		t.Errorf("scopes_supported offers write up front: %v", doc.ScopesSupported)
 	}
 	// Header only. No endpoint in td accepts a token in a query string.
 	if len(doc.BearerMethodsSupported) != 1 || doc.BearerMethodsSupported[0] != "header" {
@@ -256,17 +267,60 @@ func TestScopesAreCheckedPerTool(t *testing.T) {
 		t.Errorf("capture landed in %s, want the inbox", captured.Task.Status)
 	}
 
-	// Write is not.
-	res = call(t, session, "create_task", map[string]any{"title": "should be refused"}, nil)
-	if !res.IsError {
-		t.Fatal("create_task ran on a credential with no write scope")
+	// Write is not, and the refusal is an HTTP 403 carrying a challenge that
+	// names the missing scope rather than a tool error. RFC 6750 makes this a
+	// 403 precisely so a client can tell "you may not" from "you are not
+	// signed in", and the scope in the challenge is what it goes and asks for.
+	for _, tool := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"create_task", map[string]any{"title": "should be refused"}},
+		{"complete_task", map[string]any{"id": "103"}},
+		{"update_task", map[string]any{"id": "103", "title": "no"}},
+		{"add_note", map[string]any{"id": "103", "text": "no"}},
+	} {
+		resp, body := rawToolCall(t, ts, limited.Secret, tool.name, tool.args)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("%s on a credential with no write scope = %d: %s",
+				tool.name, resp.StatusCode, body)
+			continue
+		}
+		challenge := resp.Header.Get("WWW-Authenticate")
+		if !strings.Contains(challenge, `scope="td:write"`) {
+			t.Errorf("%s: the challenge does not name the missing scope: %s", tool.name, challenge)
+		}
+		if !strings.Contains(challenge, `error="insufficient_scope"`) {
+			t.Errorf("%s: the challenge is not an insufficient_scope error: %s", tool.name, challenge)
+		}
 	}
-	if !strings.Contains(errorText(res), "write") {
-		t.Errorf("the refusal does not name the missing scope: %s", errorText(res))
+}
+
+// TestTheFirstChallengeAsksForWhatTheAssistantNeeds.
+//
+// A client MUST treat the challenge scope as authoritative, so this is the
+// decision rather than a hint. Sending td:read alone meant every connector
+// came back read-only and could not put a line in the inbox, which is the one
+// thing the everyday assistant is for.
+func TestTheFirstChallengeAsksForWhatTheAssistantNeeds(t *testing.T) {
+	ts := newServer(t)
+
+	resp, body := doAnon(t, ts, http.MethodPost, server.MCPPath, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("an unauthenticated call = %d: %s", resp.StatusCode, body)
 	}
-	res = call(t, session, "complete_task", map[string]any{"id": "103"}, nil)
-	if !res.IsError {
-		t.Fatal("complete_task ran on a credential with no write scope")
+
+	challenge := resp.Header.Get("WWW-Authenticate")
+	if !strings.Contains(challenge, `scope="td:read td:capture"`) {
+		t.Errorf("the first challenge asks for %q; a connector taking it at its\n"+
+			"word can read but cannot capture", challenge)
+	}
+	// Write is not asked for up front. A tool that needs it says so with a
+	// step-up challenge, which is the mechanism for exactly this.
+	if strings.Contains(challenge, "td:write") {
+		t.Errorf("the first challenge asks for write: %s", challenge)
 	}
 }
 
