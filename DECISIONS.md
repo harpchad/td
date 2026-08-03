@@ -18,6 +18,55 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-03  Numeric dates, month first, hand written
+Phase: after v0.1
+
+`ResolveDate` accepted keywords, offsets and `YYYY-MM-DD`, and nothing else.
+`8/1/26` was an error. It now reads `M/D/YY`, `M/D/YYYY`, `M-D-YY`,
+`M-D-YYYY`, `YYYY/M/D`, and a bare `M/D`, padded or not.
+
+**Month first, decided by the owner.** `8/1/26` is August 1st. This is a
+policy and not a fact: the same string is 8 January to most of the world, and
+nothing in the input distinguishes them. Made once, written here, named in the
+README, and named again in the error when a token can only be read the other
+way. What is not acceptable is deciding per input, which is how a due date
+moves by months with nothing to show for it.
+
+The one failure this creates gets the good error. `31/03/2026` is not a typo,
+it is a different convention, and "unrecognized date" tells that person
+nothing. It now says dates are month first here and that 31 is not a month.
+
+**No library, having looked.** `araddon/dateparse` does this and defaults to
+month first, with `PreferMonthFirst` and `ParseStrict` options, and there is a
+maintained fork at `itlightning/dateparse` since the original stopped in 2021.
+Three reasons not to:
+
+- It parses far more than a due date should. Unix timestamps, RFC1123,
+  `Mon Jan _2 15:04:05 2006`, and around forty other shapes. Every one is
+  surface area where a typo becomes a date instead of an error, and this
+  parser feeds the filter grammar, where refusing a token is the whole point.
+- The house style is the opposite of fuzzy. `ParseRecurrence` says it in its
+  own comment: it deliberately does not try to be clever, and an input it does
+  not recognize is an error naming what it did understand. A library whose
+  purpose is guessing inverts that.
+- What it replaces is about forty lines of `time.ParseInLocation` against a
+  fixed list. That is smaller than the pin, the DEPENDENCIES.md entry, the
+  govulncheck surface, and a third-party fork in the dependency graph of an
+  internet-facing server.
+
+A bare `M/D` rolls forward to the next occurrence, today included. The
+alternative is a due date eleven months in the past whenever somebody types
+`1/5` in December. It matches the bare weekday rule, which already means the
+next one.
+
+Go's two-digit year convention is inherited as is: 00-68 are 2000-2068 and
+69-99 are 1969-1999. Nobody sets a due date in 1969, and inventing a different
+window would be a second policy to remember.
+
+This lands in one place. `ResolveDate` is the chokepoint for the CLI, the TUI,
+the web UI, the MCP tools, the inline capture grammar and the filter parser, so
+every client got it at once and none of them needed changing.
+
 ## 2026-08-03  Recurrence in the browser, and the duplicate it uncovered
 Phase: after v0.1
 

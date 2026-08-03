@@ -238,6 +238,23 @@ Dates accept `today`, `tomorrow`, `yesterday`, weekday names, `eow`, `eom`,
 occurrence strictly after today, except when today already is that weekday.
 Everything resolves in the configured timezone, not the container's.
 
+Numeric dates are **month first**: `8/1/26` is the 1st of August. `8/1/2026`,
+`08-01-2026`, `8-1-26` and `2026/08/01` all work, padded or not. A bare
+`12/25` has no year and means the next one to come round, so it is this
+December in January and next January in December, the same rule a bare weekday
+follows.
+
+Month first is a choice, not a fact, and it is the wrong one in most of the
+world. It is made once here rather than guessed per input, because a parser
+that decides per input moves due dates by months and nothing tells you. A date
+that can only be read day first is refused and says so:
+
+```console
+$ td ls 'due:31/03/2026'
+unrecognized date "31/03/2026": dates are month first here, so 31 is not a
+month. Write it as month/day/year
+```
+
 ## Layout
 
 ```text

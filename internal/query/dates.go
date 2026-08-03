@@ -74,7 +74,96 @@ func ResolveDate(tok string, now time.Time) (string, error) {
 		}
 	}
 
+	// Anything made of digits and separators is a date somebody typed, so it
+	// gets an answer or an explanation, never the generic "unrecognized". The
+	// explanation is worth the branch: the failures here are month-first
+	// policy failures, and a message that says so teaches the rule at the
+	// moment it is needed.
+	if looksNumericDate(tok) {
+		return numericDate(tok, base, loc)
+	}
+
 	return "", fmt.Errorf("unrecognized date %q", tok)
+}
+
+// numericLayouts are the forms accepted, month first.
+//
+// Month first is a policy, not a fact. 8/1/26 is August 1st here and 8 January
+// in most of the world, and no amount of parsing can tell which was meant, so
+// the choice is made once, written down, and named in the error when a token
+// cannot be read any other way. DECISIONS.md carries the argument.
+//
+// Go's numeric layout verbs accept both padded and unpadded input, so "1" here
+// reads 8 and 08 alike and one entry covers both.
+var numericLayouts = []string{
+	"1/2/2006",
+	"1/2/06",
+	"1-2-2006",
+	"1-2-06",
+	// Year first is unambiguous the world over, so it is accepted with either
+	// separator and needs no policy at all.
+	"2006/1/2",
+}
+
+// dayMonthLayouts have no year. They resolve to the next occurrence, today
+// included, which is the same rule a bare weekday already follows.
+var dayMonthLayouts = []string{"1/2", "1-2"}
+
+// looksNumericDate reports whether a token is digits and separators only.
+func looksNumericDate(tok string) bool {
+	digits, seps := 0, 0
+	for _, r := range tok {
+		switch {
+		case r >= '0' && r <= '9':
+			digits++
+		case r == '/' || r == '-':
+			seps++
+		default:
+			return false
+		}
+	}
+	return digits > 0 && seps > 0
+}
+
+// numericDate reads the numeric forms, month first.
+func numericDate(tok string, base time.Time, loc *time.Location) (string, error) {
+	for _, layout := range numericLayouts {
+		if t, err := time.ParseInLocation(layout, tok, loc); err == nil {
+			return t.Format(DateLayout), nil
+		}
+	}
+
+	// No year given. "12/25" in January is this December; "1/5" in December is
+	// next January. Rolling forward is what a bare weekday already does, and
+	// the alternative puts a due date eleven months in the past.
+	for _, layout := range dayMonthLayouts {
+		t, err := time.ParseInLocation(layout, tok, loc)
+		if err != nil {
+			continue
+		}
+		out := time.Date(base.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
+		if out.Before(base) {
+			out = time.Date(base.Year()+1, t.Month(), t.Day(), 0, 0, 0, 0, loc)
+		}
+		return out.Format(DateLayout), nil
+	}
+
+	// The common miss is a day-first date. Saying so beats "unrecognized",
+	// because the person typing it does not have a typo, they have a
+	// different convention.
+	if first, _, ok := strings.Cut(tok, string(firstSeparator(tok))); ok {
+		if n, err := strconv.Atoi(first); err == nil && n > 12 && n <= 31 {
+			return "", fmt.Errorf("unrecognized date %q: dates are month first here, so %d is not a month. Write it as month/day/year", tok, n)
+		}
+	}
+	return "", fmt.Errorf("unrecognized date %q: try 8/1/26, 08-01-2026, 2026-08-01, or a word like friday", tok)
+}
+
+func firstSeparator(tok string) rune {
+	if strings.Contains(tok, "/") {
+		return '/'
+	}
+	return '-'
 }
 
 // resolveOffset handles +Nd, +Nw, and +Nm, and their negative forms. Month
