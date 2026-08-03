@@ -169,6 +169,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/tasks/{id}/attachments/{att}", s.deleteAttachment)
 
 	mux.HandleFunc("POST /api/v1/series", s.createSeries)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/repeat", s.repeatTask)
 	mux.HandleFunc("GET /api/v1/series/{id}", s.getSeries)
 	mux.HandleFunc("PATCH /api/v1/series/{id}", s.updateSeries)
 

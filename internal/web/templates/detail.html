@@ -30,7 +30,7 @@
         {{if .Tags}}<span class="td-detail__label">tags</span><span>{{range .Tags}}<a class="td-token td-link" href="/?q={{.Query | urlquery}}">{{.Label}}</a> {{end}}</span>{{end}}
         {{range .People}}<span class="td-detail__label">{{.Role}}</span><span><a class="td-token td-link" href="{{.Href}}">{{.Label}}</a></span>{{end}}
         {{if .Task.ChildrenTotal}}<span class="td-detail__label">subtasks</span><span>{{.Task.ChildrenDone}} of {{.Task.ChildrenTotal}} done</span>{{end}}
-        {{if .Repeats}}<span class="td-detail__label">repeats</span><span>{{.Repeats}}</span>{{end}}
+        {{if .Repeats}}<span class="td-detail__label">repeats</span><span>{{.Repeats}} <span class="td-dim">{{.RepeatRule}}</span></span>{{end}}
         <span class="td-detail__label">notify</span><span>{{.Task.Notify}}</span>
         <span class="td-detail__label">source</span><span>{{.Task.Source}}</span>
         <span class="td-detail__label">id</span><span class="td-dim">{{.Task.ID}}</span>
@@ -59,6 +59,25 @@
                  placeholder="draft the email  #certs p:2 due:friday">
           <button class="td-btn" type="submit">Add subtask</button>
         </form>
+      </div>
+
+      {{/* Recurrence. Its own form and its own button because section 3 says
+           editing an instance and editing the series are two different
+           actions and the product must never guess which was meant. Every
+           other control on this page changes this task; this one changes the
+           rule behind it and leaves this task alone. */}}
+      <div class="td-section">
+        <div class="td-section__title">Repeat</div>
+        <form class="td-upload" action="/w/repeat/{{.Task.ID}}" method="post">
+          <input class="td-input td-edit__wide" type="text" name="repeat"
+                 value="{{.RepeatValue}}" aria-label="how often this repeats"
+                 placeholder="every 2 weeks   every monday and friday   monthly on the 1st">
+          <button class="td-btn" type="submit">{{if .Repeats}}Change rule{{else}}Repeat this{{end}}</button>
+        </form>
+        <p class="td-dim td-section__note">
+          Changes the series, not this task. The one in your list now stays as
+          it is; the rule decides what comes after it.
+        </p>
       </div>
 
       {{/* Files. Every href goes through /api/v1, which runs the auth check

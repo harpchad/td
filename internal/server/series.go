@@ -38,6 +38,31 @@ func (s *Server) createSeries(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, seriesResponse{Series: series, Task: &task})
 }
 
+// repeatTask turns an existing task into the first instance of a new series.
+//
+// Distinct from POST /series, which materializes from the template because it
+// is called when no task exists yet. Called from a task, that path leaves an
+// exact duplicate beside the original: same title, same due date, one attached
+// to the series and one not. This is the route a client uses when somebody is
+// looking at a task and says "repeat this".
+func (s *Server) repeatTask(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.resolve(w, r)
+	if !ok {
+		return
+	}
+	var in store.Series
+	if err := decode(r, &in); err != nil {
+		s.fail(w, err)
+		return
+	}
+	series, task, err := s.store.RepeatTask(r.Context(), s.actorOf(r), id, in, s.Now())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, seriesResponse{Series: series, Task: &task})
+}
+
 // updateSeries is the explicit series edit. Section 3 says editing an
 // instance edits that instance and editing the series needs its own action,
 // so there is no path by which a PATCH on a task reaches this.

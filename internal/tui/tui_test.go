@@ -49,6 +49,9 @@ type fakeServer struct {
 	snoozed    []api.SnoozeRequest
 	linked     []personLink
 	series     []map[string]any
+	// repeated is the task ids E was pressed on, so a test can assert the
+	// series adopted that task rather than making another.
+	repeated []string
 }
 
 type personLink struct{ person, role string }
@@ -169,6 +172,17 @@ func newFake(t *testing.T) *fakeServer {
 	mux.HandleFunc("POST /api/v1/series", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.series = append(f.series, body)
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, map[string]any{"series": body})
+	})
+	// Repeating a task the user is looking at goes here rather than to
+	// POST /series, which would build a second task from the template and
+	// leave the original beside it.
+	mux.HandleFunc("POST /api/v1/tasks/{id}/repeat", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.repeated = append(f.repeated, r.PathValue("id"))
 		f.series = append(f.series, body)
 		w.WriteHeader(http.StatusCreated)
 		writeJSON(w, map[string]any{"series": body})

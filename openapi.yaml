@@ -693,6 +693,50 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/tasks/{id}/repeat:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [tasks]
+      summary: Make an existing task the first instance of a new series
+      description: >-
+        The "repeat this" action, for when somebody is looking at a task. The
+        task is adopted by the new series and its own fields are untouched:
+        adopting changes what comes after it, not what it is.
+
+
+        Distinct from `POST /series`, which materializes a fresh instance from
+        the template because it is called when no task exists yet. Calling that
+        one from a task leaves an exact duplicate beside the original, same
+        title and same due date, one attached to the series and one not.
+
+
+        A task that already belongs to a series is refused; edit that series
+        instead.
+      operationId: repeatTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Series"
+      responses:
+        "201":
+          description: the series, and the task it adopted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeriesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/series:
     post:
       tags: [series]

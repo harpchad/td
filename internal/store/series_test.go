@@ -411,3 +411,99 @@ func openInSeries(t *testing.T, s *store.Store, seriesID string) []api.Task {
 	}
 	return out
 }
+
+// TestRepeatingATaskDoesNotDuplicateIt.
+//
+// Reported by building the web form and looking at the result: repeating task
+// 101 left 101 exactly as it was and created a second task with the same title
+// and the same due date, one attached to the series and one not. CreateSeries
+// materializes from the template, which is right for the API, where there is
+// no task yet, and wrong from a task, where there already is one.
+func TestRepeatingATaskDoesNotDuplicateIt(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	before, err := s.List(ctx, "is:open", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetByNum(ctx, 101)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	series, out, err := s.RepeatTask(ctx, actor, task.ID, store.Series{
+		RRule: "FREQ=WEEKLY;INTERVAL=2", TZ: now.Location().String(),
+		Template: api.TaskCreate{Title: task.Title, DueAt: task.DueAt},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := s.List(ctx, "is:open", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("%d open tasks became %d; repeating a task created another one",
+			len(before), len(after))
+	}
+
+	// The task in front of you is the instance now.
+	if out.ID != task.ID {
+		t.Errorf("the series adopted %s, not the task it was called on (%s)", out.ID, task.ID)
+	}
+	if out.SeriesID == nil || *out.SeriesID != series.ID {
+		t.Errorf("task 101 is not attached to the new series")
+	}
+	if series.CurrentTaskID == nil || *series.CurrentTaskID != task.ID {
+		t.Error("the series does not point back at the task")
+	}
+
+	// Adopting changes what comes next, not what the task is.
+	if out.Title != task.Title || out.Status != task.Status {
+		t.Errorf("the task changed: %q/%s became %q/%s",
+			task.Title, task.Status, out.Title, out.Status)
+	}
+	if (out.DueAt == nil) != (task.DueAt == nil) ||
+		(out.DueAt != nil && *out.DueAt != *task.DueAt) {
+		t.Error("adopting the task moved its due date")
+	}
+
+	// Section 3: exactly one open instance at a time.
+	instances, err := s.List(ctx, "is:open", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := 0
+	for _, candidate := range instances {
+		if candidate.SeriesID != nil && *candidate.SeriesID == series.ID {
+			open++
+		}
+	}
+	if open != 1 {
+		t.Errorf("%d open instances of the series, want exactly 1", open)
+	}
+}
+
+// TestATaskCanOnlyBelongToOneSeries. Attaching a second rule to an instance
+// would give two schedules a claim on the same task.
+func TestATaskCanOnlyBelongToOneSeries(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	task, err := s.GetByNum(ctx, 101)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := store.Series{
+		RRule: "FREQ=WEEKLY", TZ: now.Location().String(),
+		Template: api.TaskCreate{Title: task.Title, DueAt: task.DueAt},
+	}
+	if _, _, err := s.RepeatTask(ctx, actor, task.ID, in, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.RepeatTask(ctx, actor, task.ID, in, now); err == nil {
+		t.Error("a task was attached to a second series")
+	}
+}

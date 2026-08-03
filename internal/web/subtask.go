@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -138,6 +139,14 @@ type seriesReader interface {
 	Series(ctx context.Context, id string) (store.Series, error)
 }
 
+// seriesWriter is what the repeat form needs. Separate from seriesReader so a
+// deployment wired for reading alone renders the rule and simply offers no
+// form, rather than offering one that fails on submit.
+type seriesWriter interface {
+	RepeatTask(ctx context.Context, actor, taskID string, in store.Series, now time.Time) (store.Series, api.Task, error)
+	UpdateSeries(ctx context.Context, in store.Series) (store.Series, error)
+}
+
 // repeatRule is the rule a recurring task's instance came from, for display.
 // Editing it is a separate action: section 3 says editing an instance edits
 // that instance, and the detail page is the instance.
@@ -151,4 +160,90 @@ func (u *UI) repeatRule(ctx context.Context, seriesID string) string {
 		return ""
 	}
 	return series.RRule
+}
+
+// repeat is the web's equivalent of the TUI's E key.
+//
+// Section 3 is explicit that editing an instance and editing the series are
+// two different actions and that the product must never guess which was meant.
+// Everything else on this page edits the task; this one edits the rule behind
+// it and leaves the instance in the list exactly as it is. That is why it is
+// its own form with its own button rather than a field in the edit form.
+func (u *UI) repeat(w http.ResponseWriter, r *http.Request) {
+	writer, ok := u.svc.(seriesWriter)
+	if !ok {
+		u.detailBack(w, r, "", "recurrence is not available on this server")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		u.detailBack(w, r, "", "could not read that form")
+		return
+	}
+
+	id, err := u.svc.Resolve(r.Context(), r.PathValue("id"))
+	if err != nil {
+		u.fail(w, r, err)
+		return
+	}
+	task, err := u.svc.Get(r.Context(), id)
+	if err != nil {
+		u.fail(w, r, err)
+		return
+	}
+
+	said := strings.TrimSpace(r.PostFormValue("repeat"))
+	if said == "" {
+		// Matching the TUI, where an empty prompt is a cancel. Stopping a
+		// series is a different action from editing one and neither client
+		// offers it yet.
+		u.detailBack(w, r, task.ID, "")
+		return
+	}
+
+	rule, err := query.ParseRecurrence(said)
+	if err != nil {
+		// The parser's own message names what it could not read, which is more
+		// use than anything this handler could invent.
+		u.detailBack(w, r, task.ID, err.Error())
+		return
+	}
+
+	// The template is the task as it stands, so the next instance looks like
+	// this one. Everything locally owned travels; status and completion do not.
+	in := store.Series{
+		RRule: rule,
+		Template: api.TaskCreate{
+			Title:    task.Title,
+			Notes:    task.Notes,
+			Priority: task.Priority,
+			DueAt:    task.DueAt,
+			Tags:     task.Tags,
+		},
+	}
+	if task.SeriesID != nil && *task.SeriesID != "" {
+		in.ID = *task.SeriesID
+		_, err = writer.UpdateSeries(r.Context(), in)
+	} else {
+		// RepeatTask rather than CreateSeries: this task becomes the first
+		// instance. CreateSeries materializes from the template, which from
+		// here would leave an exact duplicate sitting next to the original.
+		_, _, err = writer.RepeatTask(r.Context(), u.actor(r), task.ID, in, u.Now())
+	}
+	if err != nil {
+		u.detailBack(w, r, task.ID, err.Error())
+		return
+	}
+	u.detailBack(w, r, task.ID, "repeats "+query.DescribeRecurrence(rule))
+}
+
+// detailBack returns to the task, carrying a message for the page to show.
+func (u *UI) detailBack(w http.ResponseWriter, r *http.Request, taskID, msg string) {
+	target := "/"
+	if taskID != "" {
+		target = "/t/" + url.PathEscape(taskID)
+	}
+	if msg != "" {
+		target += "?m=" + url.QueryEscape(msg)
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }

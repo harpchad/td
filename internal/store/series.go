@@ -35,6 +35,75 @@ type Series struct {
 // Exactly one open instance exists per series at any time. Generating a year
 // of instances up front makes every query slower and every edit ambiguous.
 func (s *Store) CreateSeries(ctx context.Context, actor string, in Series, now time.Time) (Series, api.Task, error) {
+	series, first, err := s.insertSeries(ctx, in, now)
+	if err != nil {
+		return Series{}, api.Task{}, err
+	}
+	task, err := s.materialize(ctx, actor, series, first, now)
+	if err != nil {
+		return Series{}, api.Task{}, err
+	}
+	series.CurrentTaskID = &task.ID
+	return series, task, nil
+}
+
+// RepeatTask turns a task that already exists into the first instance of a new
+// series, rather than making a second one beside it.
+//
+// This is what "repeat this" means when you are looking at a task: the thing
+// in front of you becomes the one live instance and the rule decides what
+// comes after it. CreateSeries materializes from the template instead, which
+// is right for the API, where a series is created from scratch and there is no
+// task yet. Calling that path from a task produced an exact duplicate: same
+// title, same due date, one attached to the series and one not.
+//
+// Section 3's rule holds either way. Exactly one open instance exists, and the
+// task's own fields are untouched: adopting it changes what comes next, not
+// what it is.
+func (s *Store) RepeatTask(ctx context.Context, actor, taskID string, in Series, now time.Time) (Series, api.Task, error) {
+	task, err := s.Get(ctx, taskID)
+	if err != nil {
+		return Series{}, api.Task{}, err
+	}
+	if task.SeriesID != nil && *task.SeriesID != "" {
+		return Series{}, api.Task{}, &api.Error{
+			Code:    api.ErrBadRequest,
+			Message: "that task already belongs to a series; edit the series instead",
+		}
+	}
+
+	series, _, err := s.insertSeries(ctx, in, now)
+	if err != nil {
+		return Series{}, api.Task{}, err
+	}
+
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE task SET series_id = ? WHERE id = ?`, series.ID, task.ID); err != nil {
+		return Series{}, api.Task{}, err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE series SET current_task_id = ? WHERE id = ?`, task.ID, series.ID); err != nil {
+		return Series{}, api.Task{}, err
+	}
+	if err := s.logSeriesEvent(ctx, actor, task.ID, api.KindTaskAttached, map[string]any{
+		"series": series.ID,
+		"rrule":  series.RRule,
+	}, now); err != nil {
+		return Series{}, api.Task{}, err
+	}
+
+	series.CurrentTaskID = &task.ID
+	out, err := s.Get(ctx, task.ID)
+	if err != nil {
+		return Series{}, api.Task{}, err
+	}
+	return series, out, nil
+}
+
+// insertSeries validates a rule, anchors it, and stores the row. It returns
+// the series and its first occurrence, leaving the caller to decide whether
+// that occurrence becomes a new task or is served by one that already exists.
+func (s *Store) insertSeries(ctx context.Context, in Series, now time.Time) (Series, time.Time, error) {
 	if in.ID == "" {
 		in.ID = NewID()
 	}
@@ -51,19 +120,19 @@ func (s *Store) CreateSeries(ctx context.Context, actor string, in Series, now t
 		in.TZ = s.loc.String()
 	}
 	if in.Mode != recur.ModeFixed && in.Mode != recur.ModeAfterCompletion {
-		return Series{}, api.Task{}, &api.Error{
+		return Series{}, time.Time{}, &api.Error{
 			Code: api.ErrBadRequest, Message: "mode is fixed or after_completion",
 		}
 	}
 	if in.Catchup != recur.CatchupSkip && in.Catchup != recur.CatchupPile {
-		return Series{}, api.Task{}, &api.Error{
+		return Series{}, time.Time{}, &api.Error{
 			Code: api.ErrBadRequest, Message: "catchup is skip or pile",
 		}
 	}
 
 	loc, err := time.LoadLocation(in.TZ)
 	if err != nil {
-		return Series{}, api.Task{}, &api.Error{Code: api.ErrBadRequest, Message: "unknown timezone " + in.TZ}
+		return Series{}, time.Time{}, &api.Error{Code: api.ErrBadRequest, Message: "unknown timezone " + in.TZ}
 	}
 
 	// The rule is anchored on the first due date, or on now when none was
@@ -76,17 +145,17 @@ func (s *Store) CreateSeries(ctx context.Context, actor string, in Series, now t
 	}
 	rule, err := recur.Parse(in.RRule, start, loc)
 	if err != nil {
-		return Series{}, api.Task{}, &api.Error{Code: api.ErrBadRequest, Message: err.Error()}
+		return Series{}, time.Time{}, &api.Error{Code: api.ErrBadRequest, Message: err.Error()}
 	}
 
 	first, err := rule.Occurrences(1)
 	if err != nil || len(first) == 0 {
-		return Series{}, api.Task{}, &api.Error{Code: api.ErrBadRequest, Message: "that rule produces no occurrences"}
+		return Series{}, time.Time{}, &api.Error{Code: api.ErrBadRequest, Message: "that rule produces no occurrences"}
 	}
 
 	template, err := json.Marshal(in.Template)
 	if err != nil {
-		return Series{}, api.Task{}, err
+		return Series{}, time.Time{}, err
 	}
 
 	// The first occurrence is materialized right away, so the series is
@@ -104,15 +173,10 @@ func (s *Store) CreateSeries(ctx context.Context, actor string, in Series, now t
 		VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		in.ID, in.RRule, in.Mode, in.Catchup, in.Anchor, in.TZ,
 		string(template), in.NextAt, in.EndsAt, in.LastFiredAt); err != nil {
-		return Series{}, api.Task{}, fmt.Errorf("create series: %w", err)
+		return Series{}, time.Time{}, fmt.Errorf("create series: %w", err)
 	}
 
-	task, err := s.materialize(ctx, actor, in, first[0], now)
-	if err != nil {
-		return Series{}, api.Task{}, err
-	}
-	in.CurrentTaskID = &task.ID
-	return in, task, nil
+	return in, first[0], nil
 }
 
 // Series returns one series.

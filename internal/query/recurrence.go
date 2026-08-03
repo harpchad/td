@@ -69,8 +69,11 @@ func ParseRecurrence(text string) (string, error) {
 			if freq == "" {
 				freq = "MONTHLY"
 			}
-		case f == "of" || f == "month" || f == "week" || f == "year" || f == "day":
-			// Filler in "on the 1st of the month".
+		case f == "of" || f == "month" || f == "week" || f == "year" || f == "day" || f == "and":
+			// Filler in "on the 1st of the month" and "monday and friday".
+			// "and" earns its place twice over: people type it, and it is what
+			// DescribeRecurrence emits, so without it a rule this package
+			// produced could not be read back by the same package.
 		default:
 			return "", fmt.Errorf("cannot read %q in %q. Try: every day, every monday, every 2 weeks, monthly on the 1st, or an RRULE", f, text)
 		}
@@ -137,4 +140,162 @@ func ordinal(word string) int {
 		return 0
 	}
 	return n
+}
+
+// DescribeRecurrence turns a stored RRULE back into the phrase somebody would
+// say, for showing on a screen.
+//
+// The inverse of ParseRecurrence for every shape that function produces, and a
+// best effort for anything else. RRULE is the right storage format and the
+// wrong thing to put in front of a person: "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO"
+// is a fact about a standard, not an answer to "how often does this happen".
+//
+// A rule it cannot describe comes back verbatim rather than approximated. A
+// wrong description of when something repeats is worse than an unreadable
+// correct one, because only one of the two makes you go and check.
+func DescribeRecurrence(rule string) string {
+	raw := strings.TrimSpace(rule)
+	if raw == "" {
+		return ""
+	}
+
+	parts := map[string]string{}
+	for _, field := range strings.Split(strings.TrimPrefix(strings.ToUpper(raw), "RRULE:"), ";") {
+		key, value, ok := strings.Cut(field, "=")
+		if !ok {
+			return raw
+		}
+		parts[key] = value
+	}
+
+	freq := parts["FREQ"]
+	if freq == "" {
+		return raw
+	}
+	// Anything td's own parser cannot produce is passed through: describing
+	// half a rule is how somebody ends up trusting the wrong half.
+	for key := range parts {
+		switch key {
+		case "FREQ", "INTERVAL", "BYDAY", "BYMONTHDAY":
+		default:
+			return raw
+		}
+	}
+
+	interval := 1
+	if v := parts["INTERVAL"]; v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return raw
+		}
+		interval = n
+	}
+
+	unit, ok := map[string]string{
+		"DAILY": "day", "WEEKLY": "week", "MONTHLY": "month", "YEARLY": "year",
+	}[freq]
+	if !ok {
+		return raw
+	}
+
+	days, err := describeDays(parts["BYDAY"])
+	if err != nil {
+		return raw
+	}
+	months, err := describeMonthDays(parts["BYMONTHDAY"])
+	if err != nil {
+		return raw
+	}
+
+	// "every weekday" reads better than "every week on Monday, Tuesday, ...".
+	if freq == "WEEKLY" && interval == 1 && parts["BYDAY"] == "MO,TU,WE,TH,FR" && months == "" {
+		return "every weekday"
+	}
+
+	out := "every " + unit
+	if interval > 1 {
+		out = "every " + strconv.Itoa(interval) + " " + unit + "s"
+	}
+	// With named days the unit is redundant: "every Monday", not "every week
+	// on Monday". It reappears when the interval makes it load-bearing.
+	if days != "" {
+		if interval == 1 && freq == "WEEKLY" {
+			out = "every " + days
+		} else {
+			out += " on " + days
+		}
+	}
+	if months != "" {
+		out += " on the " + months
+	}
+	return out
+}
+
+// describeDays turns BYDAY into names. It reports an error rather than a guess
+// on a code it does not know, including the ordinal forms like 2MO that
+// ParseRecurrence never emits.
+func describeDays(byDay string) (string, error) {
+	if byDay == "" {
+		return "", nil
+	}
+	names := map[string]string{
+		"MO": "Monday", "TU": "Tuesday", "WE": "Wednesday", "TH": "Thursday",
+		"FR": "Friday", "SA": "Saturday", "SU": "Sunday",
+	}
+	codes := strings.Split(byDay, ",")
+	out := make([]string, 0, len(codes))
+	for _, code := range codes {
+		name, ok := names[code]
+		if !ok {
+			return "", fmt.Errorf("unknown weekday %q", code)
+		}
+		out = append(out, name)
+	}
+	return join(out), nil
+}
+
+// describeMonthDays turns BYMONTHDAY into ordinals: 1 becomes 1st.
+func describeMonthDays(byMonthDay string) (string, error) {
+	if byMonthDay == "" {
+		return "", nil
+	}
+	fields := strings.Split(byMonthDay, ",")
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		n, err := strconv.Atoi(field)
+		if err != nil || n < 1 || n > 31 {
+			return "", fmt.Errorf("unusable day of month %q", field)
+		}
+		out = append(out, strconv.Itoa(n)+ordinalSuffix(n))
+	}
+	return join(out), nil
+}
+
+func ordinalSuffix(n int) string {
+	if n%100 >= 11 && n%100 <= 13 {
+		return "th"
+	}
+	switch n % 10 {
+	case 1:
+		return "st"
+	case 2:
+		return "nd"
+	case 3:
+		return "rd"
+	}
+	return "th"
+}
+
+// join reads like a sentence rather than a list: "Monday and Friday", not
+// "Monday, Friday".
+func join(items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	case 2:
+		return items[0] + " and " + items[1]
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }

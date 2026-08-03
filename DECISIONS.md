@@ -18,6 +18,50 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-03  Recurrence in the browser, and the duplicate it uncovered
+Phase: after v0.1
+
+Recurrence was creatable from the CLI and the TUI only. Section 11 names `E`
+in the TUI as the explicit series action and the web keymap list omits it, so
+the gap was per spec rather than an oversight. It is still the wrong shape for
+a deployment where the browser is how you touch the thing at all, which is the
+same argument that moved plugin configuration server-side.
+
+The detail page now has its own Repeat form with its own button, because
+section 3 says editing an instance and editing the series are two different
+actions and the product must never guess which was meant. Everything else on
+that page changes the task; this one changes the rule behind it.
+
+`DescribeRecurrence` is the new inverse of `ParseRecurrence`: RRULE is the
+right storage format and the wrong thing to show a person. A rule it cannot
+describe is printed verbatim rather than approximated, because a wrong
+description of when something repeats is worse than an unreadable correct one:
+only one of the two makes you go and check. The stored rule is shown beside
+the English for the same reason.
+
+`ParseRecurrence` learned the word "and". People type "every monday and
+friday", and it is also what `DescribeRecurrence` emits, so without it this
+package could produce a phrase it could not read back.
+
+Building the form uncovered a real defect, which is the useful part. Repeating
+task 101 left 101 exactly as it was and created a second task with the same
+title and the same due date, one attached to the new series and one not. The
+cause: `CreateSeries` materializes an instance from the template. That is
+correct for `POST /series`, where no task exists yet, and wrong from a task,
+where one already does. The TUI's `E` key had been doing this since the day it
+shipped; nobody noticed because the TUI test asserted the API call was made and
+never counted the tasks afterwards.
+
+`RepeatTask` is the fix: the task in front of you becomes the first instance.
+New route `POST /api/v1/tasks/{id}/repeat`, used by both the web form and the
+TUI, so the two clients do the same thing. A task already in a series is
+refused rather than attached to a second one. Section 3's "exactly one open
+instance" holds either way, and now without a twin beside it.
+
+Not built: stopping a series. Neither client offered it before and it is a
+third action, distinct again from editing an instance and editing the rule.
+Worth its own decision rather than a guess about what an empty field means.
+
 ## 2026-08-02  whats_next covers every source
 Phase: after v0.1
 Departs from: BUILD-SPEC section 16, note 4

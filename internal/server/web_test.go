@@ -958,3 +958,107 @@ func TestAStoredFilterThatDoesNotParseIsRefused(t *testing.T) {
 		t.Errorf("PUT of an unparseable filter = %d, want 400", resp.StatusCode)
 	}
 }
+
+// Recurrence in the browser. The rule was creatable from the CLI and the TUI
+// only, which is a burden on a deployment where the web UI is how you touch
+// the thing at all.
+
+// TestTheDetailPageShowsTheRuleInEnglish. RRULE is the right storage format
+// and the wrong thing to show a person.
+func TestTheDetailPageShowsTheRuleInEnglish(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	form := url.Values{"repeat": {"every 2 weeks"}}
+	if resp := postForm(t, ts, session, "/w/repeat/101", form); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("repeat = %d, want a redirect", resp.StatusCode)
+	}
+
+	_, html := page(t, ts, session, "/t/101")
+	if !strings.Contains(html, "every 2 weeks") {
+		t.Errorf("the detail page does not say the rule in English:\n%s", firstLines(html, 40))
+	}
+	// The rule itself is still shown, because the description is for people
+	// and the rule is what the server runs.
+	if !strings.Contains(html, "FREQ=WEEKLY;INTERVAL=2") {
+		t.Error("the detail page does not show the stored rule")
+	}
+}
+
+// TestRepeatingATaskLeavesTheInstanceAlone. Section 3: editing an instance and
+// editing the series are two different actions, and this is the one that must
+// not touch the task in front of you.
+func TestRepeatingATaskLeavesTheInstanceAlone(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	var before api.Task
+	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &before)
+
+	postForm(t, ts, session, "/w/repeat/101", url.Values{"repeat": {"every monday"}})
+
+	var after api.Task
+	_, body = do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &after)
+
+	if after.Title != before.Title || after.Status != before.Status {
+		t.Errorf("the instance changed: %q/%s became %q/%s",
+			before.Title, before.Status, after.Title, after.Status)
+	}
+	if after.DueAt == nil || before.DueAt == nil || *after.DueAt != *before.DueAt {
+		t.Error("repeating the task moved its due date")
+	}
+	if after.SeriesID == nil || *after.SeriesID == "" {
+		t.Error("the task was not attached to a series")
+	}
+}
+
+// TestARuleThatDoesNotParseSaysWhy, rather than silently repeating the wrong
+// thing for a year.
+func TestARuleThatDoesNotParseSaysWhy(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	resp := postForm(t, ts, session, "/w/repeat/101", url.Values{"repeat": {"every blue moon"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("repeat = %d", resp.StatusCode)
+	}
+	target := resp.Header.Get("Location")
+	if !strings.Contains(target, "blue") && !strings.Contains(target, "cannot+read") {
+		t.Errorf("the redirect does not carry the parser's complaint: %s", target)
+	}
+
+	// And nothing was created from an unreadable rule.
+	var task api.Task
+	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &task)
+	if task.SeriesID != nil && *task.SeriesID != "" {
+		t.Error("an unparseable rule still created a series")
+	}
+}
+
+// TestChangingTheRuleUpdatesRatherThanForking. Pressing the button twice is a
+// correction, not two series racing to materialize instances of the same task.
+func TestChangingTheRuleUpdatesRatherThanForking(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	postForm(t, ts, session, "/w/repeat/101", url.Values{"repeat": {"every week"}})
+	var first api.Task
+	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &first)
+
+	postForm(t, ts, session, "/w/repeat/101", url.Values{"repeat": {"every 3 days"}})
+	var second api.Task
+	_, body = do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &second)
+
+	if first.SeriesID == nil || second.SeriesID == nil || *first.SeriesID != *second.SeriesID {
+		t.Errorf("changing the rule forked the series: %v then %v", first.SeriesID, second.SeriesID)
+	}
+	_, html := page(t, ts, session, "/t/101")
+	if !strings.Contains(html, "every 3 days") {
+		t.Error("the detail page still shows the old rule")
+	}
+}

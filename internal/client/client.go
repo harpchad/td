@@ -260,6 +260,17 @@ func (c *Client) SetFold(ctx context.Context, ref string, collapsed bool) error 
 		api.FoldRequest{Collapsed: collapsed}, nil, nil)
 }
 
+// RepeatTask makes an existing task the first instance of a new series.
+//
+// Not CreateSeries: that one materializes a fresh task from the template,
+// which from a task you are looking at leaves a duplicate beside it.
+func (c *Client) RepeatTask(ctx context.Context, ref string, in Series) (SeriesResult, error) {
+	var out SeriesResult
+	err := c.do(ctx, http.MethodPost,
+		"/api/v1/tasks/"+url.PathEscape(ref)+"/repeat", in, nil, &out)
+	return out, err
+}
+
 // ViewFilter returns the list this account was last reading, and whether
 // anybody has ever chosen one. Server-side for the same reason folds are: it
 // follows you between the TUI and the web UI.

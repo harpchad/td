@@ -45,7 +45,10 @@ func (m *Model) applyRepeat(t api.Task, value string) tea.Cmd {
 		if t.SeriesID != nil && *t.SeriesID != "" {
 			res, err = m.client.UpdateSeries(ctx, *t.SeriesID, in)
 		} else {
-			res, err = m.client.CreateSeries(ctx, in)
+			// RepeatTask, not CreateSeries. The task under the cursor becomes
+			// the first instance; CreateSeries would build a second one from
+			// the template and leave this one sitting beside it.
+			res, err = m.client.RepeatTask(ctx, t.ID, in)
 		}
 		if err != nil {
 			return actionMsg{err: err}

@@ -150,6 +150,7 @@ func (u *UI) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /w/undo", u.undo)
 	mux.HandleFunc("POST /w/triage/{id}", u.triageAction)
 	mux.HandleFunc("POST /w/sub/{id}", u.addSubtask)
+	mux.HandleFunc("POST /w/repeat/{id}", u.repeat)
 	mux.HandleFunc("POST /w/fold/{id}", u.fold)
 	mux.HandleFunc("POST /w/theme", u.setTheme)
 	mux.HandleFunc("POST /w/tokens/{id}/revoke", u.revokeToken)
@@ -204,6 +205,11 @@ type pageData struct {
 	Attachments []attachmentRow
 	Children    []Row
 	Repeats     string
+	// RepeatRule is the stored RRULE behind Repeats, shown small next to the
+	// readable form: the description is for people and the rule is what the
+	// server will actually run.
+	RepeatRule  string
+	RepeatValue string
 
 	Task        api.Task
 	Done        bool
@@ -550,8 +556,14 @@ func (u *UI) detail(w http.ResponseWriter, r *http.Request) {
 	data.Attachments = u.attachmentRows(r.Context(), task.ID)
 	data.Children = u.childRows(r.Context(), task, u.Now())
 	if task.SeriesID != nil && *task.SeriesID != "" {
-		data.Repeats = u.repeatRule(r.Context(), *task.SeriesID)
+		// Stored as RRULE, shown as English. FREQ=WEEKLY;INTERVAL=2 is a fact
+		// about a standard, not an answer to "how often does this happen".
+		data.RepeatRule = u.repeatRule(r.Context(), *task.SeriesID)
+		data.Repeats = query.DescribeRecurrence(data.RepeatRule)
 	}
+	// Prefilled with what it already does, so the form shows the current rule
+	// before changing it, the same way the TUI's E key does.
+	data.RepeatValue = data.Repeats
 
 	if task.Priority != nil {
 		data.PriorityValue = itoa(int64(*task.Priority))

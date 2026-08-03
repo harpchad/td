@@ -400,6 +400,14 @@ func TestEditingTheSeriesIsItsOwnAction(t *testing.T) {
 			t.Error("editing the series patched the instance")
 		}
 	}
+
+	// And the task under the cursor became the instance rather than gaining a
+	// twin. Going through POST /series here materialized a second task with
+	// the same title and the same due date, one attached to the series and one
+	// not, which is what building the web form finally made visible.
+	if len(f.repeated) != 1 {
+		t.Errorf("repeat calls = %v, want the task itself to be adopted", f.repeated)
+	}
 }
 
 // TestARuleThatDoesNotParseSaysSo keeps a typo from becoming a year of the

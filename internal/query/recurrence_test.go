@@ -72,3 +72,86 @@ func TestParseRecurrenceRefusesRatherThanGuesses(t *testing.T) {
 		t.Errorf("error = %v, want it to name the word", err)
 	}
 }
+
+// TestDescribeRecurrenceInvertsWhatParseProduces.
+//
+// RRULE is the right storage format and the wrong thing to show a person:
+// "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO" is a fact about a standard, not an answer
+// to "how often does this happen". These are the shapes ParseRecurrence emits,
+// so every one of them has to come back readable.
+func TestDescribeRecurrenceInvertsWhatParseProduces(t *testing.T) {
+	cases := []struct{ said, want string }{
+		{"every day", "every day"},
+		{"daily", "every day"},
+		{"every 2 days", "every 2 days"},
+		{"every week", "every week"},
+		{"every monday", "every Monday"},
+		{"every monday and friday", "every Monday and Friday"},
+		{"every weekday", "every weekday"},
+		{"every 2 weeks", "every 2 weeks"},
+		{"monthly", "every month"},
+		{"monthly on the 1st", "every month on the 1st"},
+		{"every 3 months", "every 3 months"},
+		{"yearly", "every year"},
+	}
+	for _, tc := range cases {
+		rule, err := query.ParseRecurrence(tc.said)
+		if err != nil {
+			t.Errorf("%q did not parse: %v", tc.said, err)
+			continue
+		}
+		if got := query.DescribeRecurrence(rule); got != tc.want {
+			t.Errorf("%q -> %s -> %q, want %q", tc.said, rule, got, tc.want)
+		}
+	}
+}
+
+// TestDescribeRecurrenceRoundTrips. Whatever it says must parse back to the
+// same rule, or the screen is describing something the server will not do.
+func TestDescribeRecurrenceRoundTrips(t *testing.T) {
+	for _, said := range []string{
+		"every day", "every 2 days", "every monday", "every monday and friday",
+		"every weekday", "every 2 weeks", "monthly on the 1st", "every 3 months",
+		"yearly",
+	} {
+		rule, err := query.ParseRecurrence(said)
+		if err != nil {
+			t.Fatalf("%q: %v", said, err)
+		}
+		again, err := query.ParseRecurrence(query.DescribeRecurrence(rule))
+		if err != nil {
+			t.Errorf("%q described as %q, which does not parse: %v",
+				rule, query.DescribeRecurrence(rule), err)
+			continue
+		}
+		if again != rule {
+			t.Errorf("%q -> %q -> %q, which is a different rule",
+				rule, query.DescribeRecurrence(rule), again)
+		}
+	}
+}
+
+// TestARuleItCannotDescribeComesBackVerbatim.
+//
+// A wrong description of when something repeats is worse than an unreadable
+// correct one, because only one of the two makes you go and check. RRULE is a
+// large standard and td's own parser emits a small corner of it; anything
+// outside that corner is shown as itself.
+func TestARuleItCannotDescribeComesBackVerbatim(t *testing.T) {
+	for _, rule := range []string{
+		"FREQ=WEEKLY;BYDAY=2MO",             // the second Monday, an ordinal BYDAY
+		"FREQ=MONTHLY;BYSETPOS=-1;BYDAY=FR", // last Friday of the month
+		"FREQ=DAILY;COUNT=10",               // bounded
+		"FREQ=DAILY;UNTIL=20261231T000000Z", // bounded
+		"FREQ=HOURLY",                       // a frequency td never makes
+		"FREQ=WEEKLY;INTERVAL=0",            // nonsense interval
+		"not a rule at all",
+	} {
+		if got := query.DescribeRecurrence(rule); got != rule {
+			t.Errorf("%q was described as %q rather than passed through", rule, got)
+		}
+	}
+	if got := query.DescribeRecurrence(""); got != "" {
+		t.Errorf("empty rule described as %q", got)
+	}
+}
