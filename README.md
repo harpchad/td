@@ -238,6 +238,13 @@ Dates accept `today`, `tomorrow`, `yesterday`, weekday names, `eow`, `eom`,
 occurrence strictly after today, except when today already is that weekday.
 Everything resolves in the configured timezone, not the container's.
 
+Snooze and defer are different things, and the difference is worth knowing.
+Snooze takes a duration and means "not now" about a task that is ready; it
+silences the reminder until it expires, then the push arrives. A start date
+means the work cannot begin yet, hides the task until that day, and does not
+silence anything: something due before it can be started is a contradiction
+you want to hear about.
+
 Add `sort:` to order the answer: `sort:due`, `sort:-due` for descending, and
 also `priority`, `created`, `title`, `num`. It is a term like any other, so it
 works in the web filter box, the TUI, `td ls` and the MCP search tool, and it

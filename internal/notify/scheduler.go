@@ -213,6 +213,15 @@ func (s *Scheduler) Deliver(ctx context.Context, now time.Time) (int, error) {
 
 	sent := 0
 	for _, t := range candidates {
+		// Snoozing is somebody saying "not now" about a task that is ready,
+		// and a push is the loudest possible way to ignore that. Held rather
+		// than dropped: notified_at is not stamped, so when the snooze runs
+		// out the task is a candidate again and the reminder goes then. Same
+		// treatment quiet hours get, for the same reason.
+		if snoozed(t, now) {
+			continue
+		}
+
 		matched := always || (!never && matches[t.ID])
 		if !s.Policy.Resolve(t, matched) {
 			continue
@@ -247,4 +256,23 @@ func (s *Scheduler) Deliver(ctx context.Context, now time.Time) (int, error) {
 		sent++
 	}
 	return sent, nil
+}
+
+// snoozed reports whether a task is hidden until later.
+//
+// Deferred tasks are deliberately not covered. A start date says the work
+// cannot begin yet, which is a fact about the task and not a request for
+// silence, and something due before it can be started is exactly the
+// contradiction a reminder should surface rather than hide.
+func snoozed(t api.Task, now time.Time) bool {
+	if t.SnoozeUntil == nil || *t.SnoozeUntil == "" {
+		return false
+	}
+	until, err := time.Parse(time.RFC3339, *t.SnoozeUntil)
+	if err != nil {
+		// An unreadable timestamp is not a reason to suppress a reminder. The
+		// failure that matters here is the one that goes quiet.
+		return false
+	}
+	return now.Before(until)
 }

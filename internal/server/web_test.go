@@ -1067,17 +1067,16 @@ func TestChangingTheRuleUpdatesRatherThanForking(t *testing.T) {
 // Snooze from the browser. It was one button that meant one hour, which is
 // the only length of time it could express.
 
-// TestSnoozeTakesADurationOrADate. One field, two kinds of answer, and nothing
-// reads as both: Go has no day unit so 3d is never a duration, and no date
-// word parses as one.
-func TestSnoozeTakesADurationOrADate(t *testing.T) {
+// TestSnoozeTakesADuration. Snooze is "not now" about a task that is ready.
+// Hiding one until a date is the start field, which is a different statement.
+func TestSnoozeTakesADuration(t *testing.T) {
 	ts := newServer(t)
 	session := login(t, ts)
 
 	for _, tc := range []struct{ typed, want string }{
 		{"2h", ts.now.Add(2 * time.Hour).Format("2006-01-02")},
-		{"tomorrow", ts.now.AddDate(0, 0, 1).Format("2006-01-02")},
-		{"+3d", ts.now.AddDate(0, 0, 3).Format("2006-01-02")},
+		{"30m", ts.now.Add(30 * time.Minute).Format("2006-01-02")},
+		{"1h30m", ts.now.Add(90 * time.Minute).Format("2006-01-02")},
 	} {
 		if resp := postForm(t, ts, session, "/w/snooze/101",
 			url.Values{"duration": {tc.typed}}); resp.StatusCode != http.StatusSeeOther {
@@ -1096,27 +1095,70 @@ func TestSnoozeTakesADurationOrADate(t *testing.T) {
 	}
 }
 
-// TestSnoozingUntilADateWakesAtTheStartOfIt. "Until friday" means when Friday
-// begins, not whatever time of day it happens to be now.
-func TestSnoozingUntilADateWakesAtTheStartOfIt(t *testing.T) {
+// TestADateInTheSnoozeFieldSaysWhereItGoes.
+//
+// The two look alike from the outside and behave nothing alike, so a date
+// typed here is answered with where it belongs rather than quietly accepted.
+func TestADateInTheSnoozeFieldSaysWhereItGoes(t *testing.T) {
 	ts := newServer(t)
 	session := login(t, ts)
 
-	postForm(t, ts, session, "/w/snooze/101", url.Values{"duration": {"tomorrow"}})
+	resp := postForm(t, ts, session, "/w/snooze/101", url.Values{"duration": {"friday"}})
+	if !strings.Contains(resp.Header.Get("Location"), "start+date") {
+		t.Errorf("a date in the snooze field did not point at the start date: %s",
+			resp.Header.Get("Location"))
+	}
 
 	var task api.Task
 	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
 	decodeInto(t, body, &task)
-	if task.SnoozeUntil == nil {
-		t.Fatal("not snoozed")
+	if task.SnoozeUntil != nil {
+		t.Errorf("a date was accepted as a snooze: %s", *task.SnoozeUntil)
 	}
-	at, err := time.Parse(time.RFC3339, *task.SnoozeUntil)
-	if err != nil {
-		t.Fatal(err)
+}
+
+// TestTheEditFormSetsAStartDate. Defer, not schedule: it hides the task until
+// the day it can begin and says nothing about when it is due.
+func TestTheEditFormSetsAStartDate(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	_, html := page(t, ts, session, "/t/101")
+	if !strings.Contains(html, `name="start"`) {
+		t.Fatal("the edit form has no start date field")
 	}
-	local := at.In(ts.now.Location())
-	if local.Hour() != 0 || local.Minute() != 0 {
-		t.Errorf("it wakes at %s, want the start of the day", local.Format("15:04"))
+
+	var before api.Task
+	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &before)
+
+	form := url.Values{
+		"title": {before.Title}, "notes": {before.Notes},
+		"priority": {"1"}, "due": {"8/20/26"}, "start": {"8/15/26"},
+		"tags": {"certs"}, "notify": {api.NotifyAuto},
+	}
+	if resp := postForm(t, ts, session, "/w/edit/101", form); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("edit = %d", resp.StatusCode)
+	}
+
+	var after api.Task
+	_, body = do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &after)
+	if after.StartAt == nil || !strings.HasPrefix(*after.StartAt, "2026-08-15") {
+		t.Errorf("start = %v, want 2026-08-15", after.StartAt)
+	}
+	// And it did not touch the due date, which is the whole distinction.
+	if after.DueAt == nil || !strings.HasPrefix(*after.DueAt, "2026-08-20") {
+		t.Errorf("due = %v, want 2026-08-20", after.DueAt)
+	}
+
+	// Clearing it works the same way every other field does.
+	form.Set("start", "")
+	postForm(t, ts, session, "/w/edit/101", form)
+	_, body = do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &after)
+	if after.StartAt != nil && *after.StartAt != "" {
+		t.Errorf("an empty start field left %s", *after.StartAt)
 	}
 }
 

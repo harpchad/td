@@ -121,6 +121,14 @@
                  placeholder="a date, or friday, or empty">
         </label>
 
+        {{/* Defer, not schedule. This hides the task until the day it can
+             actually begin; it says nothing about when it is due. */}}
+        <label class="td-form__row">
+          <span class="td-form__label">start</span>
+          <input class="td-input" type="text" name="start" value="{{.StartValue}}"
+                 placeholder="empty, or 8/15/26, monday, +1w">
+        </label>
+
         <label class="td-form__row">
           <span class="td-form__label">tags</span>
           <input class="td-input td-edit__wide" type="text" name="tags" value="{{.TagValue}}"
@@ -163,13 +171,11 @@
         <form action="/w/drop/{{.Task.ID}}" method="post">
           <button class="td-btn" type="submit" data-drop>Drop</button>
         </form>
-        {{/* One field for both answers. "2h" is how long, "friday" is until
-             when, and nothing reads as both: Go has no day unit so 3d is
-             never a duration, and no date word parses as one. */}}
+        {{/* How long, not until when. Snooze is "not now" about a task that
+             is ready; hiding one until a date is the start field above. */}}
         <form action="/w/snooze/{{.Task.ID}}" method="post" class="td-inline">
           <input class="td-input td-snooze__for" type="text" name="duration"
-                 value="{{.SnoozeValue}}" aria-label="snooze for, or until"
-                 placeholder="2h   tomorrow   friday   8/15/26">
+                 aria-label="snooze for" placeholder="2h   30m   1h30m">
           <button class="td-btn" type="submit">{{if .Task.SnoozeUntil}}Re-snooze{{else}}Snooze{{end}}</button>
         </form>
         {{if .Task.SnoozeUntil}}

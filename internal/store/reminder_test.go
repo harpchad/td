@@ -7,6 +7,8 @@ import (
 
 	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/notify"
+	"github.com/harpchad/td/internal/recur"
+	"github.com/harpchad/td/internal/store"
 )
 
 // recorder is a Sender that keeps what it was given. Nothing in the test
@@ -32,6 +34,17 @@ func (r *recorder) titles() []string {
 		out = append(out, n.Title)
 	}
 	return out
+}
+
+// seededFrom returns the store and clock a scheduler was built on, so a test
+// can set a task up before delivering.
+func seededFrom(t *testing.T, sched *notify.Scheduler) (*store.Store, time.Time) {
+	t.Helper()
+	s, ok := sched.Store.(*store.Store)
+	if !ok {
+		t.Fatalf("the scheduler holds a %T, not a store", sched.Store)
+	}
+	return s, sched.Now()
 }
 
 func scheduler(t *testing.T, policy notify.Policy) (*notify.Scheduler, *recorder) {
@@ -345,4 +358,117 @@ func contains(haystack, needle string) bool {
 		}
 	}
 	return false
+}
+
+// Snoozing and deferring are different statements and the reminder path has
+// to treat them differently.
+
+// TestASnoozedTaskDoesNotPush.
+//
+// Snoozing hid a task from the list and did nothing about the reminder, so the
+// task you had just said "not now" about still went to your phone. That is the
+// one moment a notification is least wanted.
+func TestASnoozedTaskDoesNotPush(t *testing.T) {
+	policy := notify.DefaultPolicy
+	policy.Topic = "https://ntfy.invalid/td-test"
+	policy.DefaultRule = "*"
+	policy.QuietHours = ""
+
+	sched, rec := scheduler(t, policy)
+	s, now := seededFrom(t, sched)
+
+	// 104 is due before the fixture clock, so it is otherwise certain to fire.
+	task, err := s.GetByNum(context.Background(), 104)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Snooze(context.Background(), actor, task.ID, now.Add(2*time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := sched.Deliver(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+	for _, title := range rec.titles() {
+		if title == task.Title {
+			t.Errorf("%q was snoozed and pushed anyway", title)
+		}
+	}
+}
+
+// TestASnoozedReminderIsHeldNotDropped. The push arrives once the snooze runs
+// out, which is what makes snooze a delay rather than a way to lose one.
+func TestASnoozedReminderIsHeldNotDropped(t *testing.T) {
+	policy := notify.DefaultPolicy
+	policy.Topic = "https://ntfy.invalid/td-test"
+	policy.DefaultRule = "*"
+	policy.QuietHours = ""
+
+	sched, rec := scheduler(t, policy)
+	s, now := seededFrom(t, sched)
+
+	task, err := s.GetByNum(context.Background(), 104)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Snooze(context.Background(), actor, task.ID, now.Add(2*time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sched.Deliver(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Nothing was stamped while it slept, so it is still a candidate.
+	if _, err := sched.Deliver(context.Background(), now.Add(3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, title := range rec.titles() {
+		if title == task.Title {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the held reminder never arrived: %v", rec.titles())
+	}
+}
+
+// TestADeferredTaskStillPushes.
+//
+// A start date says the work cannot begin yet, which is a fact about the task
+// rather than a request for silence. Something due before it can be started is
+// exactly the contradiction a reminder should surface rather than hide.
+func TestADeferredTaskStillPushes(t *testing.T) {
+	policy := notify.DefaultPolicy
+	policy.Topic = "https://ntfy.invalid/td-test"
+	policy.DefaultRule = "*"
+	policy.QuietHours = ""
+
+	sched, rec := scheduler(t, policy)
+	s, now := seededFrom(t, sched)
+
+	task, err := s.GetByNum(context.Background(), 104)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := now.AddDate(0, 0, 3).Format(recur.DateLayout)
+	if _, err := s.Patch(context.Background(), actor, task.ID, api.TaskPatch{
+		StartAt:  &start,
+		Presence: map[string]bool{"start_at": true},
+	}, "", now); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := sched.Deliver(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, title := range rec.titles() {
+		if title == task.Title {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a deferred task was silenced: %v", rec.titles())
+	}
 }

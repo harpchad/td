@@ -205,10 +205,12 @@ type pageData struct {
 	// auth check; there is no static handler over the blob directory.
 	Attachments []attachmentRow
 	Children    []Row
-	// SnoozedUntil is the wake time as a local date, and SnoozeValue prefills
-	// the field so re-snoozing shows what it currently does.
+	// SnoozedUntil is the wake time, shown so a snoozed task says so. There is
+	// no prefill for the field: it takes a duration, and last time's "2h"
+	// means nothing now.
 	SnoozedUntil string
-	SnoozeValue  string
+	// StartValue prefills the start date in the edit form.
+	StartValue string
 
 	Repeats string
 	// RepeatRule is the stored RRULE behind Repeats, shown small next to the
@@ -563,7 +565,6 @@ func (u *UI) detail(w http.ResponseWriter, r *http.Request) {
 	data.Children = u.childRows(r.Context(), task, u.Now())
 	if task.SnoozeUntil != nil && *task.SnoozeUntil != "" {
 		data.SnoozedUntil = query.LocalDate(*task.SnoozeUntil, u.Now().Location())
-		data.SnoozeValue = data.SnoozedUntil
 	}
 	if task.SeriesID != nil && *task.SeriesID != "" {
 		// Stored as RRULE, shown as English. FREQ=WEEKLY;INTERVAL=2 is a fact
@@ -580,6 +581,9 @@ func (u *UI) detail(w http.ResponseWriter, r *http.Request) {
 	}
 	if task.DueAt != nil {
 		data.DueValue = query.LocalDate(*task.DueAt, u.Now().Location())
+	}
+	if task.StartAt != nil {
+		data.StartValue = query.LocalDate(*task.StartAt, u.Now().Location())
 	}
 	data.TagValue = strings.Join(task.Tags, " ")
 	for _, mode := range []string{api.NotifyAuto, api.NotifyOn, api.NotifyOff} {
@@ -831,6 +835,19 @@ func (u *UI) edit(w http.ResponseWriter, r *http.Request) {
 		patch.DueAt = &resolved
 	}
 
+	// Defer, not schedule. The start date hides a task until the day it can
+	// actually begin, and it says nothing about when it is due or when to work
+	// on it. Same date vocabulary as everything else.
+	patch.Presence["start_at"] = true
+	if raw := strings.TrimSpace(r.PostFormValue("start")); raw != "" {
+		resolved, err := query.ResolveDate(raw, u.Now())
+		if err != nil {
+			u.redirectToTask(w, r, id, err.Error())
+			return
+		}
+		patch.StartAt = &resolved
+	}
+
 	tags := []string{}
 	for _, tag := range strings.Fields(r.PostFormValue("tags")) {
 		if tag = strings.TrimPrefix(tag, "#"); tag != "" {
@@ -884,34 +901,29 @@ func (u *UI) wake(w http.ResponseWriter, r *http.Request) {
 
 // snoozeUntil reads what somebody typed into the snooze field.
 //
-// A duration is relative to now. A date is the start of that day in the
-// server's zone, so "snooze until friday" puts it back in the list when Friday
-// starts rather than at whatever time of day it happens to be now.
+// A duration and nothing else. Snooze is "not now" about a task that is ready:
+// you keep skimming past it, or the reminder landed mid-meeting. Hiding it
+// until a date is a different statement, that the work cannot begin yet, and
+// that is what the start date on the task is for. A date typed here is
+// answered with where it goes rather than quietly accepted, because the two
+// look alike from the outside and behave nothing alike.
 func (u *UI) snoozeUntil(raw string) (time.Time, error) {
 	if raw == "" {
-		return time.Time{}, errors.New("say how long, or until when: 2h, tomorrow, friday, 8/15/26")
+		return time.Time{}, errors.New("say how long: 2h, 30m, 1h30m")
 	}
-	if d, err := time.ParseDuration(raw); err == nil {
-		if d <= 0 {
-			return time.Time{}, errors.New("snoozing needs a time in the future")
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		if _, dateErr := query.ResolveDate(raw, u.Now()); dateErr == nil {
+			return time.Time{}, errors.New(
+				"snooze takes how long, like 2h or 30m. To hide it until a date, " +
+					"set the start date instead")
 		}
-		return u.Now().Add(d), nil
+		return time.Time{}, errors.New("say how long: 2h, 30m, 1h30m")
 	}
-
-	// The same date vocabulary as everywhere else: today, friday, +3d,
-	// 8/15/26, 2026-08-15.
-	resolved, err := query.ResolveDate(raw, u.Now())
-	if err != nil {
-		return time.Time{}, err
+	if d <= 0 {
+		return time.Time{}, errors.New("snoozing needs a time in the future")
 	}
-	day, err := time.ParseInLocation(query.DateLayout, resolved, u.Now().Location())
-	if err != nil {
-		return time.Time{}, err
-	}
-	if !day.After(u.Now()) {
-		return time.Time{}, errors.New("that is not in the future")
-	}
-	return day, nil
+	return u.Now().Add(d), nil
 }
 
 func (u *UI) snooze(w http.ResponseWriter, r *http.Request) {

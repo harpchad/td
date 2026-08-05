@@ -51,19 +51,34 @@ so the display order is not the comparator order. That is section 5's tree view
 doing its job, and the alternative is a child three screens from its parent.
 The API returns comparator order, which is what the sort test asserts against.
 
-**Snooze** now takes one field that reads either a duration or a date. "2h" is
-how long and "friday" is until when, and nothing reads as both: Go has no day
-unit so `3d` is never a duration, and no date word parses as one. A date wakes
-at the start of that day in the server's zone, so "until friday" means when
-Friday begins rather than whatever time of day it happens to be now.
+**Snooze** takes a duration and nothing else. It was briefly built to accept a
+date as well, on my suggestion and before either of us looked at what the two
+fields already meant. Section 5 had it right: `snooze_until` is a temporary
+hide that expires, and `start_at` is defer-not-schedule, the day work can begin.
+Those are different statements and one field for both blurs them.
+
+So the edit form gained a start date, using the same date vocabulary as
+everything else, and a date typed into the snooze field is answered with where
+it belongs rather than quietly accepted. The two look alike from the outside
+and behave nothing alike, which is exactly when a wrong guess is expensive.
 
 Waking is its own button and not an empty field, because an empty field is
 somebody who has not typed yet and must never quietly mean "do something".
 Snoozing into the past is refused: a wake time already gone is a task that
 never comes back and does not look snoozed either.
 
-The API already accepted both forms. Only the web handler was reading one of
-them, which is why this was a smaller change than it looked.
+**Snoozing now silences the push**, which it did not. `DueForReminder` filtered
+on status, due date, `notified_at` and the notify tri-state, and never looked at
+`snooze_until`, so a task you had just said "not now" about still went to your
+phone. That is the one moment a notification is least wanted.
+
+Held rather than dropped, and that distinction is the whole of it: nothing is
+stamped while the task sleeps, so when the snooze runs out it is a candidate
+again and the reminder goes then. Quiet hours already worked this way.
+
+Deferred tasks still push, deliberately. A start date is a fact about the task
+rather than a request for silence, and something due before it can be started
+is exactly the contradiction a reminder should surface.
 
 ## 2026-08-05  A fixed series stops disappearing between occurrences
 Phase: after v0.1
