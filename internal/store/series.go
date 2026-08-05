@@ -269,6 +269,43 @@ func (s *Store) AdvanceDue(ctx context.Context, actor string, now time.Time) (in
 		}
 		made += len(instances)
 	}
+
+	filled, err := s.fillIdleSeries(ctx, actor, now)
+	return made + filled, err
+}
+
+// fillIdleSeries gives a fixed series its next instance when it has none.
+//
+// Completing an instance brings the next one forward, so in normal use no
+// fixed series is ever idle. This is for the ways one gets there anyway: an
+// instance that was dropped rather than finished, a database that predates the
+// bring-forward behaviour, a reset that took the tasks. Without it a series in
+// that state is invisible until its next occurrence arrives, which for a
+// monthly rule is most of a month.
+//
+// It materializes the next occurrence, not the missed one. Dropping an
+// instance means "not this time", and answering that by handing back the same
+// task would be arguing with somebody about their own list.
+func (s *Store) fillIdleSeries(ctx context.Context, actor string, now time.Time) (int, error) {
+	ids, err := s.idleFixedSeriesIDs(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	made := 0
+	for _, id := range ids {
+		series, err := s.Series(ctx, id)
+		if err != nil {
+			return made, err
+		}
+		task, err := s.NextFixedAfterCompletion(ctx, actor, series, now)
+		if err != nil {
+			return made, err
+		}
+		if task.ID != "" {
+			made++
+		}
+	}
 	return made, nil
 }
 
@@ -511,6 +548,108 @@ func (s *Store) logSeriesEvent(ctx context.Context, actor, taskID, kind string, 
 		return err
 	}
 	return tx.Commit()
+}
+
+// idleFixedSeriesIDs finds fixed series with no open instance.
+//
+// Its own function so the cursor closes before the materializing starts. The
+// pool is one connection, so an open cursor and a write on the same store are
+// a deadlock rather than a slowdown.
+func (s *Store) idleFixedSeriesIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT s.id FROM series s
+		 WHERE s.mode = ?
+		   AND NOT EXISTS (
+		     SELECT 1 FROM task t
+		     WHERE t.series_id = s.id AND t.status NOT IN ('done','dropped'))
+		 ORDER BY s.id`, recur.ModeFixed)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// NextFixedAfterCompletion brings a fixed series forward when its open
+// instance is finished.
+//
+// Without this a monthly series vanishes from the list the moment you complete
+// it and does not come back until the next occurrence arrives. That is the
+// letter of "exactly one open instance at a time" and the wrong reading of it:
+// for anything monthly it means the commitment is invisible for most of its
+// cycle, and the first time somebody notices is when they wonder whether the
+// series is broken.
+//
+// The schedule is not moved. The instance created is dated to the next
+// occurrence the rule produces, so a report due on the 1st stays due on the
+// 1st however early or late August's was finished. That is the whole
+// difference from after_completion mode, which counts from the completion and
+// would let the date drift.
+//
+// The series is marked fired up to that occurrence, so when the day arrives
+// the scheduler sees next_at in the future and does nothing rather than
+// materializing a second one.
+func (s *Store) NextFixedAfterCompletion(ctx context.Context, actor string, series Series, now time.Time) (api.Task, error) {
+	loc, err := time.LoadLocation(series.TZ)
+	if err != nil {
+		return api.Task{}, err
+	}
+
+	// A series somebody ended is finished, not paused.
+	if series.EndsAt != nil && *series.EndsAt != "" {
+		if ends, err := time.Parse(time.RFC3339, *series.EndsAt); err == nil && now.After(ends) {
+			return api.Task{}, nil
+		}
+	}
+
+	// The invariant, checked rather than assumed. Completing one instance
+	// while another is open must not make a third.
+	open, err := s.openInstances(ctx, series.ID)
+	if err != nil {
+		return api.Task{}, err
+	}
+	if open > 0 {
+		return api.Task{}, nil
+	}
+
+	rule, dtstart, err := s.ruleFor(series, loc, now)
+	if err != nil {
+		return api.Task{}, err
+	}
+	from := dtstart
+	if series.LastFiredAt != nil && *series.LastFiredAt != "" {
+		if at, err := time.Parse(time.RFC3339, *series.LastFiredAt); err == nil {
+			from = at.In(loc)
+		}
+	}
+
+	due, err := rule.After(from)
+	if err != nil || due.IsZero() {
+		return api.Task{}, err
+	}
+	if series.EndsAt != nil && *series.EndsAt != "" {
+		if ends, err := time.Parse(time.RFC3339, *series.EndsAt); err == nil && due.After(ends) {
+			return api.Task{}, nil
+		}
+	}
+
+	task, err := s.materialize(ctx, actor, series, due, now)
+	if err != nil {
+		return api.Task{}, err
+	}
+	if err := s.markFired(ctx, series, rule, due, due); err != nil {
+		return api.Task{}, err
+	}
+	return task, nil
 }
 
 // NextAfterCompletion generates the next instance of an after_completion

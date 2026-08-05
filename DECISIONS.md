@@ -18,6 +18,48 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-05  A fixed series stops disappearing between occurrences
+Phase: after v0.1
+
+Reported against a live instance: a monthly report due the 1st, completed on
+the 5th, and then nothing in the list. The series was healthy. `next_at` was
+the 1st of the next month and the list was empty for the 27 days in between.
+
+That was the letter of "exactly one open instance at a time" and the wrong
+reading of it. The rule is there to stop the same chore stacking up, not to
+make a commitment invisible for most of its cycle. For a daily task the gap is
+hours and nobody notices; for a monthly one it is most of a month, and the
+first thing anybody does about a task that is not there is assume the feature
+is broken.
+
+Completing a fixed instance now brings the next one forward. The instance is
+dated to the next occurrence the rule produces, so the schedule does not move:
+finishing four days late still leaves the next one on the 1st. That is the
+whole difference from after_completion mode, which counts from the completion
+and is what would make the date drift. The series is marked fired up to that
+occurrence, so the scheduler adds nothing when the day arrives.
+
+A second pass fills any fixed series that has no open instance at all. That is
+not the same case and it needed saying separately: an instance dropped rather
+than finished, a database written before this behaviour existed, a reset that
+took the tasks. Without it a series in that state stays invisible until its
+next occurrence, and the deployment that reported this would have waited until
+September for a fix that shipped in August. It materializes the next
+occurrence, never the missed one: dropping an instance means "not this time",
+and answering that by handing back the same task would be arguing with
+somebody about their own list.
+
+Both paths go through one function, which checks the invariant rather than
+assuming it: if something is already open, nothing is made.
+
+Changed a test that pinned the old behaviour by name,
+`TestFixedModeGeneratesNothingAtCompletion`. It asserted exactly what was
+wrong, which is what a test is for right up until the behaviour it describes
+turns out to be the bug.
+
+Reversible: one function, one branch in afterCompletion, one extra pass in
+AdvanceDue.
+
 ## 2026-08-05  A capture plugin, which is not a mirror
 Phase: after v0.1
 

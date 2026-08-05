@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -206,7 +207,17 @@ func TestAfterCompletionGeneratesOnCompletion(t *testing.T) {
 // TestFixedModeGeneratesNothingAtCompletion is the other half of the
 // transition fixture: a fixed series waits for its rule, so completing an
 // instance early leaves the list empty until the next occurrence.
-func TestFixedModeGeneratesNothingAtCompletion(t *testing.T) {
+// TestCompletingAFixedInstanceBringsTheNextOneForward.
+//
+// It used to generate nothing and wait for the scheduler, which is the letter
+// of "exactly one open instance" and the wrong reading of it: a monthly series
+// completed on the 5th vanished from the list until the 1st came round, and
+// the first thing anybody does about a task that is not there is assume it is
+// broken.
+//
+// Brought forward, not rescheduled. The instance is dated to the next
+// occurrence the rule produces, so the schedule is exactly where it was.
+func TestCompletingAFixedInstanceBringsTheNextOneForward(t *testing.T) {
 	s, now := seeded(t)
 	ctx := context.Background()
 
@@ -222,17 +233,88 @@ func TestFixedModeGeneratesNothingAtCompletion(t *testing.T) {
 	if _, err := s.Complete(ctx, actor, first.ID, now); err != nil {
 		t.Fatal(err)
 	}
-	if open := openInSeries(t, s, series.ID); len(open) != 0 {
-		t.Fatalf("completing a fixed instance generated %d tasks; the scheduler does that", len(open))
+
+	open := openInSeries(t, s, series.ID)
+	if len(open) != 1 {
+		t.Fatalf("completing a fixed instance left %d open, want the next one", len(open))
+	}
+	// A week on from the one just finished, not a week from the completion.
+	wantDue := now.AddDate(0, 0, 7).Format(recur.DateLayout)
+	if open[0].DueAt == nil || !strings.HasPrefix(*open[0].DueAt, wantDue) {
+		t.Errorf("the next instance is due %v, want %s: the schedule moved",
+			open[0].DueAt, wantDue)
 	}
 
-	// A week later the rule fires and the instance appears.
+	// And when the day arrives the scheduler adds nothing, because the series
+	// is already fired up to it. Two of the same chore is the failure this
+	// guards against.
 	made, err := s.AdvanceSeries(ctx, actor, mustSeries(t, s, series.ID), now.AddDate(0, 0, 7))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(made) != 1 {
-		t.Fatalf("the rule fired and produced %d instances, want 1", len(made))
+	if len(made) != 0 {
+		t.Errorf("the scheduler made %d more instances on the day, want none", len(made))
+	}
+	if open := openInSeries(t, s, series.ID); len(open) != 1 {
+		t.Errorf("%d open instances after the scheduler ran, want exactly 1", len(open))
+	}
+}
+
+// TestTheScheduleDoesNotDriftWhenYouFinishLate. The difference between fixed
+// and after_completion, asserted: finishing four days late must not move the
+// next occurrence four days out.
+func TestTheScheduleDoesNotDriftWhenYouFinishLate(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	due := now.Format(time.RFC3339)
+	series, first, err := s.CreateSeries(ctx, actor, store.Series{
+		RRule: "FREQ=WEEKLY", Mode: recur.ModeFixed, TZ: "America/Chicago",
+		Template: api.TaskCreate{Title: "Weekly review", DueAt: &due},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Finished four days after it was due.
+	late := now.AddDate(0, 0, 4)
+	if _, err := s.Complete(ctx, actor, first.ID, late); err != nil {
+		t.Fatal(err)
+	}
+
+	open := openInSeries(t, s, series.ID)
+	if len(open) != 1 {
+		t.Fatalf("%d open instances, want the next one", len(open))
+	}
+	wantDue := now.AddDate(0, 0, 7).Format(recur.DateLayout)
+	if open[0].DueAt == nil || !strings.HasPrefix(*open[0].DueAt, wantDue) {
+		t.Errorf("finishing late moved the next occurrence to %v, want %s",
+			open[0].DueAt, wantDue)
+	}
+}
+
+// TestCompletingAnInstanceOfAnEndedSeriesMakesNothing.
+func TestCompletingAnInstanceOfAnEndedSeriesMakesNothing(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	due := now.Format(time.RFC3339)
+	ends := now.AddDate(0, 0, 3).UTC().Format(time.RFC3339)
+	series, first, err := s.CreateSeries(ctx, actor, store.Series{
+		RRule: "FREQ=WEEKLY", Mode: recur.ModeFixed, TZ: "America/Chicago",
+		EndsAt:   &ends,
+		Template: api.TaskCreate{Title: "Weekly review", DueAt: &due},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The next occurrence is a week out, past the end.
+	if _, err := s.Complete(ctx, actor, first.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if open := openInSeries(t, s, series.ID); len(open) != 0 {
+		t.Errorf("a series past its end generated %d instances", len(open))
 	}
 }
 
@@ -310,16 +392,13 @@ func TestEditingAnInstanceDoesNotEditTheSeries(t *testing.T) {
 		t.Errorf("the series template became %q; editing an instance edits that instance", reloaded.Template.Title)
 	}
 
-	// And the next instance is made from the template, not from the edit.
+	// And the next instance, which completing brings forward, is made from the
+	// template rather than from the edit.
 	if _, err := s.Complete(ctx, actor, first.ID, now); err != nil {
 		t.Fatal(err)
 	}
-	made, err := s.AdvanceSeries(ctx, actor, reloaded, now.AddDate(0, 0, 1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(made) != 1 || made[0].Title != "Feed the cat" {
-		t.Errorf("next instance = %+v, want the template's title", made)
+	if next := openInstanceOf(t, s, series.ID, now); next.Title != "Feed the cat" {
+		t.Errorf("next instance = %q, want the template's title", next.Title)
 	}
 }
 
@@ -352,16 +431,36 @@ func TestUpdateSeriesChangesFutureInstancesOnly(t *testing.T) {
 		t.Errorf("the open instance was rewritten to %q", unchanged.Title)
 	}
 
+	// Completing brings the next one forward, so the edited template shows up
+	// on that instance rather than waiting for the scheduler.
 	if _, err := s.Complete(ctx, actor, first.ID, now); err != nil {
 		t.Fatal(err)
 	}
-	made, err := s.AdvanceSeries(ctx, actor, mustSeries(t, s, series.ID), now.AddDate(0, 0, 1))
+	next := openInstanceOf(t, s, series.ID, now)
+	if next.Title != "Stretch for ten minutes" {
+		t.Errorf("next instance = %q, want the edited template", next.Title)
+	}
+}
+
+// openInstanceOf returns the one open task belonging to a series, and fails if
+// there is not exactly one. Section 3's invariant, asserted rather than
+// assumed, every time a test reaches for the current instance.
+func openInstanceOf(t *testing.T, s *store.Store, seriesID string, now time.Time) api.Task {
+	t.Helper()
+	tasks, err := s.List(context.Background(), "is:open", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(made) != 1 || made[0].Title != "Stretch for ten minutes" {
-		t.Errorf("next instance = %+v, want the edited template", made)
+	var found []api.Task
+	for _, task := range tasks {
+		if task.SeriesID != nil && *task.SeriesID == seriesID {
+			found = append(found, task)
+		}
 	}
+	if len(found) != 1 {
+		t.Fatalf("%d open instances of the series, want exactly 1", len(found))
+	}
+	return found[0]
 }
 
 func mustSeries(t *testing.T, s *store.Store, id string) store.Series {
@@ -505,5 +604,100 @@ func TestATaskCanOnlyBelongToOneSeries(t *testing.T) {
 	}
 	if _, _, err := s.RepeatTask(ctx, actor, task.ID, in, now); err == nil {
 		t.Error("a task was attached to a second series")
+	}
+}
+
+// TestTheMonthlyReportCaseFromTheField.
+//
+// Reported against a live instance: a monthly report due the 1st, completed on
+// the 5th, and then nothing in the list at all. The series was healthy, its
+// next_at was the 1st of the next month, and the list was empty for the 27
+// days in between. This is that series, to the day.
+func TestTheMonthlyReportCaseFromTheField(t *testing.T) {
+	s, _ := seeded(t)
+	ctx := context.Background()
+
+	chicago, err := time.LoadLocation("America/Chicago")
+	if err != nil {
+		t.Fatal(err)
+	}
+	august1 := time.Date(2026, 8, 1, 0, 0, 0, 0, chicago)
+	due := august1.Format(recur.DateLayout)
+
+	series, first, err := s.CreateSeries(ctx, actor, store.Series{
+		RRule: "FREQ=MONTHLY;BYMONTHDAY=1", Mode: recur.ModeFixed,
+		Catchup: recur.CatchupSkip, TZ: "America/Chicago",
+		Template: api.TaskCreate{Title: "NCM Cyber Security Report", DueAt: &due},
+	}, august1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Finished on the 5th, four days late, which is ordinary.
+	august5 := time.Date(2026, 8, 5, 11, 21, 0, 0, chicago)
+	if _, err := s.Complete(ctx, actor, first.ID, august5); err != nil {
+		t.Fatal(err)
+	}
+
+	open := openInSeries(t, s, series.ID)
+	if len(open) != 1 {
+		t.Fatalf("%d open instances on the 5th, want September's waiting", len(open))
+	}
+	if open[0].DueAt == nil || !strings.HasPrefix(*open[0].DueAt, "2026-09-01") {
+		t.Errorf("the next report is due %v, want 2026-09-01", open[0].DueAt)
+	}
+
+	// September arrives and the scheduler adds nothing: the series is already
+	// fired up to it. Two copies of a monthly report is the failure here.
+	september1 := time.Date(2026, 9, 1, 0, 30, 0, 0, chicago)
+	if _, err := s.AdvanceDue(ctx, actor, september1); err != nil {
+		t.Fatal(err)
+	}
+	if open := openInSeries(t, s, series.ID); len(open) != 1 {
+		t.Errorf("%d open instances once September arrived, want exactly 1", len(open))
+	}
+}
+
+// TestAnIdleFixedSeriesIsFilledOnTheNextTick.
+//
+// Bringing the next instance forward happens at completion, so a series that
+// got to zero another way stays empty: an instance dropped rather than
+// finished, or a database written before that behaviour existed. Both are
+// real, and the symptom is a recurring task that is simply not there.
+func TestAnIdleFixedSeriesIsFilledOnTheNextTick(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	due := now.Format(recur.DateLayout)
+	series, first, err := s.CreateSeries(ctx, actor, store.Series{
+		RRule: "FREQ=WEEKLY", Mode: recur.ModeFixed, TZ: "America/Chicago",
+		Template: api.TaskCreate{Title: "Weekly review", DueAt: &due},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Dropped, not completed, so nothing is brought forward.
+	if _, err := s.Drop(ctx, actor, first.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if open := openInSeries(t, s, series.ID); len(open) != 0 {
+		t.Fatalf("dropping left %d open", len(open))
+	}
+
+	// The next tick notices and hands back the next occurrence, not the one
+	// that was dropped: "not this time" is an answer, and repeating the
+	// question would be arguing with it.
+	if _, err := s.AdvanceDue(ctx, actor, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	open := openInSeries(t, s, series.ID)
+	if len(open) != 1 {
+		t.Fatalf("%d open instances after a tick, want the next occurrence", len(open))
+	}
+	wantDue := now.AddDate(0, 0, 7).Format(recur.DateLayout)
+	if open[0].DueAt == nil || !strings.HasPrefix(*open[0].DueAt, wantDue) {
+		t.Errorf("the filled instance is due %v, want %s, the next occurrence",
+			open[0].DueAt, wantDue)
 	}
 }

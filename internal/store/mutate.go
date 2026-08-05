@@ -301,9 +301,14 @@ func (s *Store) Patch(ctx context.Context, actor, id string, p api.TaskPatch, if
 	return s.Get(ctx, id)
 }
 
-// afterCompletion generates the next instance of a series whose mode counts
-// from completion. Fixed series generate nothing here: the scheduler does it
-// when the rule fires, which is the whole difference between the two modes.
+// afterCompletion generates the next instance when one is finished.
+//
+// Both modes produce something here now, and the difference between them is
+// what the new instance is dated to. after_completion counts from when you
+// finished, so a bin emptied on Wednesday is next due the following Wednesday.
+// fixed takes the next occurrence the rule produces, so a report due on the
+// 1st stays due on the 1st: the instance is brought forward, the schedule is
+// not moved.
 func (s *Store) afterCompletion(ctx context.Context, actor string, done *api.Task, now time.Time) error {
 	if done.SeriesID == nil || *done.SeriesID == "" {
 		return nil
@@ -313,6 +318,13 @@ func (s *Store) afterCompletion(ctx context.Context, actor string, done *api.Tas
 		if errors.Is(err, ErrNotFound) {
 			return nil
 		}
+		return err
+	}
+	if series.Mode == recur.ModeFixed {
+		// Brought forward, not rescheduled. The next instance is dated to the
+		// next occurrence the rule produces, so the schedule is untouched and
+		// the series stops being invisible between occurrences.
+		_, err := s.NextFixedAfterCompletion(ctx, actor, series, now)
 		return err
 	}
 	if series.Mode != recur.ModeAfterCompletion {
