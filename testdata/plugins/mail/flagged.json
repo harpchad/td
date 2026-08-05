@@ -1,0 +1,114 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('me')/messages",
+  "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/messages?$filter=flag%2FflagStatus+eq+%27flagged%27&$skip=4",
+  "value": [
+    {
+      "id": "AAMkAG_RENEWAL",
+      "createdDateTime": "2026-08-03T14:12:07Z",
+      "receivedDateTime": "2026-08-03T14:12:07Z",
+      "subject": "Wildcard cert renewal is due",
+      "bodyPreview": "The cert expires on the 4th of September and the renewal needs signing off.",
+      "webLink": "https://outlook.office365.com/owa/?ItemID=AAMkAG_RENEWAL",
+      "isRead": false,
+      "from": {
+        "emailAddress": {
+          "name": "Stacey Kennedy",
+          "address": "skennedy@example.invalid"
+        }
+      },
+      "sender": {
+        "emailAddress": {
+          "name": "Stacey Kennedy",
+          "address": "skennedy@example.invalid"
+        }
+      },
+      "flag": {
+        "flagStatus": "flagged"
+      }
+    },
+    {
+      "id": "AAMkAG_CONTRACT",
+      "createdDateTime": "2026-08-03T09:41:22Z",
+      "receivedDateTime": "2026-08-03T09:41:22Z",
+      "subject": "Countersigned contract for review",
+      "bodyPreview": "Attached is the countersigned copy.",
+      "webLink": "https://outlook.office365.com/owa/?ItemID=AAMkAG_CONTRACT",
+      "isRead": false,
+      "from": {
+        "emailAddress": {
+          "name": "Tim Aldridge",
+          "address": "taldridge@example.invalid"
+        }
+      },
+      "sender": {
+        "emailAddress": {
+          "name": "Tim Aldridge",
+          "address": "taldridge@example.invalid"
+        }
+      },
+      "flag": {
+        "flagStatus": "flagged",
+        "startDateTime": {
+          "dateTime": "2026-08-03T04:00:00.0000000",
+          "timeZone": "UTC"
+        },
+        "dueDateTime": {
+          "dateTime": "2026-08-07T04:00:00.0000000",
+          "timeZone": "UTC"
+        }
+      }
+    },
+    {
+      "id": "AAMkAG_NOSUBJECT",
+      "createdDateTime": "2026-08-02T21:03:55Z",
+      "receivedDateTime": "2026-08-02T21:03:55Z",
+      "subject": "",
+      "bodyPreview": "numbers attached, call me",
+      "webLink": "https://outlook.office365.com/owa/?ItemID=AAMkAG_NOSUBJECT",
+      "isRead": false,
+      "from": {
+        "emailAddress": {
+          "name": "Mikah Cole",
+          "address": "mcole@example.invalid"
+        }
+      },
+      "sender": {
+        "emailAddress": {
+          "name": "Mikah Cole",
+          "address": "mcole@example.invalid"
+        }
+      },
+      "flag": {
+        "flagStatus": "flagged"
+      }
+    },
+    {
+      "id": "AAMkAG_COMPLETE",
+      "createdDateTime": "2026-08-01T11:00:00Z",
+      "receivedDateTime": "2026-08-01T11:00:00Z",
+      "subject": "Already dealt with",
+      "bodyPreview": "",
+      "webLink": "https://outlook.office365.com/owa/?ItemID=AAMkAG_COMPLETE",
+      "isRead": false,
+      "from": {
+        "emailAddress": {
+          "name": "Stacey Kennedy",
+          "address": "skennedy@example.invalid"
+        }
+      },
+      "sender": {
+        "emailAddress": {
+          "name": "Stacey Kennedy",
+          "address": "skennedy@example.invalid"
+        }
+      },
+      "flag": {
+        "flagStatus": "complete",
+        "completedDateTime": {
+          "dateTime": "2026-08-02T08:00:00.0000000",
+          "timeZone": "UTC"
+        }
+      }
+    }
+  ]
+}

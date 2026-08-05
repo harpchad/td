@@ -1,0 +1,29 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('me')/messages",
+  "value": [
+    {
+      "id": "AAMkAG_INVOICE",
+      "createdDateTime": "2026-07-31T16:20:00Z",
+      "receivedDateTime": "2026-07-31T16:20:00Z",
+      "subject": "Invoice 4417 is overdue",
+      "bodyPreview": "Our records show invoice 4417 remains unpaid.",
+      "webLink": "https://outlook.office365.com/owa/?ItemID=AAMkAG_INVOICE",
+      "isRead": false,
+      "from": {
+        "emailAddress": {
+          "name": "Accounts Payable",
+          "address": "ap@vendor.example.invalid"
+        }
+      },
+      "sender": {
+        "emailAddress": {
+          "name": "Accounts Payable",
+          "address": "ap@vendor.example.invalid"
+        }
+      },
+      "flag": {
+        "flagStatus": "flagged"
+      }
+    }
+  ]
+}

@@ -204,19 +204,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/plugins/{name}/disconnect", s.disconnectPlugin)
 	mux.HandleFunc("POST /api/v1/plugins/{name}/run", s.runPlugin)
 
-	// The browser side of connecting Planner. The device code flow is a
+	// The browser side of connecting a plugin. The device code flow is a
 	// conversation with Microsoft, so the server drives it and hands the web
 	// UI something to draw.
-	mux.HandleFunc("POST /w/planner/connect", s.plannerConnect)
-	mux.HandleFunc("POST /w/planner/poll", s.plannerPoll)
-	// A refresh, a back button, or a bookmarked mid-flow URL lands on GET.
-	// There is nothing to show without a fresh device code, so it goes back
-	// to where the flow starts rather than answering 404.
-	mux.HandleFunc("GET /w/planner/connect", s.plannerRestart)
-	mux.HandleFunc("GET /w/planner/poll", s.plannerRestart)
-	mux.HandleFunc("POST /w/planner/disconnect", s.plannerDisconnect)
-	mux.HandleFunc("POST /w/planner/run", s.plannerRunNow)
-	mux.HandleFunc("POST /w/planner/map", s.plannerMap)
+	//
+	// One set of routes for every plugin. The name is in the path, so a second
+	// plugin is a row in the settings table rather than seven more handlers.
+	mux.HandleFunc("POST /w/plugins/{name}/connect", s.pluginConnect)
+	mux.HandleFunc("POST /w/plugins/{name}/poll", s.pluginPoll)
+	// A device code is single use and short lived, so a GET into the middle of
+	// the flow has nothing to render and is sent back to the start.
+	mux.HandleFunc("GET /w/plugins/{name}/connect", s.pluginRestart)
+	mux.HandleFunc("GET /w/plugins/{name}/poll", s.pluginRestart)
+	mux.HandleFunc("POST /w/plugins/{name}/disconnect", s.pluginDisconnect)
+	mux.HandleFunc("POST /w/plugins/{name}/run", s.pluginRunNow)
+	mux.HandleFunc("POST /w/plugins/{name}/map", s.pluginMap)
 	mux.HandleFunc("GET /api/v1/export", s.export)
 	mux.HandleFunc("POST /api/v1/import", s.importAll)
 

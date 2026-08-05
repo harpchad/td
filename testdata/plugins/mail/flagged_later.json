@@ -1,0 +1,53 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('me')/messages",
+  "value": [
+    {
+      "id": "AAMkAG_RENEWAL",
+      "createdDateTime": "2026-08-03T14:12:07Z",
+      "receivedDateTime": "2026-08-03T14:12:07Z",
+      "subject": "Wildcard cert renewal is due",
+      "bodyPreview": "The cert expires on the 4th of September and the renewal needs signing off.",
+      "webLink": "https://outlook.office365.com/owa/?ItemID=AAMkAG_RENEWAL",
+      "isRead": false,
+      "from": {
+        "emailAddress": {
+          "name": "Stacey Kennedy",
+          "address": "skennedy@example.invalid"
+        }
+      },
+      "sender": {
+        "emailAddress": {
+          "name": "Stacey Kennedy",
+          "address": "skennedy@example.invalid"
+        }
+      },
+      "flag": {
+        "flagStatus": "flagged"
+      }
+    },
+    {
+      "id": "AAMkAG_LATER",
+      "createdDateTime": "2026-08-05T07:15:00Z",
+      "receivedDateTime": "2026-08-05T07:15:00Z",
+      "subject": "Board pack for the 12th",
+      "bodyPreview": "First draft of the board pack.",
+      "webLink": "https://outlook.office365.com/owa/?ItemID=AAMkAG_LATER",
+      "isRead": false,
+      "from": {
+        "emailAddress": {
+          "name": "Tim Aldridge",
+          "address": "taldridge@example.invalid"
+        }
+      },
+      "sender": {
+        "emailAddress": {
+          "name": "Tim Aldridge",
+          "address": "taldridge@example.invalid"
+        }
+      },
+      "flag": {
+        "flagStatus": "flagged"
+      }
+    }
+  ]
+}

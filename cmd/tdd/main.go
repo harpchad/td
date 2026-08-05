@@ -24,6 +24,7 @@ import (
 	"github.com/harpchad/td/internal/memos"
 	"github.com/harpchad/td/internal/msgraph"
 	"github.com/harpchad/td/internal/notify"
+	"github.com/harpchad/td/internal/plugins/mail"
 	"github.com/harpchad/td/internal/plugins/planner"
 	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/server"
@@ -169,7 +170,8 @@ func run(args []string) error {
 	// current whether or not anybody is at a terminal. They are configured
 	// from the settings page; nothing about them lives in config.toml.
 	plannerRunner := &planner.Runner{Store: st, Identity: msgraph.New(), Loc: loc}
-	srv.AttachPlugins(plannerRunner)
+	mailRunner := &mail.Runner{Store: st, Identity: msgraph.New(), Loc: loc}
+	srv.AttachPlugins(plannerRunner, mailRunner)
 
 	// Config resolves flags over environment over file, and a commented
 	// default is written on first start.
@@ -244,8 +246,11 @@ func run(args []string) error {
 		ActionToken: cfg.Notify.ActionToken,
 		Blobs:       blobs,
 		Plugins: &notify.Plugins{
-			Store:   st,
-			Runners: map[string]notify.Runner{plannerRunner.Name(): plannerRunner},
+			Store: st,
+			Runners: map[string]notify.Runner{
+				plannerRunner.Name(): plannerRunner,
+				mailRunner.Name():    mailRunner,
+			},
 		},
 		Journal: &notify.Journal{
 			Store: st, Poster: memos.NewHTTPPoster(cfg.Memos), Config: cfg.Memos,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -21,15 +22,34 @@ import (
 // htmx poll on a fragment rather than a script, so the Content-Security-Policy
 // still needs no unsafe-inline and no per-page hash.
 
-// plannerView is the section as the template reads it.
-type plannerView struct {
+// pluginView is one plugin's section as the template reads it.
+//
+// One type for every plugin rather than one per plugin. The chrome is
+// identical, because the interesting part of a plugin section is always the
+// same four questions: is it on, is it connected, what happened last time, and
+// who could it not identify. Only the settings fields differ, and those are a
+// handful of strings.
+type pluginView struct {
+	// Name is the key in the configuration table and in every form action on
+	// the section, so a template that renders two of these cannot post one
+	// plugin's settings to the other.
+	Name  string
+	Title string
+	// Lede says what the plugin does, because "Mail" on its own does not tell
+	// somebody that flagging a message is the gesture.
+	Lede string
+
 	Enabled   bool
 	Connected bool
 	Account   string
-	Plans     string
 	Interval  int
+
+	// Plans is the Planner plan list, one per line.
+	Plans string
+	// Folders is the mail folder list, one per line. Empty is the mailbox.
+	Folders string
 	// Everything is the whole-plan opt-in. A Planner plan is a team board, so
-	// the default is what is assigned to you.
+	// the default is what is assigned to you. Planner only.
 	Everything bool
 
 	LastRunAt  string
@@ -62,26 +82,53 @@ type personChoice struct {
 	Name   string
 }
 
-// plannerSection builds the view. A plugin nobody has configured renders as
-// an empty form rather than as nothing, because "where do I turn this on" is
-// the first question somebody has.
-func (u *UI) plannerSection(ctx context.Context) plannerView {
+// plugins is every plugin the settings page renders, in order.
+//
+// A table rather than a hardcoded pair of sections, so adding the next one is
+// a row here and a few form fields rather than another hundred lines of
+// duplicated chrome.
+var plugins = []pluginView{
+	{
+		Name: "planner", Title: "Microsoft Planner",
+		Lede: "Mirrors tasks assigned to you. Upstream owns the title, the " +
+			"status and the due date; everything else is yours.",
+	},
+	{
+		Name: "mail", Title: "Outlook mail",
+		Lede: "Flag a message in Outlook and it lands in your inbox here. " +
+			"Captured once and then it is yours: unflagging the mail leaves " +
+			"the task alone, and so does finishing it.",
+	},
+}
+
+// pluginSections builds every section.
+func (u *UI) pluginSections(ctx context.Context) []pluginView {
+	out := make([]pluginView, 0, len(plugins))
+	for _, p := range plugins {
+		out = append(out, u.pluginSection(ctx, p))
+	}
+	return out
+}
+
+// pluginSection builds one view. A plugin nobody has configured renders as an
+// empty form rather than as nothing, because "where do I turn this on" is the
+// first question somebody has.
+func (u *UI) pluginSection(ctx context.Context, out pluginView) pluginView {
 	svc, ok := u.svc.(interface {
 		PluginConfigByName(ctx context.Context, name string) (store.PluginConfig, error)
 	})
 	if !ok {
-		return plannerView{}
+		return out
 	}
-	cfg, err := svc.PluginConfigByName(ctx, "planner")
+	cfg, err := svc.PluginConfigByName(ctx, out.Name)
 	if err != nil {
-		u.log.Error("reading planner config", "err", err)
-		return plannerView{}
+		u.log.Error("reading plugin config", "plugin", out.Name, "err", err)
+		return out
 	}
 
-	out := plannerView{
-		Enabled: cfg.Enabled, Connected: cfg.Connected(),
-		Interval: cfg.IntervalMinutes,
-	}
+	out.Enabled = cfg.Enabled
+	out.Connected = cfg.Connected()
+	out.Interval = cfg.IntervalMinutes
 	if out.Interval == 0 {
 		out.Interval = 15
 	}
@@ -89,13 +136,15 @@ func (u *UI) plannerSection(ctx context.Context) plannerView {
 	var settings struct {
 		Plans   []string `json:"plans"`
 		Include string   `json:"include"`
+		Folders []string `json:"folders"`
 	}
 	if len(cfg.Settings) > 0 {
 		_ = json.Unmarshal(cfg.Settings, &settings)
 	}
-	// One per line in the textarea: a plan id is long and opaque, and a
-	// comma-separated field of them is unreadable.
+	// One per line in the textarea: a plan id or a folder id is long and
+	// opaque, and a comma-separated field of them is unreadable.
 	out.Plans = strings.Join(settings.Plans, "\n")
+	out.Folders = strings.Join(settings.Folders, "\n")
 	out.Everything = settings.Include == "all"
 
 	if cfg.LastRunAt != nil {
@@ -160,8 +209,11 @@ func (u *UI) plannerSection(ctx context.Context) plannerView {
 	return out
 }
 
-// savePlanner writes the settings form.
-func (u *UI) savePlanner(w http.ResponseWriter, r *http.Request) {
+// savePlugin writes one plugin's settings form.
+//
+// The plugin name comes off the path, so two sections on the same page cannot
+// post one plugin's settings into the other's row.
+func (u *UI) savePlugin(w http.ResponseWriter, r *http.Request) {
 	svc, ok := u.svc.(interface {
 		SavePluginSettings(ctx context.Context, name string, enabled bool, settings json.RawMessage, interval int, now time.Time) error
 	})
@@ -174,20 +226,28 @@ func (u *UI) savePlanner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// One plan id per line, blanks dropped. Somebody pasting a list with a
-	// trailing newline should not get an empty plan that fails every run.
-	var plans []string
-	for _, line := range strings.Split(r.PostFormValue("plans"), "\n") {
-		if id := strings.TrimSpace(line); id != "" {
-			plans = append(plans, id)
+	name := r.PathValue("name")
+	if !knownPlugin(name) {
+		http.Redirect(w, r, "/settings?e=no+plugin+called+"+url.QueryEscape(name), http.StatusSeeOther)
+		return
+	}
+
+	body := map[string]any{}
+	switch name {
+	case "planner":
+		body["plans"] = lines(r.PostFormValue("plans"))
+		// Assigned unless the whole board was asked for on purpose.
+		body["include"] = "assigned"
+		if r.PostFormValue("everything") != "" {
+			body["include"] = "all"
 		}
+	case "mail":
+		// Empty is the whole mailbox, which is the useful default: a flag is
+		// already an explicit act.
+		body["folders"] = lines(r.PostFormValue("folders"))
 	}
-	// Assigned unless the whole board was asked for on purpose.
-	include := "assigned"
-	if r.PostFormValue("everything") != "" {
-		include = "all"
-	}
-	settings, err := json.Marshal(map[string]any{"plans": plans, "include": include})
+
+	settings, err := json.Marshal(body)
 	if err != nil {
 		u.fail(w, r, err)
 		return
@@ -204,7 +264,7 @@ func (u *UI) savePlanner(w http.ResponseWriter, r *http.Request) {
 	}
 
 	enabled := r.PostFormValue("enabled") != ""
-	if err := svc.SavePluginSettings(r.Context(), "planner", enabled, settings, interval, u.Now()); err != nil {
+	if err := svc.SavePluginSettings(r.Context(), name, enabled, settings, interval, u.Now()); err != nil {
 		u.fail(w, r, err)
 		return
 	}
@@ -260,6 +320,12 @@ func (u *UI) ConnectDone(w http.ResponseWriter, r *http.Request) {
 
 // ConnectCode is what the connect fragment renders.
 type ConnectCode struct {
+	// Plugin is which connection this sign-in is for. It rides through the
+	// form with everything else, because the poll that completes the sign-in
+	// has to store the credential against the right plugin and there is no
+	// session to remember it in.
+	Plugin string
+
 	UserCode        string
 	VerificationURI string
 	DeviceCode      string
@@ -345,4 +411,28 @@ func localPart(email string) string {
 		return ""
 	}
 	return email[:at]
+}
+
+// knownPlugin reports whether a name is one the settings page renders, so a
+// form action cannot create a configuration row for a plugin that does not
+// exist.
+func knownPlugin(name string) bool {
+	for _, p := range plugins {
+		if p.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// lines splits a textarea into ids, dropping blanks. Somebody pasting a list
+// with a trailing newline should not get an empty entry that fails every run.
+func lines(raw string) []string {
+	var out []string
+	for _, line := range strings.Split(raw, "\n") {
+		if id := strings.TrimSpace(line); id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
 }

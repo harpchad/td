@@ -60,44 +60,59 @@
       {{end}}
     </div>
 
+    {{/* One section per plugin, rendered from the same template. The chrome
+         is identical because the interesting questions always are: is it on,
+         is it connected, what happened last run, and who could it not
+         identify. Only the settings fields differ. */}}
+    {{range .Plugins}}
     <div class="td-section">
-      <div class="td-section__title">Microsoft Planner</div>
-      <p class="td-dim">
-        A one-way mirror of what is assigned to you. Upstream owns the title,
-        status and due date; your priority, notes, tags and people links are
-        never touched. It runs on the server, so the mirror stays current
-        whether or not anything of yours is open.
-      </p>
+      <div class="td-section__title">{{.Title}}</div>
+      <p class="td-dim">{{.Lede}}</p>
 
-      <form action="/w/planner" method="post">
+      <form action="/w/plugins/{{.Name}}" method="post">
         <div class="td-form__row">
-          <span class="td-form__label">mirror</span>
+          <span class="td-form__label">run</span>
           <label class="td-notify__choice">
             <input class="td-check" type="checkbox" name="enabled" value="1"
-                   {{if .Planner.Enabled}}checked{{end}}>
+                   {{if .Enabled}}checked{{end}}>
             <span>run this on a schedule</span>
           </label>
         </div>
 
+        {{if eq .Name "planner"}}
         <label class="td-edit__notes">
           <span class="td-form__label">plans</span>
           <textarea class="td-textarea" name="plans" rows="3"
-                    placeholder="one plan id per line">{{.Planner.Plans}}</textarea>
+                    placeholder="one plan id per line">{{.Plans}}</textarea>
         </label>
 
         <div class="td-form__row">
           <span class="td-form__label">mirror what</span>
           <label class="td-notify__choice">
             <input class="td-check" type="checkbox" name="everything" value="1"
-                   {{if .Planner.Everything}}checked{{end}}>
+                   {{if .Everything}}checked{{end}}>
             <span>the whole plan, not just what is assigned to me</span>
           </label>
         </div>
+        {{end}}
+
+        {{if eq .Name "mail"}}
+        <label class="td-edit__notes">
+          <span class="td-form__label">folders</span>
+          <textarea class="td-textarea" name="folders" rows="2"
+                    placeholder="one folder id per line, or leave empty for the whole mailbox">{{.Folders}}</textarea>
+        </label>
+        <p class="td-dim">
+          Leave folders empty unless you have a reason. Flagging is already a
+          deliberate act, and a filter here mostly means a flag somewhere else
+          quietly does nothing.
+        </p>
+        {{end}}
 
         <label class="td-form__row">
           <span class="td-form__label">every</span>
           <input class="td-input" type="text" name="interval" inputmode="numeric"
-                 value="{{.Planner.Interval}}"> <span class="td-dim">minutes</span>
+                 value="{{.Interval}}"> <span class="td-dim">minutes</span>
         </label>
 
         <div class="td-form__actions">
@@ -106,41 +121,40 @@
       </form>
 
       <div class="td-section__title">Microsoft account</div>
-      {{if .Planner.Connected}}
-        <p>Connected{{if .Planner.Account}} as <b>{{.Planner.Account}}</b>{{end}}.</p>
+      {{if .Connected}}
+        <p>Connected{{if .Account}} as <b>{{.Account}}</b>{{end}}.</p>
         <div class="td-form__actions">
-          <form action="/w/planner/run" method="post">
-            <button class="td-btn" type="submit">Sync now</button>
+          <form action="/w/plugins/{{.Name}}/run" method="post">
+            <button class="td-btn" type="submit">Run now</button>
           </form>
-          <form action="/w/planner/run?relink=1" method="post">
+          {{if eq .Name "planner"}}
+          <form action="/w/plugins/{{.Name}}/run?relink=1" method="post">
             <button class="td-btn" type="submit">Re-apply everything</button>
           </form>
-          <form action="/w/planner/disconnect" method="post">
+          {{end}}
+          <form action="/w/plugins/{{.Name}}/disconnect" method="post">
             <button class="td-btn" type="submit">Disconnect</button>
           </form>
         </div>
       {{else}}
         <p class="td-dim">
-          Not connected. You need an app registration with public client flows
-          enabled and delegated <b>Tasks.Read</b> and <b>User.ReadBasic.All</b>.
-          Signing in once is enough: the server keeps the connection alive from
-          then on.
+          {{/* Each plugin signs in for itself and asks for only what it needs,
+               so the mail credential cannot read the board and the board's
+               cannot read the mail. That is why this is a second sign-in
+               rather than an oversight. */}}
+          Sign in with the account this should read. It asks for only what
+          this plugin needs, so each one is connected separately.
         </p>
-        <form action="/w/planner/connect" method="post">
+        <form action="/w/plugins/{{.Name}}/connect" method="post">
           <label class="td-form__row">
             <span class="td-form__label">tenant</span>
-            <input class="td-input td-edit__wide" type="text" name="tenant_id"
+            <input class="td-input" type="text" name="tenant_id"
                    placeholder="a tenant id, a domain, or organizations">
           </label>
           <label class="td-form__row">
             <span class="td-form__label">client id</span>
-            <input class="td-input td-edit__wide" type="text" name="client_id"
+            <input class="td-input" type="text" name="client_id"
                    placeholder="the app registration's application id">
-          </label>
-          <label class="td-form__row">
-            <span class="td-form__label">authority</span>
-            <input class="td-input td-edit__wide" type="text" name="authority"
-                   placeholder="blank for the public cloud">
           </label>
           <div class="td-form__actions">
             <button class="td-btn td-btn--primary" type="submit">Connect</button>
@@ -148,13 +162,13 @@
         </form>
       {{end}}
 
-      {{if .Planner.LastRunAt}}
+      {{if .LastRunAt}}
       <div class="td-section__title">Last run</div>
-      <p class="td-dim">{{.Planner.LastRunAt}} — {{.Planner.LastResult}}</p>
-      {{if .Planner.LastError}}<p class="td-notice--error">{{.Planner.LastError}}</p>{{end}}
+      <p class="td-dim">{{.LastRunAt}} — {{.LastResult}}</p>
+      {{if .LastError}}<p class="td-notice--error">{{.LastError}}</p>{{end}}
       {{end}}
 
-      {{if .Planner.Unresolved}}
+      {{if .Unresolved}}
       <div class="td-section__title">People it would not guess at</div>
       <p class="td-dim">
         Two people with the same first name is ordinary, and merging them is
@@ -163,25 +177,21 @@
         handle that is free. Both answers are permanent.
       </p>
       <table class="td-tokens td-unresolved">
-        {{range .Planner.Unresolved}}
+        <thead><tr><th>who</th><th>why</th><th></th></tr></thead>
+        {{$plugin := .Name}}{{$people := .People}}
+        {{range .Unresolved}}
         <tr>
           <td>{{.Who}}</td>
           <td class="td-dim">{{.Reason}}</td>
           <td>
-            {{/* Two answers, because there are two situations. Either this is
-                 somebody td already knows under a different handle, or it is
-                 a different person who happens to share a first name. The
-                 second is the common one here: the collision is why the row
-                 exists at all. */}}
-            <form action="/w/planner/map" method="post" class="td-inline">
+            <form action="/w/plugins/{{$plugin}}/map" method="post" class="td-inline">
               <input type="hidden" name="source" value="{{.Source}}">
               <input type="hidden" name="source_user" value="{{.SourceUser}}">
               <input type="hidden" name="name" value="{{.Name}}">
               <input type="hidden" name="email" value="{{.Email}}">
-
               <select class="td-input" name="handle">
                 <option value="">somebody already here…</option>
-                {{range $.Planner.People}}<option value="{{.Handle}}">{{.Name}} (@{{.Handle}})</option>{{end}}
+                {{range $people}}<option value="{{.Handle}}">{{.Name}} (@{{.Handle}})</option>{{end}}
               </select>
               <button class="td-linkbtn" type="submit">map</button>
 
@@ -198,6 +208,7 @@
       </table>
       {{end}}
     </div>
+    {{end}}
 
     <div class="td-section">
       <div class="td-section__title">Connected apps</div>

@@ -32,7 +32,7 @@ import (
 // specific tenant id.
 const DefaultAuthority = "https://login.microsoftonline.com"
 
-// Scopes are what the mirror needs and nothing more.
+// Scopes are what the Planner mirror needs and nothing more.
 //
 // Tasks.Read to read plans and tasks, User.ReadBasic.All to turn the object
 // ids inside a task into names and addresses, and offline_access, which is
@@ -73,6 +73,23 @@ type Config struct {
 	ClientID string `json:"client_id"`
 	// Authority overrides the login host for a sovereign cloud.
 	Authority string `json:"authority,omitempty"`
+	// Scopes are what this connection asks for. Empty means the Planner set
+	// above, which is what every caller wanted until a second plugin existed.
+	//
+	// Per connection rather than per server on purpose. The mail plugin needs
+	// Mail.Read and no more, the mirror needs Tasks.Read and no more, and a
+	// single credential carrying the union would let either one read what the
+	// other was granted. The cost is signing in once per plugin, which is the
+	// honest price of least privilege rather than an oversight.
+	Scopes []string `json:"scopes,omitempty"`
+}
+
+// scopes is what to ask the identity platform for.
+func (c Config) scopes() []string {
+	if len(c.Scopes) > 0 {
+		return c.Scopes
+	}
+	return Scopes
 }
 
 func (c Config) authority() string {
@@ -139,7 +156,7 @@ func New() *Client {
 func (c *Client) StartDeviceCode(ctx context.Context, cfg Config) (DeviceCode, error) {
 	form := url.Values{
 		"client_id": {cfg.ClientID},
-		"scope":     {strings.Join(Scopes, " ")},
+		"scope":     {strings.Join(cfg.scopes(), " ")},
 	}
 	body, err := c.post(ctx, cfg.authority()+"/"+cfg.tenant()+"/oauth2/v2.0/devicecode", form)
 	if err != nil {
@@ -229,14 +246,17 @@ func (c *Client) AccessToken(ctx context.Context, cred Credential, now time.Time
 		}
 	}
 	if cred.RefreshToken == "" {
-		return "", cred, errors.New("no refresh token: connect Planner again")
+		return "", cred, errors.New("no refresh token: connect this plugin again")
 	}
 
 	form := url.Values{
 		"grant_type":    {"refresh_token"},
 		"client_id":     {cred.Config.ClientID},
 		"refresh_token": {cred.RefreshToken},
-		"scope":         {strings.Join(Scopes, " ")},
+		// The stored config's scopes, not the package default: a refreshed
+		// mail credential must come back with Mail.Read rather than silently
+		// widening to whatever the mirror asks for.
+		"scope": {strings.Join(cred.Config.scopes(), " ")},
 	}
 	body, err := c.post(ctx, cred.Config.authority()+"/"+cred.Config.tenant()+"/oauth2/v2.0/token", form)
 	if err != nil {

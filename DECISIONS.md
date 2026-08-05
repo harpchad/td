@@ -18,6 +18,60 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-05  A capture plugin, which is not a mirror
+Phase: after v0.1
+
+Flagging a mail is the gesture people already make when they mean "this is a
+thing I have to do", so `mail` turns flagged Outlook messages into inbox
+tasks. Confirmed against Graph first: `message` carries `flag/flagStatus` and
+it filters, so this is one query. Teams "save for later" has no Graph endpoint
+at all and was not built; Power Automate's "For a selected message" posting to
+the capture API is the honest answer there.
+
+The plugin is a capture and not a mirror, and everything follows from that.
+Planner re-posts its window every run because upstream owns the fields. Here
+the person owns them the moment the task exists: they retitle it, prioritise
+it, finish it. So a message is posted exactly once, enforced by subtracting
+the ids td already holds before anything is sent, never sending a gone list,
+and the UNIQUE (source, external_id) on task as a backstop.
+
+Two consequences worth stating. Unflagging a mail leaves the task alone,
+because the flag was how you told td about it, not where it lives. And
+`Captured` filters on the source with no status term, so a completed task
+still counts as captured: filtering to open tasks would make finishing
+something resurrect it on the next tick.
+
+The flag is never cleared. Section 8 forbids write-back, so the plugin holds
+`Mail.Read` and not `Mail.ReadWrite`, which also means the worst case for a
+leaked mail credential is disclosure rather than somebody's mailbox being
+edited. The cost is real: your Outlook flag list keeps growing and you clear
+it yourself.
+
+**A flag due date is a calendar date, not an instant.** Outlook stores the day
+you picked at around midnight in some reference zone, so Graph returns
+"2026-08-07T04:00:00" for the 7th. Written the obvious way first, reading it as
+an instant and formatting in the server's zone, and then measured: Chicago and
+Los Angeles both lost a day, UTC and Tokyo did not. It now takes the date
+exactly as written. Section 5 says the same thing in the other direction about
+date-only templates.
+
+Per-plugin Microsoft credentials rather than one shared connection. Mail asks
+for Mail.Read, the mirror asks for Tasks.Read, and neither can use the other's
+grant. The cost is signing in twice, which is the honest price of least
+privilege rather than an oversight, and the settings page says so where the
+second sign-in appears.
+
+The plugin UI was Planner-shaped: seven hardcoded routes and a template
+section. It is now one set of `/w/plugins/{name}/*` routes and one template
+rendered per plugin from a table, because the interesting questions about a
+plugin are always the same four. Only the settings fields differ. The name is
+checked against that table on the way in, so a form action cannot create a
+configuration row for a plugin nothing serves.
+
+Not built: any way to filter which flagged mail becomes a task beyond folders,
+which defaults to the whole mailbox. Flagging is already deliberate, and a
+second filter mostly produces flags that quietly do nothing.
+
 ## 2026-08-03  The challenge is the decision, not a hint
 Phase: after v0.1
 

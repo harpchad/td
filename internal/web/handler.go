@@ -155,7 +155,7 @@ func (u *UI) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /w/theme", u.setTheme)
 	mux.HandleFunc("POST /w/tokens/{id}/revoke", u.revokeToken)
 	mux.HandleFunc("POST /w/grants/{id}/revoke", u.RevokeGrant)
-	mux.HandleFunc("POST /w/planner", u.savePlanner)
+	mux.HandleFunc("POST /w/plugins/{name}", u.savePlugin)
 
 	mux.HandleFunc("GET /static/td.css", u.asset(u.assets.CSS, "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /static/td.js", u.asset(u.assets.Script, "text/javascript; charset=utf-8"))
@@ -246,7 +246,7 @@ type pageData struct {
 	// of a consent screen is that it can grant less than was asked for.
 	// The Planner mirror on the settings page, and the device code panel
 	// htmx swaps in while you sign in.
-	Planner plannerView
+	Plugins []pluginView
 	Connect ConnectCode
 
 	ClientName string
@@ -685,7 +685,7 @@ func (u *UI) settings(w http.ResponseWriter, r *http.Request) {
 		data.Tokens = append(data.Tokens, row)
 	}
 	data.Grants = u.GrantRows(r.Context())
-	data.Planner = u.plannerSection(r.Context())
+	data.Plugins = u.pluginSections(r.Context())
 
 	u.render(w, "settings", data)
 }

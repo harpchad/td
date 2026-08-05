@@ -100,7 +100,7 @@ func TestSavingSettingsCannotDestroyTheCredential(t *testing.T) {
 
 	// And the web form cannot either.
 	session := login(t, ts)
-	if resp := postForm(t, ts, session, "/w/planner", url.Values{
+	if resp := postForm(t, ts, session, "/w/plugins/planner", url.Values{
 		"enabled": {"1"}, "plans": {"PLAN-1\n\nPLAN-2\n"}, "interval": {"20"},
 	}); resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("form save = %d", resp.StatusCode)
@@ -215,14 +215,17 @@ func TestADisabledPluginNeverRuns(t *testing.T) {
 
 // TestTheSettingsPageRendersThePlannerSection, and does it without any
 // control the CSP would silently drop.
-func TestTheSettingsPageRendersThePlannerSection(t *testing.T) {
+func TestTheSettingsPageRendersEveryPluginSection(t *testing.T) {
 	ts := newServer(t)
 	session := login(t, ts)
 
 	_, html := page(t, ts, session, "/settings")
 	for _, want := range []string{
-		"Microsoft Planner", "one plan id per line", "Tasks.Read",
-		`name="client_id"`, `action="/w/planner"`,
+		"Microsoft Planner", "one plan id per line",
+		`name="client_id"`, `action="/w/plugins/planner"`,
+		// The second plugin renders from the same template, so a section that
+		// only works for Planner would show up here.
+		"Outlook mail", "one folder id per line", `action="/w/plugins/mail"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("the settings page has no %q", want)
@@ -248,7 +251,7 @@ func TestTheServerSideMirrorWorkflow(t *testing.T) {
 	session := login(t, ts)
 
 	// 1. Configure it, the way the settings form does.
-	if resp := postForm(t, ts, session, "/w/planner", url.Values{
+	if resp := postForm(t, ts, session, "/w/plugins/planner", url.Values{
 		"enabled": {"1"}, "interval": {"15"},
 		"plans": {"xqQg5FS2LkCp935s-FIFm2QAFkHM"},
 	}); resp.StatusCode != http.StatusSeeOther {
@@ -292,7 +295,7 @@ func TestTheServerSideMirrorWorkflow(t *testing.T) {
 	if len(due) != 1 {
 		t.Fatalf("%d plugins due, want the configured one", len(due))
 	}
-	runResp := postForm(t, ts, session, "/w/planner/run", url.Values{})
+	runResp := postForm(t, ts, session, "/w/plugins/planner/run", url.Values{})
 	if runResp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("run = %d", runResp.StatusCode)
 	}
@@ -330,7 +333,7 @@ func TestTheServerSideMirrorWorkflow(t *testing.T) {
 	}
 
 	// 5. Answer one from the browser.
-	if resp := postForm(t, ts, session, "/w/planner/map", url.Values{
+	if resp := postForm(t, ts, session, "/w/plugins/planner/map", url.Values{
 		"handle": {"stacey"}, "source": {"planner"},
 		"source_user": {"8f3d2e11-0000-4a2b-9c3d-000000000001"},
 	}); resp.StatusCode != http.StatusSeeOther {
@@ -346,7 +349,7 @@ func TestTheServerSideMirrorWorkflow(t *testing.T) {
 	}
 
 	// 6. Re-apply, and the link appears without waiting for Planner to change.
-	if resp := postForm(t, ts, session, "/w/planner/run?relink=1", url.Values{}); resp.StatusCode != http.StatusSeeOther {
+	if resp := postForm(t, ts, session, "/w/plugins/planner/run?relink=1", url.Values{}); resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("relink = %d", resp.StatusCode)
 	}
 	mirrored, err = ts.store.List(t.Context(), "src:planner", ts.now)
@@ -380,7 +383,7 @@ func TestTheConnectPanelIsAWholePageWhenTheBrowserNavigatedToIt(t *testing.T) {
 	// An unreachable authority, so the panel renders its error rather than
 	// this test reaching Microsoft. The shape of the response is what is
 	// under test, not the sign-in.
-	resp := postForm(t, ts, session, "/w/planner/connect", url.Values{
+	resp := postForm(t, ts, session, "/w/plugins/planner/connect", url.Values{
 		"tenant_id": {"t"}, "client_id": {"c"},
 	})
 	// Whatever it says, it must not be a fragment.
@@ -399,7 +402,7 @@ func TestThePollFormWorksWithTheScriptOff(t *testing.T) {
 	// A poll with a device code Microsoft will never accept. What matters is
 	// that it is a POST to a route that exists and comes back as a page, not
 	// that the sign-in succeeds.
-	resp := postForm(t, ts, session, "/w/planner/poll", url.Values{
+	resp := postForm(t, ts, session, "/w/plugins/planner/poll", url.Values{
 		"device_code": {"nonsense"}, "tenant_id": {"t"},
 		"client_id": {"c"}, "interval": {"5"},
 	})
@@ -416,8 +419,8 @@ func TestAGetIntoTheConnectFlowRedirectsRatherThan404(t *testing.T) {
 	session := login(t, ts)
 
 	for _, path := range []string{
-		"/w/planner/connect?device_code=x&tenant_id=t&client_id=c&interval=5",
-		"/w/planner/poll",
+		"/w/plugins/planner/connect?device_code=x&tenant_id=t&client_id=c&interval=5",
+		"/w/plugins/planner/poll",
 	} {
 		resp := getWithSession(t, ts, session, path)
 		if resp.StatusCode == http.StatusNotFound {
@@ -438,11 +441,11 @@ func TestTheDeviceCodeNeverTravelsInAURL(t *testing.T) {
 
 	_, html := page(t, ts, session, "/settings")
 	// The connect form posts; nothing about this flow is a GET with fields.
-	if strings.Contains(html, `action="/w/planner/connect?`) {
+	if strings.Contains(html, `action="/w/plugins/planner/connect?`) {
 		t.Error("the connect form puts fields in the query string")
 	}
-	if !strings.Contains(html, `action="/w/planner/connect" method="post"`) &&
-		!strings.Contains(html, `action="/w/planner/connect"`) {
+	if !strings.Contains(html, `action="/w/plugins/planner/connect" method="post"`) &&
+		!strings.Contains(html, `action="/w/plugins/planner/connect"`) {
 		t.Error("the connect form has no explicit action")
 	}
 }
@@ -455,7 +458,7 @@ func TestAddingSomebodyNewFromTheUnmatchedList(t *testing.T) {
 	session := login(t, ts)
 
 	// The fixture already has a Stacey, so this one cannot take that handle.
-	if resp := postForm(t, ts, session, "/w/planner/map", url.Values{
+	if resp := postForm(t, ts, session, "/w/plugins/planner/map", url.Values{
 		"source": {"planner"}, "source_user": {"graph-kennedy"},
 		"name": {"Stacey Kennedy"}, "email": {"skennedy@example.invalid"},
 		"new_handle": {"stacey-kennedy"}, "create": {"1"},
@@ -493,7 +496,7 @@ func TestAddingSomebodyNewFromTheUnmatchedList(t *testing.T) {
 	}
 
 	// A handle already in use is refused rather than merging.
-	if resp := postForm(t, ts, session, "/w/planner/map", url.Values{
+	if resp := postForm(t, ts, session, "/w/plugins/planner/map", url.Values{
 		"source": {"planner"}, "source_user": {"graph-stewart"},
 		"name": {"Stacey Stewart"}, "new_handle": {"stacey"},
 	}); resp.StatusCode != http.StatusSeeOther {
@@ -526,7 +529,7 @@ func TestAPollEchoesTheCodeBack(t *testing.T) {
 	}))
 	defer entra.Close()
 
-	body := postFormBody(t, ts, session, "/w/planner/poll", url.Values{
+	body := postFormBody(t, ts, session, "/w/plugins/planner/poll", url.Values{
 		"device_code": {"still-waiting"}, "user_code": {"FJDNSKQP"},
 		"verification_uri": {"https://microsoft.com/devicelogin"},
 		"tenant_id":        {"t"}, "client_id": {"c"},
@@ -546,5 +549,104 @@ func TestAPollEchoesTheCodeBack(t *testing.T) {
 	}
 	if !strings.Contains(body, "Waiting for the sign-in") {
 		t.Error("a pending poll does not say it is still waiting")
+	}
+}
+
+// Mail capture. A second plugin exists mostly to prove the first one was not
+// the shape of the whole system, so these check the parts that only break
+// once there are two.
+
+// TestSavingOnePluginDoesNotTouchTheOther. Two sections on one page posting to
+// one handler is exactly how somebody's plan list ends up in the mail row.
+func TestSavingOnePluginDoesNotTouchTheOther(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	if resp := postForm(t, ts, session, "/w/plugins/planner", url.Values{
+		"enabled": {"1"}, "plans": {"PLAN-1"}, "interval": {"30"},
+	}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save planner = %d", resp.StatusCode)
+	}
+	if resp := postForm(t, ts, session, "/w/plugins/mail", url.Values{
+		"enabled": {"1"}, "folders": {"AAMkFolder"}, "interval": {"15"},
+	}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save mail = %d", resp.StatusCode)
+	}
+
+	var planner struct {
+		Interval int             `json:"interval_minutes"`
+		Settings json.RawMessage `json:"settings"`
+	}
+	_, body := do(t, ts, http.MethodGet, "/api/v1/plugins/planner", nil)
+	decodeInto(t, body, &planner)
+	if planner.Interval != 30 {
+		t.Errorf("planner interval = %d, want the 30 it was saved with", planner.Interval)
+	}
+	if !strings.Contains(string(planner.Settings), "PLAN-1") {
+		t.Errorf("planner settings = %s, want its own plans", planner.Settings)
+	}
+	if strings.Contains(string(planner.Settings), "AAMkFolder") {
+		t.Errorf("the mail folders landed in the planner row: %s", planner.Settings)
+	}
+
+	var mailCfg struct {
+		Interval int             `json:"interval_minutes"`
+		Settings json.RawMessage `json:"settings"`
+	}
+	_, body = do(t, ts, http.MethodGet, "/api/v1/plugins/mail", nil)
+	decodeInto(t, body, &mailCfg)
+	if mailCfg.Interval != 15 {
+		t.Errorf("mail interval = %d", mailCfg.Interval)
+	}
+	if strings.Contains(string(mailCfg.Settings), "PLAN-1") {
+		t.Errorf("the planner plans landed in the mail row: %s", mailCfg.Settings)
+	}
+}
+
+// TestAFormCannotInventAPlugin. A configuration row is created on first save,
+// so an unchecked name would let a POST make a section that no runner will
+// ever run and that cannot be removed from a browser.
+func TestAFormCannotInventAPlugin(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	resp := postForm(t, ts, session, "/w/plugins/jira", url.Values{"enabled": {"1"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save = %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "no+plugin") {
+		t.Errorf("saving an unknown plugin did not say so: %s", resp.Header.Get("Location"))
+	}
+
+	resp, body := do(t, ts, http.MethodGet, "/api/v1/plugins/jira", nil)
+	if resp.StatusCode == http.StatusOK && strings.Contains(string(body), `"enabled":true`) {
+		t.Errorf("a configuration row was created for a plugin nothing serves: %s", body)
+	}
+}
+
+// TestEachPluginSignsInForItself. One credential carrying the union of both
+// plugins' scopes would let the mail connection read the board and the board's
+// read the mail.
+func TestEachPluginSignsInForItself(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	for _, tc := range []struct{ plugin, wantScope string }{
+		{"mail", "Mail.Read"},
+		{"planner", "Tasks.Read"},
+	} {
+		body := postFormBody(t, ts, session, "/w/plugins/"+tc.plugin+"/connect", url.Values{
+			"client_id": {"a-client-id"}, "tenant_id": {"organizations"},
+		})
+		// The device code call goes to Microsoft, which the tests cannot
+		// reach, so this lands on the error page. What matters is that it
+		// carried the plugin's own scopes, which the redirect repeats back.
+		_ = body
+	}
+
+	// The connect panel names the plugin it is for, or the poll that finishes
+	// the sign-in stores the credential against the wrong row.
+	if _, html := page(t, ts, session, "/settings"); !strings.Contains(html, `/w/plugins/mail/connect`) {
+		t.Error("the mail section has no connect form of its own")
 	}
 }

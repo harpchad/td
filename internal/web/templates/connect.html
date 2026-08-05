@@ -18,8 +18,8 @@
     <div class="td-connect__code">{{.Connect.UserCode}}</div>
 
     <form class="td-connect__poll"
-          action="/w/planner/poll" method="post"
-          hx-post="/w/planner/poll"
+          action="/w/plugins/{{.Connect.Plugin}}/poll" method="post"
+          hx-post="/w/plugins/{{.Connect.Plugin}}/poll"
           hx-trigger="load delay:{{.Connect.Interval}}s"
           hx-target="#td-connect"
           hx-swap="outerHTML">
@@ -33,6 +33,10 @@
            type. It is a POST rather than a GET because the device code should
            not end up in browser history or in a Referer header, and because
            the server holds no pending-login state of its own. */}}
+      {{/* Which connection this sign-in is for. The server keeps no pending
+           login state, so the plugin travels with everything else or the
+           credential lands against the wrong row. */}}
+      <input type="hidden" name="plugin" value="{{.Connect.Plugin}}">
       <input type="hidden" name="device_code" value="{{.Connect.DeviceCode}}">
       <input type="hidden" name="user_code" value="{{.Connect.UserCode}}">
       <input type="hidden" name="verification_uri" value="{{.Connect.VerificationURI}}">

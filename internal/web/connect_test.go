@@ -31,12 +31,13 @@ func renderConnect(t *testing.T, htmx bool) string {
 	t.Helper()
 	ui := testUI(t)
 
-	r := httptest.NewRequest(http.MethodPost, "/w/planner/connect", nil)
+	r := httptest.NewRequest(http.MethodPost, "/w/plugins/planner/connect", nil)
 	if htmx {
 		r.Header.Set("HX-Request", "true")
 	}
 	w := httptest.NewRecorder()
 	ui.ConnectPanel(w, r, ConnectCode{
+		Plugin:   "planner",
 		UserCode: "FJDNSKQP", VerificationURI: "https://microsoft.com/devicelogin",
 		DeviceCode: "the-secret-half", TenantID: "t", ClientID: "c", Interval: 5,
 	})
@@ -80,7 +81,7 @@ func TestHtmxGetsOnlyTheFragment(t *testing.T) {
 func TestThePollFormPostsToAnExplicitAction(t *testing.T) {
 	body := renderConnect(t, false)
 
-	if !strings.Contains(body, `action="/w/planner/poll"`) {
+	if !strings.Contains(body, `action="/w/plugins/planner/poll"`) {
 		t.Error("the poll form has no action, so a submit goes to the current URL")
 	}
 	if !strings.Contains(body, `method="post"`) {
@@ -94,7 +95,7 @@ func TestThePollFormPostsToAnExplicitAction(t *testing.T) {
 		t.Error("the device code appears in a URL")
 	}
 	// And it still polls on its own where scripting is available.
-	if !strings.Contains(body, `hx-post="/w/planner/poll"`) {
+	if !strings.Contains(body, `hx-post="/w/plugins/planner/poll"`) {
 		t.Error("nothing polls automatically")
 	}
 }
@@ -104,8 +105,8 @@ func TestThePollFormPostsToAnExplicitAction(t *testing.T) {
 func TestTheErrorPanelOffersAWayOut(t *testing.T) {
 	ui := testUI(t)
 	w := httptest.NewRecorder()
-	ui.ConnectPanel(w, httptest.NewRequest(http.MethodPost, "/w/planner/connect", nil),
-		ConnectCode{Error: "the sign-in was declined"})
+	ui.ConnectPanel(w, httptest.NewRequest(http.MethodPost, "/w/plugins/planner/connect", nil),
+		ConnectCode{Plugin: "planner", Error: "the sign-in was declined"})
 
 	body := w.Body.String()
 	if !strings.Contains(body, "the sign-in was declined") {
@@ -148,11 +149,12 @@ func TestThePanelCarriesEverythingItNeedsToRedrawItself(t *testing.T) {
 // the poll renders has to look like what it replaced, apart from the message.
 func TestAPendingPollStillShowsTheCode(t *testing.T) {
 	ui := testUI(t)
-	r := httptest.NewRequest(http.MethodPost, "/w/planner/poll", nil)
+	r := httptest.NewRequest(http.MethodPost, "/w/plugins/planner/poll", nil)
 	r.Header.Set("HX-Request", "true")
 	w := httptest.NewRecorder()
 
 	ui.ConnectPending(w, r, ConnectCode{
+		Plugin:   "planner",
 		UserCode: "FJDNSKQP", VerificationURI: "https://microsoft.com/devicelogin",
 		DeviceCode: "the-secret-half", TenantID: "t", ClientID: "c", Interval: 5,
 	}, "Waiting for the sign-in…")

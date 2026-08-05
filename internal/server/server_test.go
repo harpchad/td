@@ -17,6 +17,7 @@ import (
 	"github.com/harpchad/td/internal/auth"
 	"github.com/harpchad/td/internal/blob"
 	"github.com/harpchad/td/internal/msgraph"
+	"github.com/harpchad/td/internal/plugins/mail"
 	"github.com/harpchad/td/internal/plugins/planner"
 	"github.com/harpchad/td/internal/seed"
 	"github.com/harpchad/td/internal/server"
@@ -97,7 +98,13 @@ func newServerWith(t *testing.T, withSeed bool) *harness {
 	srv.AttachMCP("https://td.example.com")
 	// The built-in sync plugins, so the settings page and the plugin routes
 	// are the ones a real deployment has.
-	srv.AttachPlugins(&planner.Runner{Store: st, Identity: msgraph.New(), Loc: loc})
+	// Both, as cmd/tdd attaches them. A harness carrying only one lets a
+	// route that works for the first plugin and 404s for the second pass
+	// every test in this package.
+	srv.AttachPlugins(
+		&planner.Runner{Store: st, Identity: msgraph.New(), Loc: loc},
+		&mail.Runner{Store: st, Identity: msgraph.New(), Loc: loc},
+	)
 
 	h := &harness{store: st, srv: srv, now: now, username: testUsername, password: testPassword}
 
