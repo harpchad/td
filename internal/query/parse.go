@@ -11,7 +11,7 @@ import (
 // knownKeys is the closed set of key:value prefixes. An unrecognized key is a
 // parse error rather than free text, so a typo surfaces instead of silently
 // becoming a search term that matches nothing.
-var knownKeys = []string{"is", "p", "due", "start", "src", "has", "notify", "grp"}
+var knownKeys = []string{"is", "p", "due", "start", "src", "has", "notify", "grp", "sort"}
 
 var knownIs = []string{
 	"open", "done", "todo", "doing", "waiting", "inbox",
@@ -48,39 +48,52 @@ func Parse(s string) (Node, error) {
 // An empty or whitespace-only string parses to a nil Node, which matches
 // every task.
 func ParseAt(s string, now time.Time) (Node, error) {
-	n, err := parseAt(s, now)
-	if err != nil {
-		return nil, &ParseError{Query: s, Msg: err.Error()}
-	}
-	return n, nil
+	q, err := ParseQueryAt(s, now)
+	return q.Node, err
 }
 
-func parseAt(s string, now time.Time) (Node, error) {
+// ParseQueryAt parses a filter and the order it asks for.
+//
+// The richer entry point, used by anything that returns a list. ParseAt stays
+// for the callers that only ever needed the predicate, which is most of them.
+func ParseQueryAt(s string, now time.Time) (Query, error) {
+	q, err := parseAt(s, now)
+	if err != nil {
+		return Query{}, &ParseError{Query: s, Msg: err.Error()}
+	}
+	return q, nil
+}
+
+func parseAt(s string, now time.Time) (Query, error) {
 	toks, err := lex(s)
 	if err != nil {
-		return nil, err
+		return Query{}, err
 	}
 	p := &parser{toks: toks, now: now}
 	if p.peek().kind == tokEOF {
-		return nil, nil
+		return Query{}, nil
 	}
 	n, err := p.parseOr()
 	if err != nil {
-		return nil, err
+		return Query{}, err
 	}
 	if p.peek().kind != tokEOF {
 		if p.peek().kind == tokRParen {
-			return nil, errors.New("unexpected )")
+			return Query{}, errors.New("unexpected )")
 		}
-		return nil, fmt.Errorf("unexpected %q", p.peek().text)
+		return Query{}, fmt.Errorf("unexpected %q", p.peek().text)
 	}
-	return n, nil
+	return Query{Node: n, Sort: p.sort}, nil
 }
 
 type parser struct {
 	toks []token
 	i    int
 	now  time.Time
+	// sort is filled in by a sort: term wherever it appears. It applies to the
+	// whole query: it is an instruction about the answer, not part of the
+	// question, so its position in the string carries no meaning.
+	sort Sort
 }
 
 func (p *parser) peek() token { return p.toks[p.i] }
@@ -118,17 +131,26 @@ func (p *parser) parseOr() (Node, error) {
 
 func (p *parser) parseAnd() (Node, error) {
 	var nodes []Node
+	terms := 0
 	for startsTerm(p.peek().kind) {
 		n, err := p.parseTerm()
 		if err != nil {
 			return nil, err
 		}
-		nodes = append(nodes, n)
+		terms++
+		// A sort: term parses to no node. It said how to order the answer, not
+		// what belongs in it, so it contributes nothing to match against and
+		// "sort:due" on its own is every task in that order.
+		if n != nil {
+			nodes = append(nodes, n)
+		}
 	}
-	switch len(nodes) {
-	case 0:
+	switch {
+	case terms == 0:
 		return nil, errors.New("expected a term")
-	case 1:
+	case len(nodes) == 0:
+		return nil, nil
+	case len(nodes) == 1:
 		return nodes[0], nil
 	default:
 		return &And{Nodes: nodes}, nil
@@ -223,7 +245,35 @@ func (p *parser) atom(raw string) (Node, error) {
 	if !contains(knownKeys, lkey) {
 		return nil, fmt.Errorf("unknown filter key %q (try: %s)", key, strings.Join(knownKeys, ", "))
 	}
+	if lkey == "sort" {
+		// Recorded and dropped rather than turned into a node. It says how to
+		// order the answer, not what belongs in it, and a predicate that
+		// matched everything would be a term somebody could put under an OR
+		// where it would mean nothing at all.
+		if err := p.setSort(value); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
 	return p.predicate(lkey, value)
+}
+
+// setSort reads a sort: value. A leading minus reverses it.
+func (p *parser) setSort(value string) error {
+	key := strings.ToLower(strings.TrimSpace(value))
+	desc := strings.HasPrefix(key, "-")
+	key = strings.TrimPrefix(key, "-")
+	if key == "" {
+		return fmt.Errorf("sort: needs a key (try: %s)", strings.Join(SortKeys, ", "))
+	}
+	if !contains(SortKeys, key) {
+		return fmt.Errorf("cannot sort by %q (try: %s)", key, strings.Join(SortKeys, ", "))
+	}
+	if p.sort.Explicit() && (p.sort.Key != key || p.sort.Desc != desc) {
+		return fmt.Errorf("two different sorts in one query: %s and %s", p.sort.Key, key)
+	}
+	p.sort = Sort{Key: key, Desc: desc}
+	return nil
 }
 
 func (p *parser) predicate(key, value string) (Node, error) {

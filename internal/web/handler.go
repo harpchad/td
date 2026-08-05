@@ -147,6 +147,7 @@ func (u *UI) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /w/drop/{id}", u.drop)
 	mux.HandleFunc("POST /w/edit/{id}", u.edit)
 	mux.HandleFunc("POST /w/snooze/{id}", u.snooze)
+	mux.HandleFunc("POST /w/snooze/{id}/clear", u.wake)
 	mux.HandleFunc("POST /w/undo", u.undo)
 	mux.HandleFunc("POST /w/triage/{id}", u.triageAction)
 	mux.HandleFunc("POST /w/sub/{id}", u.addSubtask)
@@ -204,7 +205,12 @@ type pageData struct {
 	// auth check; there is no static handler over the blob directory.
 	Attachments []attachmentRow
 	Children    []Row
-	Repeats     string
+	// SnoozedUntil is the wake time as a local date, and SnoozeValue prefills
+	// the field so re-snoozing shows what it currently does.
+	SnoozedUntil string
+	SnoozeValue  string
+
+	Repeats string
 	// RepeatRule is the stored RRULE behind Repeats, shown small next to the
 	// readable form: the description is for people and the rule is what the
 	// server will actually run.
@@ -555,6 +561,10 @@ func (u *UI) detail(w http.ResponseWriter, r *http.Request) {
 
 	data.Attachments = u.attachmentRows(r.Context(), task.ID)
 	data.Children = u.childRows(r.Context(), task, u.Now())
+	if task.SnoozeUntil != nil && *task.SnoozeUntil != "" {
+		data.SnoozedUntil = query.LocalDate(*task.SnoozeUntil, u.Now().Location())
+		data.SnoozeValue = data.SnoozedUntil
+	}
 	if task.SeriesID != nil && *task.SeriesID != "" {
 		// Stored as RRULE, shown as English. FREQ=WEEKLY;INTERVAL=2 is a fact
 		// about a standard, not an answer to "how often does this happen".
@@ -847,14 +857,66 @@ func (u *UI) edit(w http.ResponseWriter, r *http.Request) {
 }
 
 // snooze hides a task for a while from the detail page.
-func (u *UI) snooze(w http.ResponseWriter, r *http.Request) {
+// wake clears a snooze, putting the task back in the list now.
+//
+// Its own route rather than an empty snooze field, because an empty field is
+// somebody who has not typed yet and must not silently mean "do something".
+func (u *UI) wake(w http.ResponseWriter, r *http.Request) {
 	id, ok := u.resolve(w, r)
 	if !ok {
 		return
 	}
-	d, err := time.ParseDuration(r.PostFormValue("duration"))
-	if err != nil || d <= 0 {
-		u.redirectToTask(w, r, id, "say how long")
+	patcher, ok := u.svc.(taskPatcher)
+	if !ok {
+		u.after(w, r, "waking is not available")
+		return
+	}
+	empty := ""
+	if _, err := patcher.Patch(r.Context(), u.actor(r), id, api.TaskPatch{
+		SnoozeUntil: &empty,
+		Presence:    map[string]bool{"snooze_until": true},
+	}, "", u.Now()); err != nil {
+		u.redirectToTask(w, r, id, humanError(err))
+		return
+	}
+	u.redirectToTask(w, r, id, "awake")
+}
+
+// snoozeUntil reads what somebody typed into the snooze field.
+//
+// A duration is relative to now. A date is the start of that day in the
+// server's zone, so "snooze until friday" puts it back in the list when Friday
+// starts rather than at whatever time of day it happens to be now.
+func (u *UI) snoozeUntil(raw string) (time.Time, error) {
+	if raw == "" {
+		return time.Time{}, errors.New("say how long, or until when: 2h, tomorrow, friday, 8/15/26")
+	}
+	if d, err := time.ParseDuration(raw); err == nil {
+		if d <= 0 {
+			return time.Time{}, errors.New("snoozing needs a time in the future")
+		}
+		return u.Now().Add(d), nil
+	}
+
+	// The same date vocabulary as everywhere else: today, friday, +3d,
+	// 8/15/26, 2026-08-15.
+	resolved, err := query.ResolveDate(raw, u.Now())
+	if err != nil {
+		return time.Time{}, err
+	}
+	day, err := time.ParseInLocation(query.DateLayout, resolved, u.Now().Location())
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !day.After(u.Now()) {
+		return time.Time{}, errors.New("that is not in the future")
+	}
+	return day, nil
+}
+
+func (u *UI) snooze(w http.ResponseWriter, r *http.Request) {
+	id, ok := u.resolve(w, r)
+	if !ok {
 		return
 	}
 	snoozer, ok := u.svc.(taskSnoozer)
@@ -862,11 +924,24 @@ func (u *UI) snooze(w http.ResponseWriter, r *http.Request) {
 		u.after(w, r, "snoozing is not available")
 		return
 	}
-	if _, err := snoozer.Snooze(r.Context(), u.actor(r), id, u.Now().Add(d), u.Now()); err != nil {
+
+	// One field, two kinds of answer. "2h" is how long, "friday" is until
+	// when, and nothing reads as both: Go has no day unit, so 3d is never a
+	// duration, and no date keyword parses as one either.
+	raw := strings.TrimSpace(r.PostFormValue("duration"))
+	if raw == "" {
+		raw = strings.TrimSpace(r.PostFormValue("until"))
+	}
+	until, err := u.snoozeUntil(raw)
+	if err != nil {
+		u.redirectToTask(w, r, id, err.Error())
+		return
+	}
+	if _, err := snoozer.Snooze(r.Context(), u.actor(r), id, until, u.Now()); err != nil {
 		u.redirectToTask(w, r, id, humanError(err))
 		return
 	}
-	u.after(w, r, "snoozed")
+	u.after(w, r, "snoozed until "+query.LocalDate(until.Format(time.RFC3339), u.Now().Location()))
 }
 
 // redirectToTask sends the browser back to the detail page it came from,

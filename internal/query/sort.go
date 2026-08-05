@@ -1,7 +1,9 @@
 package query
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/harpchad/td/internal/api"
@@ -50,6 +52,8 @@ func LocalDate(value string, loc *time.Location) string {
 type Sorter struct {
 	Today string
 	Loc   *time.Location
+	// Order is an explicit sort from a sort: term. Zero is the default above.
+	Order Sort
 }
 
 // NewSorter builds a Sorter anchored on now, using now's location for every
@@ -58,11 +62,89 @@ func NewSorter(now time.Time) Sorter {
 	return Sorter{Today: now.Format(DateLayout), Loc: now.Location()}
 }
 
-// Sort orders tasks in place by the default comparator.
+// NewSorterFor builds a Sorter for an explicit order. A zero Sort gives the
+// default comparator, so a query with no sort: is unchanged.
+func NewSorterFor(now time.Time, order Sort) Sorter {
+	out := NewSorter(now)
+	out.Order = order
+	return out
+}
+
+// Sort orders tasks in place.
 func (s Sorter) Sort(tasks []api.Task) {
+	if s.Order.Explicit() {
+		sort.SliceStable(tasks, func(i, j int) bool {
+			return s.lessExplicit(&tasks[i], &tasks[j])
+		})
+		return
+	}
 	sort.SliceStable(tasks, func(i, j int) bool {
 		return s.Less(&tasks[i], &tasks[j])
 	})
+}
+
+// lessExplicit is the comparator for a sort: term.
+//
+// Deliberately not the default with one key moved to the front. Asking for an
+// order is asking to be rid of the clever one, so there are no overdue and
+// due-today buckets here: sort:due is the dates in order and nothing else.
+//
+// Two things hold in both directions. A task with nothing in the sorted field
+// goes last, because reversing an order should not promote the rows that have
+// no answer to the top. And num is the final tiebreak, so the order is total
+// and two runs over the same data return the same list.
+func (s Sorter) lessExplicit(a, b *api.Task) bool {
+	av, bv, ok := s.sortKey(a, b)
+	if !ok {
+		return a.Num < b.Num
+	}
+
+	// Missing values sort last whichever way round the rest is.
+	switch {
+	case av == "" && bv == "":
+		return a.Num < b.Num
+	case av == "":
+		return false
+	case bv == "":
+		return true
+	}
+
+	if av == bv {
+		return a.Num < b.Num
+	}
+	if s.Order.Desc {
+		return av > bv
+	}
+	return av < bv
+}
+
+// sortKey renders the field being sorted on as a comparable string. Priority
+// is zero padded so "10" would not sort before "2", which it cannot today and
+// will the day priorities go past 9.
+func (s Sorter) sortKey(a, b *api.Task) (string, string, bool) {
+	switch s.Order.Key {
+	case "due":
+		return s.dueDate(a), s.dueDate(b), true
+	case "priority":
+		return priorityText(a.Priority), priorityText(b.Priority), true
+	case "created":
+		return a.CreatedAt, b.CreatedAt, true
+	case "title":
+		return strings.ToLower(strings.TrimSpace(a.Title)),
+			strings.ToLower(strings.TrimSpace(b.Title)), true
+	case "num":
+		return "", "", false
+	}
+	return "", "", false
+}
+
+// priorityText renders a priority for comparison. Unset renders empty, which
+// the caller sorts last, and that is the same rule the default order uses.
+func priorityText(p *int) string {
+	if p == nil {
+		return ""
+	}
+	return fmt.Sprintf("%03d", *p)
 }
 
 // Less reports whether a sorts before b under the default order. The order is

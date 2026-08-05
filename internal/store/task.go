@@ -50,11 +50,11 @@ func scanTask(sc rowScanner) (api.Task, error) {
 // TUI, and the web UI all share one comparator rather than three ORDER BY
 // clauses that drift.
 func (s *Store) List(ctx context.Context, filter string, now time.Time) ([]api.Task, error) {
-	node, err := query.ParseAt(filter, now.In(s.loc))
+	parsed, err := query.ParseQueryAt(filter, now.In(s.loc))
 	if err != nil {
 		return nil, err
 	}
-	where, err := buildWhere(node, newFilterContext(now, s.loc))
+	where, err := buildWhere(parsed.Node, newFilterContext(now, s.loc))
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,11 @@ func (s *Store) List(ctx context.Context, filter string, now time.Time) ([]api.T
 	if err := s.hydrate(ctx, out); err != nil {
 		return nil, err
 	}
-	query.NewSorter(now.In(s.loc)).Sort(out)
+	// The order the filter asked for, or the default when it asked for none.
+	// Filtering happens in SQL and ordering in Go, so a sort: term needs no
+	// second ORDER BY and cannot disagree with the one every other client
+	// already uses.
+	query.NewSorterFor(now.In(s.loc), parsed.Sort).Sort(out)
 	return out, nil
 }
 

@@ -180,3 +180,29 @@ func (n *Phrase) MarshalJSON() ([]byte, error) {
 func (n *Word) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{"word": n.Text})
 }
+
+// Sort is an explicit order, from a sort: term. The zero value is the default
+// comparator, which is what a query with no sort: gets.
+type Sort struct {
+	// Key is due, priority, created, title, or num. Empty is the default
+	// order.
+	Key string
+	// Desc reverses it, from a leading minus: sort:-due.
+	Desc bool
+}
+
+// Explicit reports whether an order was asked for.
+func (s Sort) Explicit() bool { return s.Key != "" }
+
+// SortKeys is the closed set, in the order the error message lists them.
+var SortKeys = []string{"due", "priority", "created", "title", "num"}
+
+// Query is a parsed filter: what to match, and what order to return it in.
+//
+// The sort travels beside the tree rather than inside it because it is not a
+// predicate. A node that matched everything and meant "order by due date"
+// would be a term that could appear under an OR, where it means nothing.
+type Query struct {
+	Node Node
+	Sort Sort
+}

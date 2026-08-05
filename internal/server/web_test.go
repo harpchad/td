@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/harpchad/td/internal/api"
 )
@@ -1060,5 +1061,185 @@ func TestChangingTheRuleUpdatesRatherThanForking(t *testing.T) {
 	_, html := page(t, ts, session, "/t/101")
 	if !strings.Contains(html, "every 3 days") {
 		t.Error("the detail page still shows the old rule")
+	}
+}
+
+// Snooze from the browser. It was one button that meant one hour, which is
+// the only length of time it could express.
+
+// TestSnoozeTakesADurationOrADate. One field, two kinds of answer, and nothing
+// reads as both: Go has no day unit so 3d is never a duration, and no date
+// word parses as one.
+func TestSnoozeTakesADurationOrADate(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	for _, tc := range []struct{ typed, want string }{
+		{"2h", ts.now.Add(2 * time.Hour).Format("2006-01-02")},
+		{"tomorrow", ts.now.AddDate(0, 0, 1).Format("2006-01-02")},
+		{"+3d", ts.now.AddDate(0, 0, 3).Format("2006-01-02")},
+	} {
+		if resp := postForm(t, ts, session, "/w/snooze/101",
+			url.Values{"duration": {tc.typed}}); resp.StatusCode != http.StatusSeeOther {
+			t.Fatalf("%q: snooze = %d", tc.typed, resp.StatusCode)
+		}
+
+		var task api.Task
+		_, body := do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+		decodeInto(t, body, &task)
+		if task.SnoozeUntil == nil {
+			t.Fatalf("%q did not snooze the task", tc.typed)
+		}
+		if got := *task.SnoozeUntil; !strings.Contains(got, tc.want) {
+			t.Errorf("%q -> %s, want a wake time on %s", tc.typed, got, tc.want)
+		}
+	}
+}
+
+// TestSnoozingUntilADateWakesAtTheStartOfIt. "Until friday" means when Friday
+// begins, not whatever time of day it happens to be now.
+func TestSnoozingUntilADateWakesAtTheStartOfIt(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	postForm(t, ts, session, "/w/snooze/101", url.Values{"duration": {"tomorrow"}})
+
+	var task api.Task
+	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &task)
+	if task.SnoozeUntil == nil {
+		t.Fatal("not snoozed")
+	}
+	at, err := time.Parse(time.RFC3339, *task.SnoozeUntil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := at.In(ts.now.Location())
+	if local.Hour() != 0 || local.Minute() != 0 {
+		t.Errorf("it wakes at %s, want the start of the day", local.Format("15:04"))
+	}
+}
+
+// TestAnEmptySnoozeSaysWhatToType, rather than silently doing nothing or
+// snoozing for zero.
+func TestAnEmptySnoozeSaysWhatToType(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	resp := postForm(t, ts, session, "/w/snooze/101", url.Values{"duration": {""}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("snooze = %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "how+long") {
+		t.Errorf("the message does not say what to type: %s", resp.Header.Get("Location"))
+	}
+
+	var task api.Task
+	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &task)
+	if task.SnoozeUntil != nil {
+		t.Errorf("an empty field snoozed the task until %s", *task.SnoozeUntil)
+	}
+}
+
+// TestSnoozingIntoThePastIsRefused. A wake time already gone is a task that
+// never comes back and never looks snoozed either.
+func TestSnoozingIntoThePastIsRefused(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	for _, typed := range []string{"-2h", "yesterday", "0s"} {
+		postForm(t, ts, session, "/w/snooze/101", url.Values{"duration": {typed}})
+
+		var task api.Task
+		_, body := do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+		decodeInto(t, body, &task)
+		if task.SnoozeUntil != nil {
+			t.Errorf("%q snoozed the task until %s, which is not in the future",
+				typed, *task.SnoozeUntil)
+		}
+	}
+}
+
+// TestWakingClearsTheSnooze. Its own button rather than an empty field,
+// because an empty field is somebody who has not typed yet.
+func TestWakingClearsTheSnooze(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	postForm(t, ts, session, "/w/snooze/101", url.Values{"duration": {"48h"}})
+	var task api.Task
+	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &task)
+	if task.SnoozeUntil == nil {
+		t.Fatal("not snoozed to begin with")
+	}
+
+	if resp := postForm(t, ts, session, "/w/snooze/101/clear",
+		url.Values{}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("wake = %d", resp.StatusCode)
+	}
+	_, body = do(t, ts, http.MethodGet, "/api/v1/tasks/101", nil)
+	decodeInto(t, body, &task)
+	if task.SnoozeUntil != nil {
+		t.Errorf("still snoozed until %s", *task.SnoozeUntil)
+	}
+}
+
+// TestTheDetailPageOffersTheSnoozeField, since the point was to stop it being
+// one button that meant one hour.
+func TestTheDetailPageOffersTheSnoozeField(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	_, html := page(t, ts, session, "/t/101")
+	if !strings.Contains(html, `name="duration"`) {
+		t.Error("the detail page has no snooze field")
+	}
+	if strings.Contains(html, "Snooze 1h") {
+		t.Error("the fixed one hour button is still there")
+	}
+}
+
+// TestSortingFromTheFilterBox. The verb goes through the same grammar as
+// everything else, so it works in the box, the CLI and the TUI at once.
+func TestSortingFromTheFilterBox(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	// The page renders, which is the browser half.
+	if _, html := page(t, ts, session, "/?q="+url.QueryEscape("is:open sort:due")); !strings.Contains(html, "td-row") {
+		t.Fatal("a sorted list rendered nothing")
+	}
+
+	// The order itself is asserted against the API, because the rendered list
+	// lifts subtasks under their parents. That is the tree view doing its job
+	// and it is not the comparator: sorting decides the order of the parents,
+	// and a child stays with its parent wherever that lands.
+	var list api.TaskList
+	_, body := do(t, ts, http.MethodGet, "/api/v1/tasks?q="+url.QueryEscape("is:open sort:due"), nil)
+	decodeInto(t, body, &list)
+	if len(list.Tasks) == 0 {
+		t.Fatal("the sorted list is empty")
+	}
+
+	var last string
+	seenEmpty := false
+	for _, task := range list.Tasks {
+		due := ""
+		if task.DueAt != nil {
+			due = *task.DueAt
+		}
+		if due == "" {
+			seenEmpty = true
+			continue
+		}
+		if seenEmpty {
+			t.Errorf("a task due %s came after one with no due date", due)
+		}
+		if last != "" && due < last {
+			t.Errorf("due dates go backwards: %s after %s", due, last)
+		}
+		last = due
 	}
 }

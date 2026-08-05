@@ -26,7 +26,7 @@
         <span class="td-detail__label">status</span><span>{{.Task.Status}}</span>
         {{if .Due}}<span class="td-detail__label">due</span><span{{if .Overdue}} class="td-due--overdue"{{end}}>{{.Due}}</span>{{end}}
         {{if .Task.StartAt}}<span class="td-detail__label">start</span><span>{{.Task.StartAt}}</span>{{end}}
-        {{if .Task.SnoozeUntil}}<span class="td-detail__label">snoozed</span><span>until {{.Task.SnoozeUntil}}</span>{{end}}
+        {{if .SnoozedUntil}}<span class="td-detail__label">snoozed</span><span>until {{.SnoozedUntil}}</span>{{end}}
         {{if .Tags}}<span class="td-detail__label">tags</span><span>{{range .Tags}}<a class="td-token td-link" href="/?q={{.Query | urlquery}}">{{.Label}}</a> {{end}}</span>{{end}}
         {{range .People}}<span class="td-detail__label">{{.Role}}</span><span><a class="td-token td-link" href="{{.Href}}">{{.Label}}</a></span>{{end}}
         {{if .Task.ChildrenTotal}}<span class="td-detail__label">subtasks</span><span>{{.Task.ChildrenDone}} of {{.Task.ChildrenTotal}} done</span>{{end}}
@@ -163,10 +163,20 @@
         <form action="/w/drop/{{.Task.ID}}" method="post">
           <button class="td-btn" type="submit" data-drop>Drop</button>
         </form>
-        <form action="/w/snooze/{{.Task.ID}}" method="post">
-          <input type="hidden" name="duration" value="1h">
-          <button class="td-btn" type="submit">Snooze 1h</button>
+        {{/* One field for both answers. "2h" is how long, "friday" is until
+             when, and nothing reads as both: Go has no day unit so 3d is
+             never a duration, and no date word parses as one. */}}
+        <form action="/w/snooze/{{.Task.ID}}" method="post" class="td-inline">
+          <input class="td-input td-snooze__for" type="text" name="duration"
+                 value="{{.SnoozeValue}}" aria-label="snooze for, or until"
+                 placeholder="2h   tomorrow   friday   8/15/26">
+          <button class="td-btn" type="submit">{{if .Task.SnoozeUntil}}Re-snooze{{else}}Snooze{{end}}</button>
         </form>
+        {{if .Task.SnoozeUntil}}
+        <form action="/w/snooze/{{.Task.ID}}/clear" method="post">
+          <button class="td-btn" type="submit">Wake now</button>
+        </form>
+        {{end}}
       </div>
     </div>
   </div>

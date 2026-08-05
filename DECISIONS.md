@@ -18,6 +18,53 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-05  A sort verb, and a snooze field that can say when
+Phase: after v0.1
+
+Two things the web UI could not do. There was no way to order a list at all,
+and snooze was a single button that meant one hour, which is the only length of
+time it could express.
+
+**sort:** goes in the filter grammar rather than into the web UI as a control.
+Section 6 says one grammar for the TUI bar, the web box, the `?q=` parameter
+and the MCP tool, so a sort that lived in a column header would be a fifth
+thing that only worked in one client and could not be saved on a number key.
+Section 15 already says "the default sort, when the user has not picked one",
+so picking one was always the intent.
+
+It parses beside the tree rather than into it. A sort is an instruction about
+the answer, not part of the question, and a node that matched everything and
+meant "order by due date" would be a term somebody could write under an OR
+where it would mean nothing. `ParseQueryAt` returns both; `ParseAt` stays for
+the callers that only ever wanted the predicate.
+
+An explicit sort drops the buckets rather than layering on them. Asking for
+`sort:due` is asking to be rid of the clever order, so there is no overdue or
+due-today grouping and no priority ahead of the date: it is the dates
+ascending and nothing else. Missing values sort last in both directions,
+because reversing an order should not promote the rows that have no answer to
+the question. num is the final tiebreak, so the order is total and two runs
+return the same list.
+
+Not changed: the rendered web list still lifts subtasks under their parents,
+so the display order is not the comparator order. That is section 5's tree view
+doing its job, and the alternative is a child three screens from its parent.
+The API returns comparator order, which is what the sort test asserts against.
+
+**Snooze** now takes one field that reads either a duration or a date. "2h" is
+how long and "friday" is until when, and nothing reads as both: Go has no day
+unit so `3d` is never a duration, and no date word parses as one. A date wakes
+at the start of that day in the server's zone, so "until friday" means when
+Friday begins rather than whatever time of day it happens to be now.
+
+Waking is its own button and not an empty field, because an empty field is
+somebody who has not typed yet and must never quietly mean "do something".
+Snoozing into the past is refused: a wake time already gone is a task that
+never comes back and does not look snoozed either.
+
+The API already accepted both forms. Only the web handler was reading one of
+them, which is why this was a smaller change than it looked.
+
 ## 2026-08-05  A fixed series stops disappearing between occurrences
 Phase: after v0.1
 

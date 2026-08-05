@@ -238,6 +238,18 @@ Dates accept `today`, `tomorrow`, `yesterday`, weekday names, `eow`, `eom`,
 occurrence strictly after today, except when today already is that weekday.
 Everything resolves in the configured timezone, not the container's.
 
+Add `sort:` to order the answer: `sort:due`, `sort:-due` for descending, and
+also `priority`, `created`, `title`, `num`. It is a term like any other, so it
+works in the web filter box, the TUI, `td ls` and the MCP search tool, and it
+can be saved on a number key.
+
+An explicit sort drops the default's cleverness rather than layering on it.
+The default puts overdue first, then due today, then ranks priority above the
+due date, which is why a P1 due next month can sit above a P3 due tomorrow.
+`sort:due` is the dates in order and nothing else. A task with nothing in the
+sorted field goes last in both directions: reversing an order should not
+promote the rows that have no answer.
+
 Numeric dates are **month first**: `8/1/26` is the 1st of August. `8/1/2026`,
 `08-01-2026`, `8-1-26` and `2026/08/01` all work, padded or not. A bare
 `12/25` has no year and means the next one to come round, so it is this

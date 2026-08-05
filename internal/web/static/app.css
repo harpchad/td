@@ -308,6 +308,10 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
 .td-unresolved .td-inline { flex-wrap: wrap; }
 .td-unresolved__handle { width: 18ch; }
 
+/* The snooze field sits in the action row beside Done and Drop, so it is
+ * sized to what goes in it: "tomorrow" and "8/15/26" are the long answers. */
+.td-snooze__for { width: 16ch; }
+
 /* ---------------------------------------------------------------- */
 /* mobile: same grid, bigger targets                                */
 
