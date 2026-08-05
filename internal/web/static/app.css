@@ -312,6 +312,15 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
  * sized to what goes in it: "tomorrow" and "8/15/26" are the long answers. */
 .td-snooze__for { width: 16ch; }
 
+/* A hint under a form row, for a field whose name is not the word somebody is
+ * looking for. Indented to the input column, matching .td-form__label's width
+ * plus the gap, so it reads as part of the row above rather than as a new
+ * section. It flattens with the rest of the form on a narrow screen. */
+.td-form__hint {
+  margin: 0 0 var(--td-gap) calc(16ch + var(--td-gap));
+  font-size: var(--td-size-small);
+}
+
 /* ---------------------------------------------------------------- */
 /* mobile: same grid, bigger targets                                */
 
@@ -321,6 +330,7 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
   .td-bar__collapse { display: none; }
   .td-detail__fields { grid-template-columns: 10ch 1fr; }
   .td-form__label { width: 100%; }
+  .td-form__hint { margin-left: 0; }
   .td-form__row { height: auto; flex-direction: column; align-items: flex-start; }
 }
 

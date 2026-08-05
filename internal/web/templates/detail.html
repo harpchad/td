@@ -122,12 +122,23 @@
         </label>
 
         {{/* Defer, not schedule. This hides the task until the day it can
-             actually begin; it says nothing about when it is due. */}}
+             actually begin; it says nothing about when it is due.
+
+             The label says "start" because that is what the field is called
+             everywhere else: start_at on the task, start: in the filter
+             grammar, --start on the command line. The hint carries the other
+             two words somebody might be looking for, since the filter reads
+             is:deferred and most people say defer. */}}
         <label class="td-form__row">
           <span class="td-form__label">start</span>
           <input class="td-input" type="text" name="start" value="{{.StartValue}}"
                  placeholder="empty, or 8/15/26, monday, +1w">
         </label>
+        <p class="td-form__hint td-dim">
+          Defer: hidden from the list until this day, and shown by
+          <code>is:deferred</code> in the meantime. It does not change the due
+          date and does not silence reminders.
+        </p>
 
         <label class="td-form__row">
           <span class="td-form__label">tags</span>

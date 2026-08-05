@@ -1285,3 +1285,32 @@ func TestSortingFromTheFilterBox(t *testing.T) {
 		last = due
 	}
 }
+
+// TestTheStartFieldSaysItIsDefer.
+//
+// Reported from the field: "I don't see where I can edit defer." It was there,
+// labelled start, which is what it is called in the schema, the filter grammar
+// and the CLI. None of that helps somebody scanning the page for the word they
+// have in their head, and the filter reads is:deferred, so the page carries
+// both words in one place.
+func TestTheStartFieldSaysItIsDefer(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	_, html := page(t, ts, session, "/t/101")
+	if !strings.Contains(html, `name="start"`) {
+		t.Fatal("no start field")
+	}
+	for _, want := range []string{"Defer", "is:deferred"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the start field never mentions %q, so it cannot be found by that name", want)
+		}
+	}
+	// And it says what it does not do, which is the pair of things people
+	// assume a hidden-until date changes.
+	for _, want := range []string{"does not change the due", "does not silence"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the hint does not say it %q", want)
+		}
+	}
+}
