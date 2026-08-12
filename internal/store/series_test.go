@@ -260,6 +260,42 @@ func TestCompletingAFixedInstanceBringsTheNextOneForward(t *testing.T) {
 	}
 }
 
+// TestSeriesCarriesTheStartDateForward covers "available the 1st, due the
+// 3rd, every month": the start date is a distance from the due date, so
+// every instance defers until two days before it is due, not only the first.
+func TestSeriesCarriesTheStartDateForward(t *testing.T) {
+	s, now := seeded(t)
+	ctx := context.Background()
+
+	due, start := "2026-09-03", "2026-09-01"
+	series, first, err := s.CreateSeries(ctx, actor, store.Series{
+		RRule: "FREQ=MONTHLY;BYMONTHDAY=3", Mode: recur.ModeFixed, TZ: "America/Chicago",
+		Template: api.TaskCreate{
+			Title: "Schedule security training", DueAt: &due, StartAt: &start,
+		},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.StartAt == nil || *first.StartAt != "2026-09-01" {
+		t.Errorf("first instance starts %v, want 2026-09-01", first.StartAt)
+	}
+
+	if _, err := s.Complete(ctx, actor, first.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	open := openInSeries(t, s, series.ID)
+	if len(open) != 1 {
+		t.Fatalf("%d open instances, want the next one", len(open))
+	}
+	if open[0].DueAt == nil || !strings.HasPrefix(*open[0].DueAt, "2026-10-03") {
+		t.Errorf("next instance due %v, want 2026-10-03", open[0].DueAt)
+	}
+	if open[0].StartAt == nil || !strings.HasPrefix(*open[0].StartAt, "2026-10-01") {
+		t.Errorf("next instance starts %v, want 2026-10-01: the defer did not recur", open[0].StartAt)
+	}
+}
+
 // TestTheScheduleDoesNotDriftWhenYouFinishLate. The difference between fixed
 // and after_completion, asserted: finishing four days late must not move the
 // next occurrence four days out.

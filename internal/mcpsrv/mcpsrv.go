@@ -28,6 +28,7 @@ import (
 
 	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/query"
+	"github.com/harpchad/td/internal/store"
 )
 
 // Revision is the MCP specification revision this server implements.
@@ -58,6 +59,13 @@ type Store interface {
 	ResolvePerson(ctx context.Context, ref string) (api.Person, error)
 	PersonPage(ctx context.Context, personID string, now time.Time) (api.PersonPage, error)
 	Events(ctx context.Context, since int64, limit int) ([]api.Event, error)
+
+	// The series methods carry create_task's repeat argument. They are the
+	// same calls the REST API's /series routes and the TUI's E key make.
+	CreateSeries(ctx context.Context, actor string, in store.Series, now time.Time) (store.Series, api.Task, error)
+	RepeatTask(ctx context.Context, actor, taskID string, in store.Series, now time.Time) (store.Series, api.Task, error)
+	UpdateSeries(ctx context.Context, in store.Series) (store.Series, error)
+	Series(ctx context.Context, id string) (store.Series, error)
 }
 
 // Principal is who is calling, resolved by the server's own authentication
@@ -166,6 +174,10 @@ Which tool answers which question:
   question you can ask.
 - capture puts a line in the inbox. It will not appear in whats_next until the
   owner triages it. That is the design, not a failure.
+- create_task takes the whole shape at once: due date, start_at to defer a
+  task until a date, and repeat to make it recur ("every month on the 3rd").
+  A start date on a repeating task recurs with it, keeping its distance from
+  each due date. update_task changes the same fields on an existing task.
 
 Every list result carries the tasks as JSON in a text block alongside a
 one-line summary, and repeats them in structuredContent. If you have a count

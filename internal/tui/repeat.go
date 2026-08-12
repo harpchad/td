@@ -37,7 +37,10 @@ func (m *Model) applyRepeat(t api.Task, value string) tea.Cmd {
 				Notes:    t.Notes,
 				Priority: t.Priority,
 				DueAt:    t.DueAt,
-				Tags:     t.Tags,
+				// The start date recurs with the task: the store shifts it by
+				// its distance from the due date on every instance.
+				StartAt: t.StartAt,
+				Tags:    t.Tags,
 			},
 		}
 

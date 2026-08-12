@@ -18,7 +18,38 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
-## 2026-08-12  Saving a filter is S, one line, and DELETE frees a slot
+## 2026-08-12  MCP can repeat and defer, and a start date recurs by offset
+Phase: after v0.1
+
+An agent on claude.ai was asked for "monthly security training, due the
+3rd, available the 1st" and could not express any of it: create_task and
+update_task exposed neither recurrence nor start_at, though section 10's
+`create_task(...)` leaves the field set open and both concepts exist in
+the store. Deeper, the request could not have survived past the first
+month from any client: materialize rewrote each instance's due date but
+never set start_at, and the TUI's repeat template dropped StartAt.
+
+Decided: create_task and update_task take start_at (dates or keywords,
+"none" clears on update) and repeat, a rule in the TUI's words parsed by
+the same query.ParseRecurrence. create routes through CreateSeries when a
+rule is given; update takes the E key's fork, UpdateSeries when the task
+is already in a series and RepeatTask when not. get_task and both write
+results expose start_at and the RRULE, so a model can verify what it made.
+
+The recurrence semantics for start: a template's start date is a distance
+from its due date, and materialize carries that distance onto every
+instance (date-only templates step in calendar days so DST cannot shift
+the date). Rejected: a second rule anchored on start, which could drift
+from the due rule and doubles what a user has to state; and anchor=start,
+which expresses the same thing less directly here.
+
+Series templates whose People should recur remain an open edge: the MCP
+create path stores people in the template and each instance gets them,
+but the TUI's E key still drops People when adopting a task. REVIEW: fold
+People into the TUI repeat template in a later pass.
+
+Reversible: the MCP fields are additive; the materialize offset changes
+only instances made after this ships.
 Phase: after v0.1
 
 Section 6 binds saved filters to number keys and stores them server-side,

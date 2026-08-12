@@ -9,6 +9,7 @@ import (
 
 	"github.com/harpchad/td/internal/api"
 	"github.com/harpchad/td/internal/query"
+	"github.com/harpchad/td/internal/store"
 )
 
 // The tool set is section 10's list, no more. Each one maps onto a store call
@@ -28,6 +29,8 @@ type TaskView struct {
 	Status   string   `json:"status" jsonschema:"inbox, todo, doing, waiting, done, or dropped"`
 	Priority *int     `json:"priority,omitempty" jsonschema:"1 is highest, 4 is lowest, absent is unset"`
 	DueAt    *string  `json:"due_at,omitempty"`
+	StartAt  *string  `json:"start_at,omitempty" jsonschema:"hidden from whats_next and default lists before this date"`
+	Repeats  string   `json:"repeats,omitempty" jsonschema:"the RFC 5545 rule this task recurs on, when it is a series instance"`
 	Tags     []string `json:"tags,omitempty"`
 	People   []string `json:"people,omitempty" jsonschema:"handles with their role, as name:role"`
 	Notes    string   `json:"notes,omitempty"`
@@ -41,7 +44,7 @@ type TaskView struct {
 func view(t api.Task) TaskView {
 	out := TaskView{
 		Num: t.Num, ID: t.ID, Title: t.Title, Status: t.Status,
-		Priority: t.Priority, DueAt: t.DueAt, Tags: t.Tags,
+		Priority: t.Priority, DueAt: t.DueAt, StartAt: t.StartAt, Tags: t.Tags,
 		Notes: t.Notes, Source: t.Source,
 		Subtasks: t.ChildrenTotal, SubtasksDone: t.ChildrenDone,
 	}
@@ -96,6 +99,8 @@ type createArgs struct {
 	Notes    string   `json:"notes,omitempty"`
 	Priority *int     `json:"priority,omitempty" jsonschema:"1 to 4, 1 is highest"`
 	DueAt    string   `json:"due_at,omitempty" jsonschema:"a date, or a keyword like friday or tomorrow"`
+	StartAt  string   `json:"start_at,omitempty" jsonschema:"defer until: hidden from whats_next and default lists before this date. A date or a keyword"`
+	Repeat   string   `json:"repeat,omitempty" jsonschema:"make it recurring, in words: every monday, every 2 weeks, every month on the 3rd. The due date is the first occurrence and anchors the rule; a start date recurs with it, the same distance ahead of each due"`
 	Tags     []string `json:"tags,omitempty"`
 	People   []string `json:"people,omitempty" jsonschema:"handles, optionally as handle:role"`
 	ParentID string   `json:"parent_id,omitempty" jsonschema:"make this a subtask of that task"`
@@ -108,6 +113,8 @@ type updateArgs struct {
 	Status   string   `json:"status,omitempty" jsonschema:"todo, doing, waiting, done, or dropped"`
 	Priority *int     `json:"priority,omitempty" jsonschema:"1 to 4"`
 	DueAt    string   `json:"due_at,omitempty" jsonschema:"a date or a keyword. Pass \"none\" to clear it"`
+	StartAt  string   `json:"start_at,omitempty" jsonschema:"defer until this date. Pass \"none\" to clear it"`
+	Repeat   string   `json:"repeat,omitempty" jsonschema:"set or change how this task repeats, in words: every month on the 3rd. Edits the series behind the task, from the next occurrence on"`
 	Tags     []string `json:"tags,omitempty" jsonschema:"replaces the whole set"`
 }
 
@@ -220,8 +227,10 @@ func (s *Server) register(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "create_task",
-		Description: "Create a task with fields set. Needs a write-scoped " +
-			"credential; use capture when you only have one line.",
+		Description: "Create a task with fields set, including a repeat rule " +
+			"for recurring work and a start date that defers it until then. " +
+			"Needs a write-scoped credential; use capture when you only have " +
+			"one line.",
 	}, s.createTask)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -298,7 +307,15 @@ func (s *Server) getTask(ctx context.Context, _ *mcp.CallToolRequest, args refAr
 	if err != nil {
 		return fail(err)
 	}
-	return ok(task.Title, taskResult{Task: view(task)})
+	v := view(task)
+	// The full read is where the rule is worth a lookup: a model checking
+	// what it created needs to see the recurrence it asked for.
+	if task.SeriesID != nil && *task.SeriesID != "" {
+		if series, err := s.store.Series(ctx, *task.SeriesID); err == nil {
+			v.Repeats = series.RRule
+		}
+	}
+	return ok(task.Title, taskResult{Task: v})
 }
 
 func (s *Server) whatsNext(ctx context.Context, _ *mcp.CallToolRequest, args limitArgs) (*mcp.CallToolResult, any, error) {
@@ -505,12 +522,35 @@ func (s *Server) createTask(ctx context.Context, _ *mcp.CallToolRequest, args cr
 		}
 		in.DueAt = &resolved
 	}
+	if start := trim(args.StartAt); start != "" {
+		resolved, err := query.ResolveDate(start, now)
+		if err != nil {
+			return fail(err)
+		}
+		in.StartAt = &resolved
+	}
 	if ref := trim(args.ParentID); ref != "" {
 		parent, err := s.store.Resolve(ctx, ref)
 		if err != nil {
 			return fail(err)
 		}
 		in.ParentID = &parent
+	}
+
+	if repeat := trim(args.Repeat); repeat != "" {
+		rule, err := query.ParseRecurrence(repeat)
+		if err != nil {
+			return fail(err)
+		}
+		series, task, err := s.store.CreateSeries(ctx, p.Actor,
+			store.Series{RRule: rule, Template: in}, now)
+		if err != nil {
+			return fail(err)
+		}
+		v := view(task)
+		v.Repeats = series.RRule
+		return ok("created "+itoa(int(task.Num))+", repeats "+series.RRule,
+			taskResult{Task: v})
 	}
 
 	task, err := s.store.Create(ctx, p.Actor, in, now)
@@ -557,6 +597,16 @@ func (s *Server) updateTask(ctx context.Context, _ *mcp.CallToolRequest, args up
 			patch.DueAt = &resolved
 		}
 	}
+	if start := trim(args.StartAt); start != "" {
+		patch.Presence["start_at"] = true
+		if !strings.EqualFold(start, "none") {
+			resolved, err := query.ResolveDate(start, now)
+			if err != nil {
+				return fail(err)
+			}
+			patch.StartAt = &resolved
+		}
+	}
 	if args.Tags != nil {
 		patch.Tags = &args.Tags
 	}
@@ -565,7 +615,38 @@ func (s *Server) updateTask(ctx context.Context, _ *mcp.CallToolRequest, args up
 	if err != nil {
 		return fail(err)
 	}
-	return ok("updated "+itoa(int(task.Num)), taskResult{Task: view(task)})
+
+	v := view(task)
+	summary := "updated " + itoa(int(task.Num))
+	if repeat := trim(args.Repeat); repeat != "" {
+		rule, err := query.ParseRecurrence(repeat)
+		if err != nil {
+			return fail(err)
+		}
+		// The same fork the TUI's E key takes: a task already in a series
+		// gets its rule edited; anything else becomes the first instance of
+		// a new one, never a duplicate beside itself.
+		in := store.Series{RRule: rule, Template: api.TaskCreate{
+			Title: task.Title, Notes: task.Notes, Priority: task.Priority,
+			DueAt: task.DueAt, StartAt: task.StartAt, Tags: task.Tags,
+		}}
+		if task.SeriesID != nil && *task.SeriesID != "" {
+			in.ID = *task.SeriesID
+			series, err := s.store.UpdateSeries(ctx, in)
+			if err != nil {
+				return fail(err)
+			}
+			v.Repeats = series.RRule
+		} else {
+			series, _, err := s.store.RepeatTask(ctx, p.Actor, task.ID, in, now)
+			if err != nil {
+				return fail(err)
+			}
+			v.Repeats = series.RRule
+		}
+		summary += ", repeats " + v.Repeats
+	}
+	return ok(summary, taskResult{Task: v})
 }
 
 func (s *Server) completeTask(ctx context.Context, _ *mcp.CallToolRequest, args refArgs) (*mcp.CallToolResult, any, error) {

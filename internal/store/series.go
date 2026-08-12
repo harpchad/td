@@ -378,6 +378,31 @@ func (s *Store) materialize(ctx context.Context, actor string, series Series, du
 		in.DueAt = &formatted
 	}
 
+	// The start date rides a fixed distance ahead of the due date: available
+	// the 1st and due the 3rd means available the 1st of every month, not
+	// only the month the series was created. The distance comes from the
+	// template's own pair of dates, so the two cannot drift apart.
+	if in.StartAt != nil && *in.StartAt != "" &&
+		series.Template.DueAt != nil && *series.Template.DueAt != "" {
+		if loc, err := time.LoadLocation(series.TZ); err == nil {
+			tplDue, errDue := parseAnyDate(*series.Template.DueAt, loc)
+			tplStart, errStart := parseAnyDate(*in.StartAt, loc)
+			if errDue == nil && errStart == nil && !tplDue.Before(tplStart) {
+				if len(*in.StartAt) == len(recur.DateLayout) {
+					// Whole calendar days, rounded and stepped with AddDate
+					// rather than subtracted as a duration, so a DST week
+					// cannot shift a date-only start onto the wrong day.
+					days := int((tplDue.Sub(tplStart) + 12*time.Hour) / (24 * time.Hour))
+					formatted := due.AddDate(0, 0, -days).Format(recur.DateLayout)
+					in.StartAt = &formatted
+				} else {
+					formatted := due.Add(-tplDue.Sub(tplStart)).Format(time.RFC3339)
+					in.StartAt = &formatted
+				}
+			}
+		}
+	}
+
 	task, err := s.Create(ctx, actor, in, now)
 	if err != nil {
 		return api.Task{}, err

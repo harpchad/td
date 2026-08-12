@@ -281,6 +281,142 @@ func TestUpdateTaskClearsADateOnlyWhenAsked(t *testing.T) {
 // TestRecentActivityReturnsAResumableCursor covers the change feed. The event
 // log is what an MCP client polls instead of re-listing, so the cursor has to
 // be usable as the next `since`.
+// TestCreateTaskCanRepeatAndDefer is the request that motivated the fields:
+// monthly security training, due the 3rd, available the 1st, one person
+// attached, in a single call. The defer has to recur with the task.
+func TestCreateTaskCanRepeatAndDefer(t *testing.T) {
+	f, session := serve(t, api.ScopeWrite, api.ScopeRead)
+
+	var out struct {
+		Task struct {
+			Num     int64    `json:"num"`
+			ID      string   `json:"id"`
+			DueAt   *string  `json:"due_at"`
+			StartAt *string  `json:"start_at"`
+			Repeats string   `json:"repeats"`
+			People  []string `json:"people"`
+		} `json:"task"`
+	}
+	res := call(t, session, "create_task", map[string]any{
+		"title":    "Schedule monthly security training",
+		"due_at":   "2026-09-03",
+		"start_at": "2026-09-01",
+		"repeat":   "every month on the 3rd",
+		"people":   []string{"stacey"},
+	}, &out)
+	if res.IsError {
+		t.Fatalf("create_task failed: %s", text(res))
+	}
+
+	if out.Task.DueAt == nil || !strings.HasPrefix(*out.Task.DueAt, "2026-09-03") {
+		t.Errorf("due %v, want 2026-09-03", out.Task.DueAt)
+	}
+	if out.Task.StartAt == nil || !strings.HasPrefix(*out.Task.StartAt, "2026-09-01") {
+		t.Errorf("start %v, want 2026-09-01", out.Task.StartAt)
+	}
+	if !strings.Contains(out.Task.Repeats, "FREQ=MONTHLY") {
+		t.Errorf("repeats %q, want a monthly rule", out.Task.Repeats)
+	}
+	if len(out.Task.People) == 0 {
+		t.Errorf("nobody attached, want stacey")
+	}
+
+	// get_task reads the rule back, so a model can verify what it made.
+	var read struct {
+		Task struct {
+			Repeats string  `json:"repeats"`
+			StartAt *string `json:"start_at"`
+		} `json:"task"`
+	}
+	call(t, session, "get_task", map[string]any{"id": out.Task.ID}, &read)
+	if !strings.Contains(read.Task.Repeats, "FREQ=MONTHLY") {
+		t.Errorf("get_task repeats %q, want the rule visible", read.Task.Repeats)
+	}
+
+	// Completing this month's instance makes next month's, still available
+	// the 1st. This is the property the whole feature hangs on.
+	call(t, session, "complete_task", map[string]any{"id": out.Task.ID}, nil)
+	open, err := f.store.List(t.Context(), "is:open "+quoteTitle("Schedule monthly security training"), f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 1 {
+		t.Fatalf("%d open instances after completing, want 1", len(open))
+	}
+	next := open[0]
+	if next.DueAt == nil || !strings.HasPrefix(*next.DueAt, "2026-10-03") {
+		t.Errorf("next due %v, want 2026-10-03", next.DueAt)
+	}
+	if next.StartAt == nil || !strings.HasPrefix(*next.StartAt, "2026-10-01") {
+		t.Errorf("next starts %v, want 2026-10-01: the defer did not recur", next.StartAt)
+	}
+}
+
+// quoteTitle turns a title into a free-text filter term.
+func quoteTitle(s string) string { return `"` + s + `"` }
+
+// TestUpdateTaskCanDeferAndRepeat covers the same two fields on an existing
+// task: start_at patches like due_at does, and repeat puts the task at the
+// head of a new series rather than duplicating it.
+func TestUpdateTaskCanDeferAndRepeat(t *testing.T) {
+	f, session := serve(t, api.ScopeWrite, api.ScopeRead)
+
+	var made struct {
+		Task struct {
+			ID  string `json:"id"`
+			Num int64  `json:"num"`
+		} `json:"task"`
+	}
+	call(t, session, "create_task", map[string]any{
+		"title": "Quarterly access review", "due_at": "2026-09-30",
+	}, &made)
+
+	var out struct {
+		Task struct {
+			StartAt *string `json:"start_at"`
+			Repeats string  `json:"repeats"`
+		} `json:"task"`
+	}
+	res := call(t, session, "update_task", map[string]any{
+		"id":       made.Task.ID,
+		"start_at": "2026-09-15",
+		"repeat":   "every 3 months",
+	}, &out)
+	if res.IsError {
+		t.Fatalf("update_task failed: %s", text(res))
+	}
+	if out.Task.StartAt == nil || !strings.HasPrefix(*out.Task.StartAt, "2026-09-15") {
+		t.Errorf("start %v, want 2026-09-15", out.Task.StartAt)
+	}
+	if !strings.Contains(out.Task.Repeats, "FREQ=MONTHLY;INTERVAL=3") {
+		t.Errorf("repeats %q, want every 3 months", out.Task.Repeats)
+	}
+
+	// The task became the series head; no duplicate appeared beside it.
+	open, err := f.store.List(t.Context(), "is:open "+quoteTitle("Quarterly access review"), f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 1 {
+		t.Errorf("%d open copies, want the original and only the original", len(open))
+	}
+
+	// "none" clears the start date without being asked twice. A fresh
+	// struct, because omitempty means a cleared field never arrives to
+	// overwrite a stale one.
+	var cleared struct {
+		Task struct {
+			StartAt *string `json:"start_at"`
+		} `json:"task"`
+	}
+	call(t, session, "update_task", map[string]any{
+		"id": made.Task.ID, "start_at": "none",
+	}, &cleared)
+	if cleared.Task.StartAt != nil && *cleared.Task.StartAt != "" {
+		t.Errorf("start %v after none, want cleared", cleared.Task.StartAt)
+	}
+}
+
 func TestRecentActivityReturnsAResumableCursor(t *testing.T) {
 	_, session := serve(t, api.ScopeRead, api.ScopeCapture)
 
