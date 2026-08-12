@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -161,19 +162,32 @@ func New(cfg Config) *Client {
 // The $filter is sent so the mailbox does the work rather than this process
 // downloading everything, and $select keeps the response to the fields that
 // are read. Neither is trusted: Flagged() checks each message again.
+//
+// Messages come back newest first. The sort happens here rather than in the
+// query because Graph rejects $orderby on a property the $filter does not
+// mention (InefficientFilter), and receivedDateTime is not in the filter.
 func (c *Client) Flagged(ctx context.Context) ([]GraphMessage, error) {
+	var out []GraphMessage
 	if len(c.Config.Folders) == 0 {
-		return c.page(ctx, c.listURL(""))
+		page, err := c.page(ctx, c.listURL(""))
+		if err != nil {
+			return nil, err
+		}
+		out = page
+	} else {
+		for _, folder := range c.Config.Folders {
+			page, err := c.page(ctx, c.listURL(folder))
+			if err != nil {
+				return nil, fmt.Errorf("reading folder %s: %w", folder, err)
+			}
+			out = append(out, page...)
+		}
 	}
 
-	var out []GraphMessage
-	for _, folder := range c.Config.Folders {
-		page, err := c.page(ctx, c.listURL(folder))
-		if err != nil {
-			return nil, fmt.Errorf("reading folder %s: %w", folder, err)
-		}
-		out = append(out, page...)
-	}
+	// RFC 3339 UTC timestamps, so byte order is time order.
+	slices.SortStableFunc(out, func(a, b GraphMessage) int {
+		return strings.Compare(b.ReceivedDateTime, a.ReceivedDateTime)
+	})
 	return out, nil
 }
 
@@ -183,11 +197,12 @@ func (c *Client) listURL(folder string) string {
 	if folder != "" {
 		base = c.Config.Endpoint + "/me/mailFolders/" + url.PathEscape(folder) + "/messages"
 	}
+	// No $orderby: Graph rejects a $filter on one property combined with a
+	// $orderby on another as InefficientFilter, so Flagged() sorts instead.
 	q := url.Values{
-		"$filter":  {"flag/flagStatus eq 'flagged'"},
-		"$select":  {"id,subject,bodyPreview,webLink,receivedDateTime,from,flag,parentFolderId"},
-		"$top":     {"50"},
-		"$orderby": {"receivedDateTime desc"},
+		"$filter": {"flag/flagStatus eq 'flagged'"},
+		"$select": {"id,subject,bodyPreview,webLink,receivedDateTime,from,flag,parentFolderId"},
+		"$top":    {"50"},
 	}
 	return base + "?" + q.Encode()
 }
