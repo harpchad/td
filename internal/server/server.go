@@ -186,6 +186,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/tasks/{id}/people/{person}/{role}", s.unlinkPerson)
 	mux.HandleFunc("GET /api/v1/filters", s.listFilters)
 	mux.HandleFunc("POST /api/v1/filters", s.putFilter)
+	mux.HandleFunc("DELETE /api/v1/filters/{slot}", s.deleteFilter)
 	mux.HandleFunc("GET /api/v1/ui/folds", s.listFolds)
 	mux.HandleFunc("POST /api/v1/ui/folds/{id}", s.setFold)
 	mux.HandleFunc("GET /api/v1/ui/filter", s.getViewFilter)
@@ -726,6 +727,13 @@ func (s *Server) putFilter(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, &api.Error{Code: api.ErrBadRequest, Message: "slot must be 1 through 9"})
 		return
 	}
+	// A nameless filter renders as a bare number in both status bars, which
+	// tells you nothing a week later. Clearing a slot is DELETE, not an
+	// empty-named POST.
+	if strings.TrimSpace(f.Name) == "" {
+		s.fail(w, &api.Error{Code: api.ErrBadRequest, Message: "a saved filter needs a name"})
+		return
+	}
 	if _, err := s.store.List(r.Context(), f.Query, s.Now()); err != nil {
 		s.fail(w, err)
 		return
@@ -736,6 +744,19 @@ func (s *Server) putFilter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, saved)
+}
+
+func (s *Server) deleteFilter(w http.ResponseWriter, r *http.Request) {
+	slot, err := strconv.Atoi(r.PathValue("slot"))
+	if err != nil || slot < 1 || slot > 9 {
+		s.fail(w, &api.Error{Code: api.ErrBadRequest, Message: "slot must be 1 through 9"})
+		return
+	}
+	if err := s.store.DeleteSavedFilter(r.Context(), slot); err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // listFolds returns which parents are folded. It is per-task view state that

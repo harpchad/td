@@ -263,6 +263,7 @@ func TestOnlyTheHealthCheckAndLoginAnswerWithoutACredential(t *testing.T) {
 		{http.MethodGet, "/api/v1/people"},
 		{http.MethodGet, "/api/v1/filters"},
 		{http.MethodPost, "/api/v1/filters"},
+		{http.MethodDelete, "/api/v1/filters/7"},
 		{http.MethodGet, "/api/v1/events"},
 		{http.MethodPost, "/api/v1/undo"},
 		{http.MethodGet, "/api/v1/whoami"},

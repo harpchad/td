@@ -52,6 +52,10 @@ type fakeServer struct {
 	// repeated is the task ids E was pressed on, so a test can assert the
 	// series adopted that task rather than making another.
 	repeated []string
+	// filters is mutable so the save-filter tests can watch a slot change.
+	filters       []api.SavedFilter
+	filterPuts    []api.SavedFilter
+	filterDeletes []int
 }
 
 type personLink struct{ person, role string }
@@ -91,11 +95,38 @@ func newFake(t *testing.T) *fakeServer {
 		}
 		writeJSON(w, api.TaskList{Tasks: out, Total: len(out)})
 	})
+	f.filters = []api.SavedFilter{
+		{Slot: 1, Name: "Today", Query: "is:open src:local -is:inbox"},
+		{Slot: 3, Name: "Inbox", Query: "is:inbox"},
+	}
 	mux.HandleFunc("GET /api/v1/filters", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, []api.SavedFilter{
-			{Slot: 1, Name: "Today", Query: "is:open src:local -is:inbox"},
-			{Slot: 3, Name: "Inbox", Query: "is:inbox"},
-		})
+		writeJSON(w, f.filters)
+	})
+	mux.HandleFunc("POST /api/v1/filters", func(w http.ResponseWriter, r *http.Request) {
+		var in api.SavedFilter
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		f.filterPuts = append(f.filterPuts, in)
+		kept := []api.SavedFilter{in}
+		for _, have := range f.filters {
+			if have.Slot != in.Slot {
+				kept = append(kept, have)
+			}
+		}
+		f.filters = kept
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, in)
+	})
+	mux.HandleFunc("DELETE /api/v1/filters/{slot}", func(w http.ResponseWriter, r *http.Request) {
+		slot := int(r.PathValue("slot")[0] - '0')
+		f.filterDeletes = append(f.filterDeletes, slot)
+		kept := f.filters[:0]
+		for _, have := range f.filters {
+			if have.Slot != slot {
+				kept = append(kept, have)
+			}
+		}
+		f.filters = kept
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /api/v1/ui/folds", func(w http.ResponseWriter, _ *http.Request) {
 		ids := []string{}

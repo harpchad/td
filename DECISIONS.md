@@ -18,7 +18,29 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
-## 2026-08-05  A sort verb, and a snooze field that can say when
+## 2026-08-12  Saving a filter is S, one line, and DELETE frees a slot
+Phase: after v0.1
+
+Section 6 binds saved filters to number keys and stores them server-side,
+and the API could already list and bind them, but no client offered a way
+to save one: the POST endpoint had no caller. The spec never said how
+saving should look.
+
+Decided: `S` in both UIs saves the query on screen. The TUI gets a one-line
+prompt in the existing prompt idiom, `save filter: 5 vpn work`, prefilled
+with the slot the query already holds (so re-saving is a rename) or the
+lowest free slot. A slot with no name clears it. The web gets the same key;
+it presses a status-bar toggle that reveals a form with a slot select and a
+name field, per td.js's rule that keys press real controls. A pulldown as
+the primary recall surface was rejected: the status bar links already are
+that menu, and section 11's keymap says the two UIs take the same keys.
+
+Added `DELETE /api/v1/filters/{slot}` for the clear path and made POST
+reject a blank name; a nameless filter renders as a bare number in a status
+bar, and clearing is now an explicit verb rather than an empty-named save.
+
+Reversible: entirely additive. Dropping the key, the form, and the DELETE
+route restores the previous surface.
 Phase: after v0.1
 
 Two things the web UI could not do. There was no way to order a list at all,

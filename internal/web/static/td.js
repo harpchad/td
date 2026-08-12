@@ -100,6 +100,7 @@
         e.target.blur();
         var form = e.target.closest('form');
         if (form && form.dataset.tdCancel !== undefined) form.reset();
+        if (form && form.dataset.saveForm !== undefined) form.hidden = true;
       }
       return;
     }
@@ -118,6 +119,7 @@
       case 'Z': handled = foldAll(); break;
 
       case 'a': handled = focusField('[data-add-input]'); break;
+      case 'S': handled = press('[data-save-toggle]'); break;
       case '/': handled = focusField('[data-filter-input]'); break;
       case 'u': handled = press('[data-undo]'); break;
       case 'r': handled = press('[data-reload]'); break;
@@ -156,6 +158,20 @@
     }
     return true;
   }
+
+  // The save-filter form stays hidden until asked for. The key presses this
+  // same button, so the keyboard path and the pointer path cannot drift.
+  document.addEventListener('click', function (e) {
+    var toggle = e.target.closest ? e.target.closest('[data-save-toggle]') : null;
+    if (!toggle) return;
+    var form = document.querySelector('[data-save-form]');
+    if (!form) return;
+    form.hidden = !form.hidden;
+    if (!form.hidden) {
+      var name = form.querySelector('[data-save-name]');
+      if (name) { name.focus(); if (name.select) name.select(); }
+    }
+  });
 
   // A control marked data-autosubmit posts its form when it changes. This
   // lives here rather than in an onchange attribute because an inline

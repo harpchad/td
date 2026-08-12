@@ -35,6 +35,8 @@ type Service interface {
 	Drop(ctx context.Context, actor, id string, now time.Time) (api.Task, error)
 	Undo(ctx context.Context, actor string, now time.Time) (api.UndoResult, error)
 	SavedFilters(ctx context.Context) ([]api.SavedFilter, error)
+	PutSavedFilter(ctx context.Context, f api.SavedFilter) (api.SavedFilter, error)
+	DeleteSavedFilter(ctx context.Context, slot int) error
 	CollapsedTasks(ctx context.Context) ([]string, error)
 	SetCollapsed(ctx context.Context, taskID string, collapsed bool) error
 	CurrentFilter(ctx context.Context) (string, bool, error)
@@ -153,6 +155,7 @@ func (u *UI) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /w/sub/{id}", u.addSubtask)
 	mux.HandleFunc("POST /w/repeat/{id}", u.repeat)
 	mux.HandleFunc("POST /w/fold/{id}", u.fold)
+	mux.HandleFunc("POST /w/filters", u.saveFilter)
 	mux.HandleFunc("POST /w/theme", u.setTheme)
 	mux.HandleFunc("POST /w/tokens/{id}/revoke", u.revokeToken)
 	mux.HandleFunc("POST /w/grants/{id}/revoke", u.RevokeGrant)
@@ -191,6 +194,11 @@ type pageData struct {
 	Counts     Counts
 	Rows       []Row
 	InboxZero  bool
+
+	// The save-filter form: one option per number key, named when the key is
+	// taken, and the name to prefill when the current query is already saved.
+	SaveSlots []SlotOption
+	SaveName  string
 
 	// Triage is a dedicated screen rather than a filter preset. The position
 	// lives in the URL so reloading lands in the same place and the back
@@ -392,6 +400,7 @@ func (u *UI) home(w http.ResponseWriter, r *http.Request) {
 		filter = slotOne(saved)
 	}
 	u.fillList(r, &data, filter, "")
+	data.SaveSlots, data.SaveName = saveSlots(saved, filter)
 
 	// Only when it changed, so reading the same list twice is not two writes,
 	// and only after it parsed: remembering a filter that does not is how you
@@ -418,6 +427,83 @@ func (u *UI) rememberedFilter(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return filter, ok
+}
+
+// SlotOption is one number key in the save-filter form.
+type SlotOption struct {
+	Slot     int
+	Label    string
+	Selected bool
+}
+
+// saveSlots lays out the save form: every key with its current name, the
+// selection on the slot this query already holds so re-saving is a rename,
+// or on the lowest free slot so saving something new overwrites nothing.
+func saveSlots(saved []api.SavedFilter, filter string) ([]SlotOption, string) {
+	bySlot := map[int]api.SavedFilter{}
+	selected, name := 0, ""
+	for _, f := range saved {
+		bySlot[f.Slot] = f
+		if f.Query == filter && selected == 0 {
+			selected, name = f.Slot, f.Name
+		}
+	}
+	for slot := 1; selected == 0 && slot <= 9; slot++ {
+		if _, taken := bySlot[slot]; !taken {
+			selected = slot
+		}
+	}
+
+	out := make([]SlotOption, 0, 9)
+	for slot := 1; slot <= 9; slot++ {
+		opt := SlotOption{Slot: slot, Label: itoa(int64(slot)), Selected: slot == selected}
+		if f, ok := bySlot[slot]; ok {
+			opt.Label += " " + f.Name
+		}
+		out = append(out, opt)
+	}
+	return out, name
+}
+
+// saveFilter binds the query on the page to a number key, or frees one. The
+// redirect re-renders the whole page, and the changed status bar is the
+// confirmation.
+func (u *UI) saveFilter(w http.ResponseWriter, r *http.Request) {
+	slot, err := strconv.Atoi(r.FormValue("slot"))
+	filter := strings.TrimSpace(r.FormValue("q"))
+	back := "/?q=" + urlEncode(filter)
+	if err != nil || slot < 1 || slot > 9 {
+		http.Redirect(w, r, back, http.StatusSeeOther)
+		return
+	}
+
+	if r.FormValue("action") == "clear" {
+		if err := u.svc.DeleteSavedFilter(r.Context(), slot); err != nil {
+			u.fail(w, r, err)
+			return
+		}
+		http.Redirect(w, r, back, http.StatusSeeOther)
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		http.Redirect(w, r, back, http.StatusSeeOther)
+		return
+	}
+	// The same gate the API applies: a query that does not parse stays off
+	// the number keys, where it would fail on every press instead of once.
+	if _, err := u.svc.List(r.Context(), filter, u.Now()); err != nil {
+		http.Redirect(w, r, back, http.StatusSeeOther)
+		return
+	}
+	if _, err := u.svc.PutSavedFilter(r.Context(), api.SavedFilter{
+		Slot: slot, Name: name, Query: filter,
+	}); err != nil {
+		u.fail(w, r, err)
+		return
+	}
+	http.Redirect(w, r, back, http.StatusSeeOther)
 }
 
 // slotOne is the first-run filter, before anybody has chosen anything.
@@ -1142,6 +1228,7 @@ func keymap() []keyRow {
 		{Keys: "Z", Help: "fold every parent in view"},
 		{Keys: "/", Help: "edit the filter"},
 		{Keys: "1-9", Help: "saved filters"},
+		{Keys: "S", Help: "save the current filter to a number key"},
 		{Keys: "u", Help: "undo"},
 		{Keys: "r", Help: "reload"},
 		{Keys: "?", Help: "this help"},

@@ -1349,6 +1349,25 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
+  /api/v1/filters/{slot}:
+    parameters:
+      - name: slot
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1, maximum: 9 }
+    delete:
+      tags: [filters]
+      summary: Free a slot
+      description: Deleting an empty slot succeeds; the state asked for holds.
+      operationId: deleteFilter
+      responses:
+        "204":
+          description: the slot is free
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
   /api/v1/ui/folds:
     get:
       tags: [tasks]

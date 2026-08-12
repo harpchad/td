@@ -42,6 +42,7 @@ var bindings = []binding{
 	{keys: []string{"T"}, help: "triage the inbox", hint: "T triage"},
 	{keys: []string{"/"}, help: "edit the filter", hint: "/ search"},
 	{keys: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, help: "saved filters"},
+	{keys: []string{"S"}, help: "save filter"},
 	{keys: []string{"u"}, help: "undo", hint: "u undo"},
 	{keys: []string{"r"}, help: "reload"},
 	{keys: []string{"?"}, help: "this help", hint: "? keys"},

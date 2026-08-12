@@ -27,6 +27,22 @@
     <button class="td-btn td-btn--primary" type="submit">Add</button>
   </form>
 
+  {{/* Hidden until S or the status bar button reveals it. A plain post: the
+       redirect re-renders the page and the changed status bar is the
+       confirmation. */}}
+  <form class="td-bar td-bar--save" action="/w/filters" method="post"
+        hidden data-save-form data-td-cancel>
+    <span class="td-dim">save filter:</span>
+    <select class="td-input" name="slot" aria-label="slot">
+      {{range .SaveSlots}}<option value="{{.Slot}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+    <input class="td-input" type="text" name="name" value="{{.SaveName}}"
+           data-save-name aria-label="filter name" placeholder="a name for this filter">
+    <input type="hidden" name="q" value="{{.Filter}}">
+    <button class="td-btn td-btn--primary" type="submit" name="action" value="save">Save</button>
+    <button class="td-btn" type="submit" name="action" value="clear">Clear slot</button>
+  </form>
+
   <div class="td-app__body td-scroll" id="list">
     {{template "list" .}}
   </div>
@@ -43,6 +59,7 @@
   <span class="td-key"><b>d</b> done</span>
   <span class="td-key"><b>z</b> fold</span>
   <span class="td-key"><b>/</b> search</span>
+  <button class="td-key td-linkbtn" type="button" data-save-toggle><b>S</b> save filter</button>
   <form action="/w/undo" method="post" class="td-contents"
         hx-post="/w/undo" hx-target="#list" hx-swap="innerHTML">
     <button class="td-key td-linkbtn" type="submit" data-undo><b>u</b> undo</button>

@@ -30,6 +30,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.savedLoaded = true
 		return m, m.startFilter()
 
+	case filterSavedMsg:
+		m.saved = msg.filters
+		m.status = msg.status
+		return m, nil
+
 	case viewFilterMsg:
 		// A filter named on the command line outranks the remembered one: it is
 		// the more recent instruction, and `td -filter ...` that ignored its own
@@ -261,6 +266,9 @@ func (m *Model) listKey(key string) (tea.Model, tea.Cmd) {
 		// The series, not the instance. Editing an instance edits that
 		// instance; the rule behind it needs its own action.
 		return m, m.openRepeat()
+
+	case "S":
+		m.openSaveFilter()
 
 	case "N":
 		// Notes are multi-line, so they get a textarea rather than the

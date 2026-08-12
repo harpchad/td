@@ -315,6 +315,72 @@ func TestSavedFilterKeys(t *testing.T) {
 	}
 }
 
+// TestSaveFilterBindsTheCurrentQuery covers the S key: the query on screen
+// lands on a number key and the key works immediately, without a restart.
+func TestSaveFilterBindsTheCurrentQuery(t *testing.T) {
+	h, f := open(t)
+
+	h.key("/")
+	for range 40 {
+		h.send(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	}
+	h.typeText("#certs")
+	h.key("enter")
+
+	// The prompt offers the lowest free slot, 2 here, so typing just the
+	// name is the whole interaction.
+	h.key("S")
+	h.typeText("certs")
+	h.key("enter")
+
+	if len(f.filterPuts) != 1 {
+		t.Fatalf("saved %d filters, want 1", len(f.filterPuts))
+	}
+	put := f.filterPuts[0]
+	if put.Slot != 2 || put.Name != "certs" || put.Query != "#certs" {
+		t.Errorf("saved %+v, want slot 2 named certs holding #certs", put)
+	}
+
+	h.key("1")
+	h.key("2")
+	if f.lastQuery != "#certs" {
+		t.Errorf("2 sent %q, want the filter just saved", f.lastQuery)
+	}
+}
+
+// TestSaveFilterPrefillsTheSlotItAlreadyHolds makes re-saving a rename: S on
+// a query that is already bound offers its own slot and name back.
+func TestSaveFilterPrefillsTheSlotItAlreadyHolds(t *testing.T) {
+	h, _ := open(t)
+
+	h.key("3")
+	h.key("S")
+	if !strings.Contains(plain(h.view()), "save filter: 3 Inbox") {
+		t.Errorf("the prompt does not offer the existing binding:\n%s", plain(h.view()))
+	}
+}
+
+// TestSaveFilterSlotAloneClearsIt covers the clear path: a slot with no name
+// frees the key rather than saving an unlabeled query.
+func TestSaveFilterSlotAloneClearsIt(t *testing.T) {
+	h, f := open(t)
+
+	h.key("S")
+	for range 40 {
+		h.send(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	}
+	h.typeText("3")
+	h.key("enter")
+
+	if len(f.filterDeletes) != 1 || f.filterDeletes[0] != 3 {
+		t.Fatalf("deletes = %v, want slot 3 cleared once", f.filterDeletes)
+	}
+	h.key("3")
+	if !strings.Contains(plain(h.view()), "no saved filter on 3") {
+		t.Error("the cleared slot still answers")
+	}
+}
+
 // TestEmptyStateNamesTheFilter covers the rule that empty is an invitation:
 // it says what would put something there and names the current filter.
 func TestEmptyStateNamesTheFilter(t *testing.T) {

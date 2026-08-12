@@ -60,6 +60,18 @@ a, .td-link { color: inherit; text-decoration: underline; text-underline-offset:
 }
 .td-bar--add .td-input { flex: 1 1 auto; border-bottom: 0; }
 
+/* The save-filter bar stays out of the chrome until S asks for it. The
+ * [hidden] rule is load-bearing: .td-bar's display:flex would otherwise
+ * outrank the attribute and the form would never hide. Sized like quick-add
+ * because it also holds buttons and their shadows. */
+.td-bar--save {
+  height: calc(var(--td-row) + var(--td-shadow) * 3 + 4px);
+  padding-right: calc(var(--td-pad) + var(--td-shadow));
+}
+.td-bar--save[hidden] { display: none; }
+.td-bar--save .td-input { border-bottom: 0; }
+.td-bar--save input[name="name"] { flex: 1 1 auto; }
+
 /* ---------------------------------------------------------------- */
 /* form wrappers                                                    */
 /*                                                                  */

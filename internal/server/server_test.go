@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -572,5 +573,112 @@ func TestSavedFilterRejectsAQueryThatDoesNotParse(t *testing.T) {
 		map[string]any{"slot": 7, "name": "Broken", "query": "foo:bar"})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400: %s", resp.StatusCode, body)
+	}
+}
+
+// TestSavedFilterRejectsAnEmptyName. A nameless filter renders as a bare
+// number in both status bars; clearing a slot is DELETE, not an empty POST.
+func TestSavedFilterRejectsAnEmptyName(t *testing.T) {
+	ts := newServer(t)
+	resp, body := do(t, ts, http.MethodPost, "/api/v1/filters",
+		map[string]any{"slot": 7, "name": "  ", "query": "is:open"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", resp.StatusCode, body)
+	}
+}
+
+// TestSavedFilterDeleteFreesTheSlot covers the clear path end to end, and
+// that deleting an already-empty slot succeeds: the state asked for holds
+// either way.
+func TestSavedFilterDeleteFreesTheSlot(t *testing.T) {
+	ts := newServer(t)
+
+	resp, body := do(t, ts, http.MethodPost, "/api/v1/filters",
+		map[string]any{"slot": 7, "name": "Certs", "query": "#certs"})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("save status = %d: %s", resp.StatusCode, body)
+	}
+
+	resp, body = do(t, ts, http.MethodDelete, "/api/v1/filters/7", nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status = %d: %s", resp.StatusCode, body)
+	}
+
+	_, body = do(t, ts, http.MethodGet, "/api/v1/filters", nil)
+	var filters []api.SavedFilter
+	decodeInto(t, body, &filters)
+	for _, f := range filters {
+		if f.Slot == 7 {
+			t.Errorf("slot 7 still holds %q after the delete", f.Name)
+		}
+	}
+
+	resp, _ = do(t, ts, http.MethodDelete, "/api/v1/filters/7", nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("deleting an empty slot = %d, want 204", resp.StatusCode)
+	}
+
+	resp, _ = do(t, ts, http.MethodDelete, "/api/v1/filters/12", nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("deleting slot 12 = %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestWebSaveFilterForm drives the browser path: the form S reveals saves a
+// slot, the clear button frees it, and a nameless save changes nothing.
+func TestWebSaveFilterForm(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	// The form and its toggle are on the page, hidden until S reveals them.
+	_, home := page(t, ts, session, "/")
+	for _, want := range []string{"data-save-form", "data-save-toggle", "hidden"} {
+		if !strings.Contains(home, want) {
+			t.Errorf("the home page has no %s", want)
+		}
+	}
+
+	if resp := postForm(t, ts, session, "/w/filters", url.Values{
+		"slot": {"7"}, "name": {"Certs"}, "q": {"#certs"}, "action": {"save"},
+	}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save = %d, want 303", resp.StatusCode)
+	}
+
+	filters, err := ts.store.SavedFilters(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, f := range filters {
+		if f.Slot == 7 && f.Name == "Certs" && f.Query == "#certs" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("slot 7 was not saved: %+v", filters)
+	}
+
+	if resp := postForm(t, ts, session, "/w/filters", url.Values{
+		"slot": {"7"}, "name": {"  "}, "q": {"is:open"}, "action": {"save"},
+	}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("nameless save = %d, want 303", resp.StatusCode)
+	}
+	filters, _ = ts.store.SavedFilters(t.Context())
+	for _, f := range filters {
+		if f.Slot == 7 && f.Name != "Certs" {
+			t.Errorf("a nameless save changed slot 7 to %q", f.Name)
+		}
+	}
+
+	if resp := postForm(t, ts, session, "/w/filters", url.Values{
+		"slot": {"7"}, "q": {""}, "action": {"clear"},
+	}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("clear = %d, want 303", resp.StatusCode)
+	}
+	filters, _ = ts.store.SavedFilters(t.Context())
+	for _, f := range filters {
+		if f.Slot == 7 {
+			t.Errorf("slot 7 still holds %q after the clear", f.Name)
+		}
 	}
 }

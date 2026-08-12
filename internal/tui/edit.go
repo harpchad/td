@@ -27,6 +27,7 @@ const (
 	promptWaiting
 	promptPerson
 	promptRepeat
+	promptSaveFilter
 )
 
 func (p prompt) label() string {
@@ -45,6 +46,8 @@ func (p prompt) label() string {
 		return "person: "
 	case promptRepeat:
 		return "repeats: "
+	case promptSaveFilter:
+		return "save filter: "
 	default:
 		return ""
 	}
@@ -64,6 +67,8 @@ func (p prompt) placeholder() string {
 		return "handle, or handle:role"
 	case promptRepeat:
 		return "every monday, every 2 weeks, monthly on the 1st"
+	case promptSaveFilter:
+		return "slot 1-9 and a name; a slot alone clears it"
 	default:
 		return ""
 	}
@@ -128,6 +133,78 @@ func (m *Model) openPromptFor(kind prompt, t api.Task) {
 	m.promptInput.CursorEnd()
 }
 
+// openSaveFilter starts the editor that binds the current query to a number
+// key. Not openPromptFor: every other prompt edits the task under the cursor,
+// and this one edits the view itself.
+func (m *Model) openSaveFilter() {
+	m.prompt = promptSaveFilter
+	m.promptTask = api.Task{}
+	m.status = ""
+
+	m.promptInput.Prompt = promptSaveFilter.label()
+	m.promptInput.Placeholder = promptSaveFilter.placeholder()
+	m.promptInput.SetValue(m.saveFilterPrefill())
+	m.promptInput.Focus()
+	m.promptInput.CursorEnd()
+}
+
+// saveFilterPrefill suggests where the save lands. A query already on a key
+// offers its own slot and name, so re-saving is a rename; anything else
+// offers the lowest free slot.
+func (m *Model) saveFilterPrefill() string {
+	taken := map[int]bool{}
+	for _, f := range m.saved {
+		if f.Query == m.filter {
+			return itoa(int64(f.Slot)) + " " + f.Name
+		}
+		taken[f.Slot] = true
+	}
+	for slot := 1; slot <= 9; slot++ {
+		if !taken[slot] {
+			return itoa(int64(slot)) + " "
+		}
+	}
+	return ""
+}
+
+// applySaveFilter parses "5 vpn work": a slot, then the name. The name is
+// what makes the slot legible in a status bar a month later, so a slot with
+// no name is read as clearing it rather than as saving an unlabeled query.
+func (m *Model) applySaveFilter(value string) tea.Cmd {
+	slotStr, name, _ := strings.Cut(value, " ")
+	name = strings.TrimSpace(name)
+	if len(slotStr) != 1 || slotStr[0] < '1' || slotStr[0] > '9' {
+		m.status = "save filter takes a slot 1 to 9, then a name"
+		return nil
+	}
+	slot := int(slotStr[0] - '0')
+	query := m.filter
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+		defer cancel()
+
+		status := "saved  " + slotStr + " " + name
+		if name == "" {
+			if err := m.client.DeleteFilter(ctx, slot); err != nil {
+				return actionMsg{err: err}
+			}
+			status = "cleared slot " + slotStr
+		} else {
+			f := api.SavedFilter{Slot: slot, Name: name, Query: query}
+			if _, err := m.client.PutFilter(ctx, f); err != nil {
+				return actionMsg{err: err}
+			}
+		}
+
+		filters, err := m.client.Filters(ctx)
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		return filterSavedMsg{filters: filters, status: status}
+	}
+}
+
 // submitPrompt applies whatever the open editor holds.
 func (m *Model) submitPrompt() tea.Cmd {
 	value := strings.TrimSpace(m.promptInput.Value())
@@ -151,6 +228,8 @@ func (m *Model) submitPrompt() tea.Cmd {
 		return m.applyPerson(t, value)
 	case promptRepeat:
 		return m.applyRepeat(t, value)
+	case promptSaveFilter:
+		return m.applySaveFilter(value)
 	}
 	return nil
 }

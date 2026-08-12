@@ -40,3 +40,10 @@ func (s *Store) PutSavedFilter(ctx context.Context, f api.SavedFilter) (api.Save
 		f.ID, f.Slot, f.Name, f.Query)
 	return f, err
 }
+
+// DeleteSavedFilter frees a slot. Deleting an empty slot is not an error:
+// the state asked for is the state that results either way.
+func (s *Store) DeleteSavedFilter(ctx context.Context, slot int) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM saved_filter WHERE slot = ?`, slot)
+	return err
+}

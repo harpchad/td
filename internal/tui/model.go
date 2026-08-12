@@ -205,6 +205,14 @@ type filtersMsg struct {
 	err     error
 }
 
+// filterSavedMsg is the result of binding or clearing a slot: the fresh
+// list, so the number keys work on it immediately, and a line for the
+// status bar.
+type filterSavedMsg struct {
+	filters []api.SavedFilter
+	status  string
+}
+
 type foldsMsg struct {
 	collapsed []string
 	err       error

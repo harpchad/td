@@ -239,6 +239,18 @@ func (c *Client) Filters(ctx context.Context) ([]api.SavedFilter, error) {
 	return out, err
 }
 
+// PutFilter binds a query to a number key, replacing whatever held the slot.
+func (c *Client) PutFilter(ctx context.Context, f api.SavedFilter) (api.SavedFilter, error) {
+	var out api.SavedFilter
+	err := c.do(ctx, http.MethodPost, "/api/v1/filters", f, nil, &out)
+	return out, err
+}
+
+// DeleteFilter frees a slot.
+func (c *Client) DeleteFilter(ctx context.Context, slot int) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/filters/"+strconv.Itoa(slot), nil, nil, nil)
+}
+
 // WhoAmI reports which credential this client is using and what it may do.
 func (c *Client) WhoAmI(ctx context.Context) (api.SessionInfo, error) {
 	var out api.SessionInfo
