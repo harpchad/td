@@ -258,21 +258,36 @@ func (p *parser) atom(raw string) (Node, error) {
 	return p.predicate(lkey, value)
 }
 
-// setSort reads a sort: value. A leading minus reverses it.
+// setSort reads a sort: value. A comma composes keys, and a leading minus
+// reverses the key it is attached to: sort:due,-priority.
 func (p *parser) setSort(value string) error {
-	key := strings.ToLower(strings.TrimSpace(value))
-	desc := strings.HasPrefix(key, "-")
-	key = strings.TrimPrefix(key, "-")
-	if key == "" {
+	raw := strings.ToLower(strings.TrimSpace(value))
+	if raw == "" {
 		return fmt.Errorf("sort: needs a key (try: %s)", strings.Join(SortKeys, ", "))
 	}
-	if !contains(SortKeys, key) {
-		return fmt.Errorf("cannot sort by %q (try: %s)", key, strings.Join(SortKeys, ", "))
+	var next Sort
+	for _, part := range strings.Split(raw, ",") {
+		desc := strings.HasPrefix(part, "-")
+		key := strings.TrimPrefix(part, "-")
+		if key == "" {
+			return fmt.Errorf("sort: needs a key (try: %s)", strings.Join(SortKeys, ", "))
+		}
+		if !contains(SortKeys, key) {
+			return fmt.Errorf("cannot sort by %q (try: %s)", key, strings.Join(SortKeys, ", "))
+		}
+		// The same key twice in one list is dead weight: the second copy can
+		// never break a tie the first left, so it is a typo worth reporting.
+		for _, k := range next.Keys {
+			if k.Key == key {
+				return fmt.Errorf("sort:%s sorts by %q twice", raw, key)
+			}
+		}
+		next.Keys = append(next.Keys, SortKey{Key: key, Desc: desc})
 	}
-	if p.sort.Explicit() && (p.sort.Key != key || p.sort.Desc != desc) {
-		return fmt.Errorf("two different sorts in one query: %s and %s", p.sort.Key, key)
+	if p.sort.Explicit() && !p.sort.Equal(next) {
+		return fmt.Errorf("two different sorts in one query: %s and %s", p.sort, next)
 	}
-	p.sort = Sort{Key: key, Desc: desc}
+	p.sort = next
 	return nil
 }
 

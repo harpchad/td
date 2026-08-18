@@ -89,53 +89,66 @@ func (s Sorter) Sort(tasks []api.Task) {
 // order is asking to be rid of the clever one, so there are no overdue and
 // due-today buckets here: sort:due is the dates in order and nothing else.
 //
-// Two things hold in both directions. A task with nothing in the sorted field
-// goes last, because reversing an order should not promote the rows that have
-// no answer to the top. And num is the final tiebreak, so the order is total
-// and two runs over the same data return the same list.
+// Keys apply in the order they were written, sort:due,priority, and each
+// later key breaks only the ties the earlier ones left. num is the final
+// tiebreak after every written key, so the order is total and two runs over
+// the same data return the same list.
 func (s Sorter) lessExplicit(a, b *api.Task) bool {
-	av, bv, ok := s.sortKey(a, b)
-	if !ok {
-		return a.Num < b.Num
+	for _, k := range s.Order.Keys {
+		if c := s.compareKey(k, a, b); c != 0 {
+			return c < 0
+		}
 	}
-
-	// Missing values sort last whichever way round the rest is.
-	switch {
-	case av == "" && bv == "":
-		return a.Num < b.Num
-	case av == "":
-		return false
-	case bv == "":
-		return true
-	}
-
-	if av == bv {
-		return a.Num < b.Num
-	}
-	if s.Order.Desc {
-		return av > bv
-	}
-	return av < bv
+	return a.Num < b.Num
 }
 
-// sortKey renders the field being sorted on as a comparable string. Priority
+// compareKey orders a and b under one key of an explicit sort. A task with
+// nothing in the field goes last in both directions, because reversing an
+// order should not promote the rows that have no answer to the top. num is
+// the one key with no missing case, and there the minus means the numbers
+// downward.
+func (s Sorter) compareKey(k SortKey, a, b *api.Task) int {
+	var c int
+	if k.Key == "num" {
+		switch {
+		case a.Num < b.Num:
+			c = -1
+		case a.Num > b.Num:
+			c = 1
+		}
+	} else {
+		av, bv := s.keyText(k.Key, a), s.keyText(k.Key, b)
+		switch {
+		case av == "" && bv == "":
+			return 0
+		case av == "":
+			return 1
+		case bv == "":
+			return -1
+		}
+		c = strings.Compare(av, bv)
+	}
+	if k.Desc {
+		c = -c
+	}
+	return c
+}
+
+// keyText renders the field being sorted on as a comparable string. Priority
 // is zero padded so "10" would not sort before "2", which it cannot today and
 // will the day priorities go past 9.
-func (s Sorter) sortKey(a, b *api.Task) (string, string, bool) {
-	switch s.Order.Key {
+func (s Sorter) keyText(key string, t *api.Task) string {
+	switch key {
 	case "due":
-		return s.dueDate(a), s.dueDate(b), true
+		return s.dueDate(t)
 	case "priority":
-		return priorityText(a.Priority), priorityText(b.Priority), true
+		return priorityText(t.Priority)
 	case "created":
-		return a.CreatedAt, b.CreatedAt, true
+		return t.CreatedAt
 	case "title":
-		return strings.ToLower(strings.TrimSpace(a.Title)),
-			strings.ToLower(strings.TrimSpace(b.Title)), true
-	case "num":
-		return "", "", false
+		return strings.ToLower(strings.TrimSpace(t.Title))
 	}
-	return "", "", false
+	return ""
 }
 
 // priorityText renders a priority for comparison. Unset renders empty, which

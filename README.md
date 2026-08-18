@@ -246,9 +246,12 @@ silence anything: something due before it can be started is a contradiction
 you want to hear about.
 
 Add `sort:` to order the answer: `sort:due`, `sort:-due` for descending, and
-also `priority`, `created`, `title`, `num`. It is a term like any other, so it
-works in the web filter box, the TUI, `td ls` and the MCP search tool, and it
-can be saved on a number key.
+also `priority`, `created`, `title`, `num`. A comma composes keys, and the
+minus stays per key: `sort:due,-priority` is the dates ascending with the
+higher priorities first inside each date, and each later key breaks only the
+ties the earlier ones left. It is a term like any other, so it works in the
+web filter box, the TUI, `td ls` and the MCP search tool, and it can be saved
+on a number key.
 
 An explicit sort drops the default's cleverness rather than layering on it.
 The default puts overdue first, then due today, then ranks priority above the

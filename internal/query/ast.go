@@ -4,7 +4,11 @@
 // parses the same string to build SQL. One grammar, one comparator, no drift.
 package query
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"slices"
+	"strings"
+)
 
 // Node is one node of a parsed filter expression.
 type Node interface {
@@ -181,18 +185,43 @@ func (n *Word) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{"word": n.Text})
 }
 
-// Sort is an explicit order, from a sort: term. The zero value is the default
-// comparator, which is what a query with no sort: gets.
-type Sort struct {
-	// Key is due, priority, created, title, or num. Empty is the default
-	// order.
+// SortKey is one key of an explicit order.
+type SortKey struct {
+	// Key is due, priority, created, title, or num.
 	Key string
-	// Desc reverses it, from a leading minus: sort:-due.
+	// Desc reverses this key, from a leading minus: sort:-due.
 	Desc bool
 }
 
+// Sort is an explicit order, from a sort: term. The zero value is the default
+// comparator, which is what a query with no sort: gets. A comma composes
+// keys, sort:due,priority, and each later key breaks only the ties the
+// earlier ones left.
+type Sort struct {
+	// Keys in the order they were written.
+	Keys []SortKey
+}
+
 // Explicit reports whether an order was asked for.
-func (s Sort) Explicit() bool { return s.Key != "" }
+func (s Sort) Explicit() bool { return len(s.Keys) > 0 }
+
+// String renders the order the way it is written: due,-priority. The zero
+// value renders empty.
+func (s Sort) String() string {
+	parts := make([]string, len(s.Keys))
+	for i, k := range s.Keys {
+		if k.Desc {
+			parts[i] = "-" + k.Key
+		} else {
+			parts[i] = k.Key
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+// Equal reports whether two sorts name the same keys, the same way round, in
+// the same order.
+func (s Sort) Equal(o Sort) bool { return slices.Equal(s.Keys, o.Keys) }
 
 // SortKeys is the closed set, in the order the error message lists them.
 var SortKeys = []string{"due", "priority", "created", "title", "num"}

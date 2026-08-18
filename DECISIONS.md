@@ -18,6 +18,35 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-18  sort: composes keys with a comma
+Phase: after v0.1
+
+The spec never says whether an explicit sort can have more than one key.
+`sort:` took exactly one, so "due date, then priority within a day" was
+unreachable: the default order is close but ranks its overdue and
+due-today buckets above everything, and an explicit `sort:due` left ties
+to `num`.
+
+Decided: `sort:due,-priority` parses a comma list into ordered keys, the
+minus staying per key. Each later key breaks only the ties the earlier
+ones left, the missing-values-last rule applies per key in both
+directions, and `num` stays the final tiebreak so the order remains
+total. Rejected: a second `sort:` token composing (`sort:due
+sort:priority` stays the "two different sorts" error, since two tokens
+read as a conflict, not a sequence), and silently deduplicating a
+repeated key (`sort:due,due` is now an error: the second copy can never
+break a tie the first left, so it is a typo worth reporting).
+
+Also fixed in passing: `sort:-num` used to ignore the minus and sort
+ascending, because the old comparator treated num as "no key". num is
+never missing, so the minus now means the numbers downward.
+
+Reversible: grammar-level, additive. Single-key queries parse and order
+exactly as before; saved filters and the MCP tools pick the syntax up
+for free because they share the parser.
+
+---
+
 ## 2026-08-12  MCP can repeat and defer, and a start date recurs by offset
 Phase: after v0.1
 
