@@ -52,6 +52,12 @@ var (
 		4: lipgloss.NewStyle().Foreground(ansiBrightBlack).Faint(true),
 	}
 
+	// markStyle draws the new mark in the row's left gutter. Bold and no
+	// color: both color slots are committed, and a list where six things
+	// arrived overnight would spend one of them six times over. Against a row
+	// whose number and tokens are dim, weight is enough.
+	markStyle = lipgloss.NewStyle().Bold(true)
+
 	// warn is for the offline and error lines in the status bar.
 	warn = lipgloss.NewStyle().Foreground(ansiBrightYellow)
 )

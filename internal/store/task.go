@@ -241,6 +241,20 @@ func (s *Store) hydrate(ctx context.Context, tasks []api.Task) error {
 			},
 		},
 		{
+			// The new mark. A row in task_unseen is the whole fact, so this
+			// loads keys rather than values: absence is the common case and
+			// costs nothing to read.
+			sql: `SELECT task_id FROM task_unseen WHERE task_id IN ` + in,
+			scan: func(r *sql.Rows) error {
+				var id string
+				if err := r.Scan(&id); err != nil {
+					return err
+				}
+				byID[id].New = true
+				return nil
+			},
+		},
+		{
 			sql: `SELECT parent_id, count(*), sum(CASE WHEN status = 'done' THEN 1 ELSE 0 END)
 			      FROM task WHERE parent_id IN ` + in + ` GROUP BY parent_id`,
 			scan: func(r *sql.Rows) error {

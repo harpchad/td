@@ -15,7 +15,7 @@ var knownKeys = []string{"is", "p", "due", "start", "src", "has", "notify", "grp
 
 var knownIs = []string{
 	"open", "done", "todo", "doing", "waiting", "inbox",
-	"dropped", "orphan", "snoozed", "deferred",
+	"dropped", "orphan", "snoozed", "deferred", "new",
 }
 
 var knownHas = []string{"attachment", "notes", "sub"}

@@ -39,6 +39,8 @@ type TaskView struct {
 
 	Subtasks     int `json:"subtasks,omitempty"`
 	SubtasksDone int `json:"subtasks_done,omitempty"`
+
+	New bool `json:"new,omitempty" jsonschema:"the owner has not looked at this since it arrived from a sync, a plugin, or an agent. Reading it here does not clear it"`
 }
 
 func view(t api.Task) TaskView {
@@ -47,6 +49,7 @@ func view(t api.Task) TaskView {
 		Priority: t.Priority, DueAt: t.DueAt, StartAt: t.StartAt, Tags: t.Tags,
 		Notes: t.Notes, Source: t.Source,
 		Subtasks: t.ChildrenTotal, SubtasksDone: t.ChildrenDone,
+		New: t.New,
 	}
 	if t.ExternalURL != nil {
 		out.URL = *t.ExternalURL

@@ -407,6 +407,22 @@ func (m *Model) setFold(t api.Task, collapsed bool) tea.Cmd {
 	}
 }
 
+// markSeen clears the new mark on a task the owner just opened.
+//
+// The reload is what redraws the gutter, and the failure is deliberately
+// quiet: the detail view is already on screen and a task that stays marked
+// clears the next time it is opened.
+func (m *Model) markSeen(t api.Task) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+		defer cancel()
+		if err := m.client.MarkSeen(ctx, t.ID); err != nil {
+			return actionMsg{}
+		}
+		return actionMsg{reload: true}
+	}
+}
+
 // setFoldAll folds or unfolds every parent in view in one pass.
 func (m *Model) setFoldAll(collapsed bool) tea.Cmd {
 	var ids []string

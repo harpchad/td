@@ -272,6 +272,12 @@ func (c *Client) SetFold(ctx context.Context, ref string, collapsed bool) error 
 		api.FoldRequest{Collapsed: collapsed}, nil, nil)
 }
 
+// MarkSeen clears the new mark on a task, which is what opening it does.
+func (c *Client) MarkSeen(ctx context.Context, ref string) error {
+	return c.do(ctx, http.MethodPost,
+		"/api/v1/tasks/"+url.PathEscape(ref)+"/seen", nil, nil, nil)
+}
+
 // RepeatTask makes an existing task the first instance of a new series.
 //
 // Not CreateSeries: that one materializes a fresh task from the template,

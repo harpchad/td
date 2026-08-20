@@ -52,6 +52,8 @@ type fakeServer struct {
 	// repeated is the task ids E was pressed on, so a test can assert the
 	// series adopted that task rather than making another.
 	repeated []string
+	// seen is the task ids the new mark was cleared on.
+	seen []string
 	// filters is mutable so the save-filter tests can watch a slot change.
 	filters       []api.SavedFilter
 	filterPuts    []api.SavedFilter
@@ -151,6 +153,16 @@ func newFake(t *testing.T) *fakeServer {
 		var req api.FoldRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		f.collapsed[r.PathValue("id")] = req.Collapsed
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /api/v1/tasks/{id}/seen", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		f.seen = append(f.seen, id)
+		for i := range f.tasks {
+			if f.tasks[i].ID == id {
+				f.tasks[i].New = false
+			}
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /api/v1/tasks/{id}/complete", func(w http.ResponseWriter, r *http.Request) {

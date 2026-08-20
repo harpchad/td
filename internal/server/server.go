@@ -162,6 +162,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/tasks/{id}", s.dropTask)
 	mux.HandleFunc("POST /api/v1/tasks/{id}/complete", s.completeTask)
 	mux.HandleFunc("POST /api/v1/tasks/{id}/snooze", s.snoozeTask)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/seen", s.markSeen)
 
 	mux.HandleFunc("GET /api/v1/tasks/{id}/attachments", s.listAttachments)
 	mux.HandleFunc("POST /api/v1/tasks/{id}/attachments", s.addAttachment)
@@ -524,6 +525,25 @@ func (s *Server) snoozeTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, task)
+}
+
+// markSeen clears the new mark on a task, which is what opening it in a UI
+// does.
+//
+// A POST rather than a side effect of GET /tasks/{id}: reading a task over the
+// API is something an agent does, and an agent reading a task is not the owner
+// having seen it. The clients that put a human's eyes on a row are the ones
+// that call this.
+func (s *Server) markSeen(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.resolve(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.MarkSeen(r.Context(), id); err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) listPeople(w http.ResponseWriter, r *http.Request) {

@@ -52,6 +52,7 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 		"/api/v1/tasks/{id}":                        {"get", "patch", "delete"},
 		"/api/v1/tasks/{id}/complete":               {"post"},
 		"/api/v1/tasks/{id}/snooze":                 {"post"},
+		"/api/v1/tasks/{id}/seen":                   {"post"},
 		"/api/v1/tasks/{id}/attachments":            {"get", "post"},
 		"/api/v1/tasks/{id}/attachments/{att}":      {"get", "delete"},
 		"/api/v1/series":                            {"post"},

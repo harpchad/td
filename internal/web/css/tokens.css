@@ -117,6 +117,8 @@
   display: flex; align-items: center; gap: var(--td-gap);
   height: var(--td-row); padding: 0 var(--td-pad);
   white-space: nowrap; cursor: default;
+  /* The containing block for .td-mark, which hangs in the left padding. */
+  position: relative;
 }
 /* Selected text is ink on paper, inverted, the same idiom a selected row
  * uses. Without this the browser picks, and what it picks is only ever right
@@ -135,6 +137,23 @@
 .td-row--selected { background: var(--td-ink); color: var(--td-paper); }
 .td-row--selected .td-due--overdue { color: var(--td-alert-inv); }
 .td-row--sub { padding-left: calc(var(--td-pad) + 4ch); }
+
+/* The new mark: this row arrived without you watching.
+ *
+ * Absolute inside the row's existing 2ch padding rather than a flex item, so
+ * a row that carries one lines up character for character with a row that
+ * does not, and the list only shifts when the mark appears. It takes no
+ * colour of its own. Amber is the one primary action per screen and red is
+ * overdue, and a dozen new rows would spend either budget in one go; full
+ * weight against a dimmed list is the whole treatment.
+ *
+ * The TUI draws the same glyph in the space it already keeps to the left of
+ * the fold column, which is why this one costs no layout. */
+.td-mark {
+  position: absolute; left: calc(var(--td-pad) / 4);
+  width: 1ch; text-align: center;
+  font-weight: var(--td-weight-bold);
+}
 
 .td-num { width: 4ch; opacity: var(--td-dim); }
 .td-prio { width: 3ch; }

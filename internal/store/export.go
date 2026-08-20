@@ -319,6 +319,15 @@ func insertExportedTask(ctx context.Context, tx *sql.Tx, t api.Task, groupIDs ma
 		t.CreatedAt, t.UpdatedAt, t.CompletedAt); err != nil {
 		return err
 	}
+	// The new mark rides along. Fold state does not get exported and this
+	// could have gone the same way, but a restore is the moment you are least
+	// able to reconstruct what arrived overnight, so losing it is the wrong
+	// half of the trade.
+	if t.New {
+		if err := markUnseen(ctx, tx, t.ID); err != nil {
+			return err
+		}
+	}
 	// Tags go through the same normalisation the write path uses, so a
 	// restored database has one tag row per name rather than one per task
 	// that used it.

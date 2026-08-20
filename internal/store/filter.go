@@ -124,6 +124,12 @@ func compileIs(v *query.Is, fc filterContext) (whereClause, error) {
 			sql:  "(t.start_at IS NOT NULL AND td_local_date(t.start_at) > ?)",
 			args: []any{fc.today},
 		}, nil
+	case "new":
+		// The same mark the list draws in the gutter, so what you can see you
+		// can also ask for: is:new lists what arrived while you were elsewhere.
+		return whereClause{
+			sql: `EXISTS (SELECT 1 FROM task_unseen u WHERE u.task_id = t.id)`,
+		}, nil
 	}
 	return whereClause{}, fmt.Errorf("unknown is: value %q", v.Value)
 }

@@ -34,6 +34,7 @@ type Service interface {
 	Complete(ctx context.Context, actor, id string, now time.Time) (api.CompleteResult, error)
 	Drop(ctx context.Context, actor, id string, now time.Time) (api.Task, error)
 	Undo(ctx context.Context, actor string, now time.Time) (api.UndoResult, error)
+	MarkSeen(ctx context.Context, id string) error
 	SavedFilters(ctx context.Context) ([]api.SavedFilter, error)
 	PutSavedFilter(ctx context.Context, f api.SavedFilter) (api.SavedFilter, error)
 	DeleteSavedFilter(ctx context.Context, slot int) error
@@ -623,6 +624,15 @@ func (u *UI) detail(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.NotFound(w, r)
 		return
+	}
+	// Opening a task is having seen it. The failure is worth nothing to the
+	// reader, who asked for a page and is getting one, so it is logged rather
+	// than turned into an error page: the mark stays and clears next time.
+	if task.New {
+		if err := u.svc.MarkSeen(r.Context(), task.ID); err != nil {
+			u.log.Error("clear the new mark", "task", task.ID, "err", err)
+		}
+		task.New = false
 	}
 
 	data := u.base(r, task.Title)

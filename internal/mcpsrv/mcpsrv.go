@@ -186,7 +186,12 @@ the whole answer.
 
 Filters use td's query grammar: tokens like is:open, #tag, @person, p:2,
 due:friday, src:local, combined with spaces (AND), OR, and a leading - to
-negate.`
+negate.
+
+is:new is what arrived without the owner watching: a sync mirror, a plugin
+capture, a task you filed yourself over this connection. It clears when they
+open or edit the task, and reading one through these tools does not clear it,
+so "what showed up since I last looked" stays answerable.`
 
 // clock is the server's timezone-aware now. Date-only comparisons and the
 // whole sort order are computed against it, so a tool that used the wall

@@ -27,6 +27,9 @@ type Row struct {
 	// state and this is what it is for.
 	Indeterminate bool
 
+	// New draws the gutter mark: this row arrived without the owner watching.
+	New bool
+
 	PriorityClass string
 	PriorityLabel string
 	Due           string
@@ -75,6 +78,7 @@ func prepareRow(t api.Task, sub, collapsed bool, now time.Time) Row {
 		HasChildren:   t.ChildrenTotal > 0,
 		Collapsed:     collapsed,
 		Indeterminate: t.Status == api.StatusDoing || t.Status == api.StatusWaiting,
+		New:           t.New,
 		PriorityClass: priorityClass(t.Priority),
 		PriorityLabel: priorityLabel(t.Priority),
 	}

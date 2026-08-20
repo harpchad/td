@@ -236,6 +236,16 @@ func (m *Model) renderRow(row query.Row, isCursor bool, inner int) string {
 		return st.Render(text)
 	}
 
+	// The gutter the row already keeps to the left of the fold column. A new
+	// row spends it on the mark; every other row leaves it blank, so nothing
+	// moves when a mark appears. Bold rather than coloured: amber is the one
+	// primary action on a screen and red is overdue, and a dozen arrivals
+	// would spend either budget at once.
+	mark := " "
+	if t.New {
+		mark = paint(markStyle, "•")
+	}
+
 	fold := " "
 	if t.ChildrenTotal > 0 {
 		glyph := "▾"
@@ -275,7 +285,7 @@ func (m *Model) renderRow(row query.Row, isCursor bool, inner int) string {
 	// Everything lands on a character grid: the title, the tokens, the child
 	// count, and the due date each get a column, so the eye can run down one
 	// of them instead of tracking a ragged right edge.
-	left := " " + fold + check + " " + indent + num + " " + prio + " "
+	left := mark + fold + check + " " + indent + num + " " + prio + " "
 	available := inner - lipgloss.Width(left) - childWidth - dueWidth
 
 	titleWidth := available * 3 / 5

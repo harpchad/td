@@ -18,6 +18,60 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-08-20  a new row is one that arrived without you watching
+Phase: after v0.1
+
+The spec has no notion of a row being new. The list is the same list
+whether you have looked at it or not, so a task a sync filed overnight
+sits in the middle of eight familiar ones with nothing to say it just
+appeared.
+
+Decided: "new" means the task was created by an actor other than `me`.
+A sync mirror, a plugin capture, an agent over MCP. The state lives in
+`task_unseen`, one column, presence is the whole fact. Rejected: a
+watermark timestamp per client (viewing one filter would clear newness
+in every other, and it marks what you just typed yourself), and
+`created_at` within N hours (decays on a clock rather than on whether
+you have actually looked).
+
+Stored as *unseen* rather than as a `seen_at` stamp on `task`, so that
+an absent row means "nothing new". A migration over an existing
+database, or a restore from a backup that predates the table,
+highlights nothing rather than lighting up all 5,000 rows at once.
+
+Clearing is opening or acting: `POST /api/v1/tasks/{id}/seen` from the
+UIs, and any `Patch` whose actor is `me`. A sync rewriting a mirrored
+title deliberately does not clear it, or upstream noise would hide the
+arrival the mark was raised for. Reading a task over MCP does not clear
+it either: an agent reading is not the owner looking, which is why this
+is a POST and not a side effect of `GET /tasks/{id}`.
+
+The mark is one glyph in the gutter each row already keeps to the left
+of its fold cell, so a list with nothing new in it is the list
+`mockup.html` draws, to the pixel. `.td-mark` is absolutely positioned
+inside the row's existing 2ch padding for the same reason. It takes no
+color: amber is the one primary action per screen and red is overdue,
+and six arrivals overnight would spend either budget six times over.
+Weight against a dimmed row is enough, and it works unchanged in a
+terminal.
+
+`is:new` compiles from the same table, so what the list draws is also a
+question you can ask, and `search_tasks` answers it over MCP for free.
+
+Known limit, deliberately not solved: a task an agent files into the
+inbox carries a mark nobody sees, because the home view hides the
+inbox. The inbox count already nags about that case. A "new" count in
+the top bar would need its own query rather than a pass over the
+current list, which is more than this is worth today. Saving `is:new`
+to a number key covers it in the meantime.
+
+Reversible: drop the table, the token, the two spans and the gutter
+glyph. Nothing else reads any of it.
+
+`mockup.html` was left alone. It is one of the three artifacts that
+outrank the prose and it draws a list with nothing new in it, which is
+still exactly what td draws.
+
 ## 2026-08-18  sort: composes keys with a comma
 Phase: after v0.1
 

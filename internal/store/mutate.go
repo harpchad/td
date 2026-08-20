@@ -95,6 +95,14 @@ func (s *Store) Create(ctx context.Context, actor string, in api.TaskCreate, now
 		return api.Task{}, fmt.Errorf("insert task: %w", err)
 	}
 
+	// Anything the owner did not type themselves arrives marked, so the list
+	// can say what showed up while they were elsewhere.
+	if arrivedUnseen(actor) {
+		if err := markUnseen(ctx, tx, in.ID); err != nil {
+			return api.Task{}, err
+		}
+	}
+
 	tags := in.Tags
 	if in.ParentID != nil && tags == nil {
 		// A subtask inherits its parent's tags as a copy at creation, and
@@ -152,6 +160,16 @@ func (s *Store) Patch(ctx context.Context, actor, id string, p api.TaskPatch, if
 		return api.Task{}, &api.Error{
 			Code:    api.ErrConflict,
 			Message: "the task changed underneath you, reload it",
+		}
+	}
+
+	// Acting on a task is having seen it, so the owner's own edit clears the
+	// new mark. Only the owner's: a sync that rewrites a mirrored title is
+	// upstream moving, not the owner reading, and clearing the mark there
+	// would hide the arrival it was raised for.
+	if !arrivedUnseen(actor) {
+		if err := clearUnseen(ctx, tx, id); err != nil {
+			return api.Task{}, err
 		}
 	}
 

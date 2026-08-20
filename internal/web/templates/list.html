@@ -23,6 +23,10 @@
 {{define "row"}}
 <div class="td-row{{if .Sub}} td-row--sub{{end}}{{if .Done}} td-row--done{{end}}"
      data-id="{{.Task.ID}}" data-num="{{.Task.Num}}"{{if .Sub}} id="sub-{{.Task.ParentID}}"{{end}}>
+  {{/* The new mark sits in the row's own left padding rather than in a
+       column of its own, so a list with nothing new is the list the mockup
+       draws, to the pixel. */}}
+  {{if .New}}<span class="td-mark" title="new" aria-label="new">&#8226;</span>{{end}}
   {{if .HasChildren}}
     <form action="/w/fold/{{.Task.ID}}" method="post" class="td-contents"
           hx-post="/w/fold/{{.Task.ID}}" hx-target="#list" hx-swap="innerHTML">

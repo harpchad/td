@@ -682,3 +682,37 @@ func TestWebSaveFilterForm(t *testing.T) {
 		}
 	}
 }
+
+// TestWebMarksWhatArrivedAndClearsItOnOpen covers the new mark end to end
+// through the browser: a task filed by an agent draws a gutter mark, is:new
+// finds it, and opening it puts both away.
+func TestWebMarksWhatArrivedAndClearsItOnOpen(t *testing.T) {
+	ts := newServer(t)
+	session := login(t, ts)
+
+	p2 := 2
+	arrived, err := ts.store.Create(t.Context(), "mcp:claude",
+		api.TaskCreate{Title: "filed by an agent", Priority: &p2}, ts.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, list := page(t, ts, session, "/?q=is:new")
+	if !strings.Contains(list, `class="td-mark"`) {
+		t.Error("the list draws no gutter mark for a task that arrived on its own")
+	}
+	if !strings.Contains(list, "filed by an agent") {
+		t.Error("is:new did not return the task that arrived")
+	}
+
+	// Opening it is what clears the mark.
+	page(t, ts, session, "/t/"+itoaTest(arrived.Num))
+
+	_, after := page(t, ts, session, "/?q=is:new")
+	if strings.Contains(after, "filed by an agent") {
+		t.Error("the task stayed new after the owner opened it")
+	}
+	if strings.Contains(after, `class="td-mark"`) {
+		t.Error("a mark survived the open")
+	}
+}

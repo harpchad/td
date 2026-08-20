@@ -97,6 +97,7 @@ func (s *Store) ResetTasks(ctx context.Context, source string, now time.Time) (R
 		`DELETE FROM task_group WHERE task_id IN ` + in,
 		`DELETE FROM attachment WHERE task_id IN ` + in,
 		`DELETE FROM ui_state WHERE task_id IN ` + in,
+		`DELETE FROM task_unseen WHERE task_id IN ` + in,
 		`DELETE FROM event WHERE task_id IN ` + in,
 		`UPDATE task SET parent_id = NULL WHERE parent_id IN ` + in,
 		// The FTS index is kept in step by an AFTER DELETE trigger, so the

@@ -954,3 +954,66 @@ func TestEscapeLeavesTriage(t *testing.T) {
 		t.Error("escape did not return to the list")
 	}
 }
+
+// openWithNew builds a list where one task arrived on its own, which is the
+// state the gutter mark exists to draw.
+func openWithNew(t *testing.T, num int64) (*harness, *fakeServer) {
+	t.Helper()
+	f := newFake(t)
+	for i := range f.tasks {
+		if f.tasks[i].Num == num {
+			f.tasks[i].New = true
+		}
+	}
+	return newHarness(t, f, tui.Options{Mouse: true}), f
+}
+
+// TestANewRowIsMarkedInTheGutter. The mark goes in the column the row already
+// keeps to the left of the fold cell, so a list with something new in it lines
+// up character for character with a list without.
+func TestANewRowIsMarkedInTheGutter(t *testing.T) {
+	h, _ := openWithNew(t, 104)
+
+	var marked, plainRows int
+	for _, line := range lines(t, h) {
+		if !strings.Contains(line, "] ") {
+			continue // chrome, not a task row
+		}
+		switch {
+		case strings.HasPrefix(strings.TrimPrefix(line, "│"), "•"):
+			marked++
+		case strings.Contains(line, " 102 ") || strings.Contains(line, " 101 "):
+			plainRows++
+		}
+	}
+	if marked != 1 {
+		t.Errorf("%d rows carry the new mark, want the one that arrived", marked)
+	}
+	if plainRows == 0 {
+		t.Error("no unmarked task rows to compare against")
+	}
+
+	for _, line := range lines(t, h) {
+		if strings.Contains(line, " 104 ") && !strings.Contains(line, "•") {
+			t.Errorf("104 arrived on its own and carries no mark: %q", line)
+		}
+	}
+}
+
+// TestOpeningANewTaskClearsItsMark. Opening a task is having seen it, and the
+// list behind the detail view stops shouting about it.
+func TestOpeningANewTaskClearsItsMark(t *testing.T) {
+	h, f := openWithNew(t, 104)
+
+	h.key("enter")
+	if len(f.seen) != 1 {
+		t.Fatalf("opening a new task cleared %d marks, want 1", len(f.seen))
+	}
+
+	h.key("esc")
+	for _, line := range lines(t, h) {
+		if strings.Contains(line, " 104 ") && strings.Contains(line, "•") {
+			t.Errorf("the mark survived opening the task: %q", line)
+		}
+	}
+}

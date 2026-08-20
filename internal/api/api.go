@@ -86,6 +86,12 @@ type Task struct {
 	Attachments   int `json:"attachments"`
 	ChildrenTotal int `json:"children_total"`
 	ChildrenDone  int `json:"children_done"`
+
+	// New marks a task that arrived without the owner watching: a sync
+	// mirror, a plugin capture, an agent over MCP. It is view state rather
+	// than anything upstream owns, and it clears the first time the owner
+	// opens or acts on the task.
+	New bool `json:"new"`
 }
 
 // Attachment is one file on a task.

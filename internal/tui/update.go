@@ -206,6 +206,10 @@ func (m *Model) listKey(key string) (tea.Model, tea.Cmd) {
 		if t, ok := m.currentTask(); ok {
 			m.detail = t
 			m.mode = modeDetail
+			if t.New {
+				m.detail.New = false
+				return m, m.markSeen(t)
+			}
 		}
 
 	case "space", "d":
