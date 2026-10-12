@@ -948,7 +948,7 @@ func statusFor(code string) int {
 		return http.StatusBadRequest
 	case api.ErrIllegalTransition, api.ErrConflict:
 		return http.StatusConflict
-	case api.ErrInboxIncomplete, api.ErrWaitingNeedsPerson, api.ErrNestingTooDeep:
+	case api.ErrInboxIncomplete, api.ErrWaitingNeedsPerson, api.ErrNestingTooDeep, api.ErrParentCycle:
 		return http.StatusUnprocessableEntity
 	default:
 		return http.StatusInternalServerError

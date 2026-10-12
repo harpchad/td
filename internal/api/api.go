@@ -4,12 +4,16 @@
 // binaries can depend on it.
 package api
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"slices"
+)
 
 // Version is the API version this build speaks. The client sends it in
 // X-Td-Client and the server returns its own in X-Td-Server on every
 // response. The client warns once when the major versions differ.
-const Version = "1.0.0"
+const Version = "1.1.0"
 
 // Status values a task may hold. This list is closed; see
 // testdata/transition_cases.json for the state machine that governs moves
@@ -232,6 +236,10 @@ type TaskPatch struct {
 	WaitingOn   *string   `json:"waiting_on,omitempty"`
 	Tags        *[]string `json:"tags,omitempty"`
 
+	// ParentID moves the task: an id makes it a subtask of that task, a null
+	// lifts it back to the top level.
+	ParentID *string `json:"parent_id,omitempty"`
+
 	// Presence records which keys were actually present in the request body,
 	// so a null can be told apart from an omission.
 	Presence map[string]bool `json:"-"`
@@ -239,19 +247,32 @@ type TaskPatch struct {
 
 // patchKeys are the request body keys TaskPatch tracks presence for. An
 // absent key leaves a field alone; a key present with a null clears it, and
-// the two cannot be told apart from the decoded struct alone.
+// the two cannot be told apart from the decoded struct alone. It is also the
+// whole of what a patch may carry: any other key is refused.
 var patchKeys = []string{
 	"title", "notes", "status", "priority", "due_at", "start_at",
-	"snooze_until", "notify", "effort", "waiting_on", "tags",
+	"snooze_until", "notify", "effort", "waiting_on", "tags", "parent_id",
 }
 
 // UnmarshalJSON decodes a patch and records which keys the body actually
 // carried, so `{"due_at": null}` clears the due date and `{}` does not.
+//
+// It refuses a key it does not know. The server's decoder sets
+// DisallowUnknownFields, but a custom unmarshaler is handed the raw bytes and
+// never sees that setting, so without this check `{"parentId": ...}` answered
+// 200 and changed nothing: a no-op a caller could not tell from success.
 func (p *TaskPatch) UnmarshalJSON(data []byte) error {
 	type plain TaskPatch
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
+	}
+	for k := range raw {
+		if !slices.Contains(patchKeys, k) {
+			// The same wording encoding/json uses, so a typo reads the same
+			// on PATCH as it does on POST.
+			return fmt.Errorf("json: unknown field %q", k)
+		}
 	}
 	var out plain
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -259,10 +280,8 @@ func (p *TaskPatch) UnmarshalJSON(data []byte) error {
 	}
 	*p = TaskPatch(out)
 	p.Presence = make(map[string]bool, len(raw))
-	for _, k := range patchKeys {
-		if _, ok := raw[k]; ok {
-			p.Presence[k] = true
-		}
+	for k := range raw {
+		p.Presence[k] = true
 	}
 	return nil
 }
@@ -365,6 +384,7 @@ const (
 	ErrBadRequest         = "bad_request"
 	ErrConflict           = "conflict"
 	ErrNestingTooDeep     = "nesting_too_deep"
+	ErrParentCycle        = "parent_cycle"
 	ErrNothingToUndo      = "nothing_to_undo"
 )
 

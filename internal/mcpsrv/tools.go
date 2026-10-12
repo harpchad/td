@@ -37,8 +37,9 @@ type TaskView struct {
 	URL      string   `json:"external_url,omitempty" jsonschema:"the source item, when this task is a mirror"`
 	Source   string   `json:"source" jsonschema:"local, or the system this was mirrored from"`
 
-	Subtasks     int `json:"subtasks,omitempty"`
-	SubtasksDone int `json:"subtasks_done,omitempty"`
+	ParentID     string `json:"parent_id,omitempty" jsonschema:"the stable id of the task this is a subtask of"`
+	Subtasks     int    `json:"subtasks,omitempty"`
+	SubtasksDone int    `json:"subtasks_done,omitempty"`
 
 	New bool `json:"new,omitempty" jsonschema:"the owner has not looked at this since it arrived from a sync, a plugin, or an agent. Reading it here does not clear it"`
 }
@@ -53,6 +54,9 @@ func view(t api.Task) TaskView {
 	}
 	if t.ExternalURL != nil {
 		out.URL = *t.ExternalURL
+	}
+	if t.ParentID != nil {
+		out.ParentID = *t.ParentID
 	}
 	for _, p := range t.People {
 		out.People = append(out.People, p.Name+":"+p.Role)
@@ -110,15 +114,17 @@ type createArgs struct {
 }
 
 type updateArgs struct {
-	ID       string   `json:"id" jsonschema:"a task number or id"`
-	Title    string   `json:"title,omitempty"`
-	Notes    string   `json:"notes,omitempty"`
-	Status   string   `json:"status,omitempty" jsonschema:"todo, doing, waiting, done, or dropped"`
-	Priority *int     `json:"priority,omitempty" jsonschema:"1 to 4"`
-	DueAt    string   `json:"due_at,omitempty" jsonschema:"a date or a keyword. Pass \"none\" to clear it"`
-	StartAt  string   `json:"start_at,omitempty" jsonschema:"defer until this date. Pass \"none\" to clear it"`
-	Repeat   string   `json:"repeat,omitempty" jsonschema:"set or change how this task repeats, in words: every month on the 3rd. Edits the series behind the task, from the next occurrence on"`
-	Tags     []string `json:"tags,omitempty" jsonschema:"replaces the whole set"`
+	ID        string   `json:"id" jsonschema:"a task number or id"`
+	Title     string   `json:"title,omitempty"`
+	Notes     string   `json:"notes,omitempty"`
+	Status    string   `json:"status,omitempty" jsonschema:"todo, doing, waiting, done, or dropped"`
+	Priority  *int     `json:"priority,omitempty" jsonschema:"1 to 4"`
+	DueAt     string   `json:"due_at,omitempty" jsonschema:"a date or a keyword. Pass \"none\" to clear it"`
+	StartAt   string   `json:"start_at,omitempty" jsonschema:"defer until this date. Pass \"none\" to clear it"`
+	Repeat    string   `json:"repeat,omitempty" jsonschema:"set or change how this task repeats, in words: every month on the 3rd. Edits the series behind the task, from the next occurrence on"`
+	Tags      []string `json:"tags,omitempty" jsonschema:"replaces the whole set"`
+	ParentID  string   `json:"parent_id,omitempty" jsonschema:"move it under that task, by number or id. Pass \"none\" to make it top-level again"`
+	WaitingOn string   `json:"waiting_on,omitempty" jsonschema:"the person this is blocked on, as a handle. Required with status waiting"`
 }
 
 type noteArgs struct {
@@ -612,6 +618,23 @@ func (s *Server) updateTask(ctx context.Context, _ *mcp.CallToolRequest, args up
 	}
 	if args.Tags != nil {
 		patch.Tags = &args.Tags
+	}
+	if ref := trim(args.ParentID); ref != "" {
+		patch.Presence["parent_id"] = true
+		if !strings.EqualFold(ref, "none") {
+			parent, err := s.store.Resolve(ctx, ref)
+			if err != nil {
+				return fail(err)
+			}
+			patch.ParentID = &parent
+		}
+	}
+	if handle := trim(args.WaitingOn); handle != "" {
+		person, err := s.store.ResolvePerson(ctx, strings.TrimPrefix(handle, "@"))
+		if err != nil {
+			return fail(err)
+		}
+		patch.WaitingOn, patch.Presence["waiting_on"] = &person.ID, true
 	}
 
 	task, err := s.store.Patch(ctx, p.Actor, id, patch, "", now)

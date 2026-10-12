@@ -225,6 +225,19 @@ func (s *Store) Patch(ctx context.Context, actor, id string, p api.TaskPatch, if
 	if p.Presence["waiting_on"] {
 		sets["waiting_on"] = strPtr(p.WaitingOn)
 	}
+	if p.Presence["parent_id"] {
+		// The child counts on the old and the new parent are not stored
+		// anywhere: they are counted when a task is loaded, so moving the
+		// one column is the whole of keeping them right.
+		if p.ParentID == nil || *p.ParentID == "" {
+			sets["parent_id"] = nil
+		} else {
+			if err := checkReparent(ctx, tx, id, *p.ParentID); err != nil {
+				return api.Task{}, err
+			}
+			sets["parent_id"] = *p.ParentID
+		}
+	}
 
 	kind := api.KindTaskUpdated
 	if p.Status != nil && *p.Status != before.Status {
@@ -495,6 +508,57 @@ func checkParent(ctx context.Context, tx *sql.Tx, parentID string) error {
 		return &api.Error{
 			Code:    api.ErrNestingTooDeep,
 			Message: "subtasks go one level deep, pick a top-level parent",
+		}
+	}
+	return nil
+}
+
+// checkReparent decides whether task id may move under parentID. On top of
+// what checkParent asks of any parent, a move can point a task at itself or
+// at its own descendant, and it can carry a task that already has subtasks
+// one level too deep.
+//
+// A done or dropped parent is allowed. is:orphan exists to find subtasks in
+// that state, which says the state is legitimate, and refusing it would make
+// filing a late step under a finished project a two-call dance of reopening
+// and closing it again.
+func checkReparent(ctx context.Context, tx *sql.Tx, id, parentID string) error {
+	if parentID == id {
+		return &api.Error{Code: api.ErrParentCycle, Message: "a task cannot be its own parent"}
+	}
+	// Walk up from the new parent. One level of nesting means the chain is
+	// at most two long today, but the walk does not lean on that: a cycle is
+	// the one shape that would make every later walk over parents loop.
+	var cycle bool
+	err := tx.QueryRowContext(ctx, `
+		WITH RECURSIVE chain(id) AS (
+			SELECT ?
+			UNION
+			SELECT t.parent_id FROM task t JOIN chain c ON t.id = c.id
+			WHERE t.parent_id IS NOT NULL
+		)
+		SELECT EXISTS (SELECT 1 FROM chain WHERE id = ?)`, parentID, id).Scan(&cycle)
+	if err != nil {
+		return err
+	}
+	if cycle {
+		return &api.Error{
+			Code:    api.ErrParentCycle,
+			Message: "that task is a subtask of this one, so it cannot also be its parent",
+		}
+	}
+	if err := checkParent(ctx, tx, parentID); err != nil {
+		return err
+	}
+	var children int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT count(*) FROM task WHERE parent_id = ?`, id).Scan(&children); err != nil {
+		return err
+	}
+	if children > 0 {
+		return &api.Error{
+			Code:    api.ErrNestingTooDeep,
+			Message: "this task has subtasks of its own, and subtasks go one level deep",
 		}
 	}
 	return nil

@@ -18,6 +18,73 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-10-12  PATCH moves a task between parents, and refuses keys it does not know
+Phase: after v0.1
+
+The spec says `parent_id` is enforced in the API at one level and says
+nothing about changing it. `TaskCreate` took it and `TaskPatch` did not,
+so the only way to move a task was to drop it and recreate it, which
+throws away its event history and gives it a new number. That happened
+twice in practice (579 became 727, 622 became 728).
+
+Decided: `parent_id` joins `TaskPatch` with the presence rule every other
+field has. An id moves the task, an explicit null lifts it to the top
+level, an absent key leaves it alone. An empty string clears too, the
+same as the date fields. The move is an ordinary `task.updated` event, so
+undo puts it back. Tags do not change on a move: the spec copies them at
+creation only, and re-copying on every move is the live inheritance the
+spec rejects.
+
+What a move refuses, in the order it checks:
+
+- the task itself as its parent, and any descendant of the task, as
+  `422 parent_cycle`. The check walks the whole ancestor chain of the
+  new parent rather than leaning on one-level nesting to make cycles
+  impossible: today a cycle would surface as `nesting_too_deep` instead,
+  which is true but does not say what went wrong.
+- a parent that does not exist, as `404 not_found` with "no parent task
+  with that id", the same answer POST gives. Rejected: 422 on PATCH only,
+  which would make the two routes disagree about one field.
+- a parent that is itself a subtask, and a task that has subtasks of its
+  own, as `422 nesting_too_deep`. Either would make a second level.
+
+A done or dropped parent is allowed. `is:orphan` exists to find subtasks
+under one, so the shape is legitimate, and refusing it would make filing
+a late step under a finished project a reopen-move-close dance. The
+child counts need no bookkeeping: `children_total` and `children_done`
+are counted when a task loads, so the old parent and the new one are
+right as soon as the column moves.
+
+The API takes an id, as POST does. `td edit -parent 103` and the MCP
+`update_task` tool resolve a number first, since that is what a person
+and a model quote; MCP takes `"none"` to clear, matching its date fields.
+
+PATCH now refuses an unknown key with 400, matching POST. POST already
+did through `DisallowUnknownFields`, but `TaskPatch` has its own
+`UnmarshalJSON` for presence tracking and a custom unmarshaler is never
+told about the decoder's setting, so `{"parent": ...}` answered 200 and
+changed nothing. The check lives in `UnmarshalJSON` with `patchKeys` as
+the allowlist, so the list that tracks presence is also the list of what
+may be sent and the two cannot drift. Rejected: a second decode pass in
+the handler, which would leave the type lenient for every other caller.
+This is stricter than before; a caller that was sending junk alongside
+real fields now gets a 400 for the whole patch rather than half of it
+applied. That is the point.
+
+Also in passing, because it was three lines in the same function:
+`update_task` takes `waiting_on` as a handle, so an agent can set status
+waiting (td 136). And the MCP task view carries `parent_id`, so a model
+can confirm a move landed.
+
+API version 1.0.0 to 1.1.0: one new field, and a strictness fix no
+first-party client trips. Minor, so no skew warning fires between a new
+server and an old client.
+
+Reversible: dropping the field from `patchKeys` and `TaskPatch` puts it
+back the way it was; nothing is stored differently.
+
+---
+
 ## 2026-08-20  a new row is one that arrived without you watching
 Phase: after v0.1
 

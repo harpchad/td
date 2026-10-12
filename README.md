@@ -102,6 +102,7 @@ td undo
 td whoami                     # which credential is in use, and what it may do
 
 td sub 103 "call the dealer"              # a subtask under 103
+td edit 113 -parent 103                   # move 113 under 103; -parent "" lifts it out
 td repeat 103 "every 2 weeks"             # or: every monday, monthly on the 1st
 td repeat 103                             # show the rule without changing it
 td attach 103 quote.pdf                   # -list, -get <id>, -rm <id>

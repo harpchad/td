@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: td API
-  version: 1.0.0
+  version: 1.1.0
   description: >-
     Single-user task manager. One transport: the TUI, the web UI, the MCP
     server, and the sync plugins all exercise these routes, so a bug shows up
@@ -2184,7 +2184,8 @@ components:
       type: object
       description: >-
         An absent key leaves the field alone. A key present with a null clears
-        it.
+        it. A key not listed here is refused with 400, the same as on create.
+      additionalProperties: false
       properties:
         title: { type: string }
         notes: { type: string }
@@ -2200,6 +2201,15 @@ components:
           type: array
           nullable: true
           items: { type: string }
+        parent_id:
+          type: string
+          nullable: true
+          description: >-
+            The id of the new parent; null makes the task top-level again. The
+            parent must exist, be top-level itself, and not be this task or
+            one of its subtasks (422 parent_cycle), and a task that has
+            subtasks cannot move under another (422 nesting_too_deep). A done
+            or dropped parent is allowed.
 
     SnoozeRequest:
       type: object
