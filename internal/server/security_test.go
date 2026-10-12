@@ -390,7 +390,7 @@ func dumpDatabase(t *testing.T, st *store.Store) string {
 				continue
 			}
 			for _, cell := range cells {
-				if v := *(cell.(*any)); v != nil {
+				if v := *cell.(*any); v != nil {
 					out.WriteString(strings.TrimSpace(stringify(v)))
 					out.WriteByte('\n')
 				}

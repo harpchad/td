@@ -31,7 +31,7 @@ func renderConnect(t *testing.T, htmx bool) string {
 	t.Helper()
 	ui := testUI(t)
 
-	r := httptest.NewRequest(http.MethodPost, "/w/plugins/planner/connect", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/w/plugins/planner/connect", nil)
 	if htmx {
 		r.Header.Set("HX-Request", "true")
 	}
@@ -105,7 +105,7 @@ func TestThePollFormPostsToAnExplicitAction(t *testing.T) {
 func TestTheErrorPanelOffersAWayOut(t *testing.T) {
 	ui := testUI(t)
 	w := httptest.NewRecorder()
-	ui.ConnectPanel(w, httptest.NewRequest(http.MethodPost, "/w/plugins/planner/connect", nil),
+	ui.ConnectPanel(w, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/w/plugins/planner/connect", nil),
 		ConnectCode{Plugin: "planner", Error: "the sign-in was declined"})
 
 	body := w.Body.String()
@@ -149,7 +149,7 @@ func TestThePanelCarriesEverythingItNeedsToRedrawItself(t *testing.T) {
 // the poll renders has to look like what it replaced, apart from the message.
 func TestAPendingPollStillShowsTheCode(t *testing.T) {
 	ui := testUI(t)
-	r := httptest.NewRequest(http.MethodPost, "/w/plugins/planner/poll", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/w/plugins/planner/poll", nil)
 	r.Header.Set("HX-Request", "true")
 	w := httptest.NewRecorder()
 
