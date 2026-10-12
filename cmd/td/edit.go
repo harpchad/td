@@ -49,6 +49,7 @@ func edit(ctx context.Context, c *client.Client, args []string) error {
 	start := fs.String("start", "", `hide until this date, or "" to clear`)
 	tags := fs.String("tags", "", "replace the tags, comma separated")
 	notifyMode := fs.String("notify", "", "auto, on, or off")
+	parent := fs.String("parent", "", `move under this task, by number or id, or "" for top level`)
 	asJSON := fs.Bool("json", false, "print the task as JSON")
 	if err := parseArgs(fs, rest); err != nil {
 		return err
@@ -86,8 +87,20 @@ func edit(ctx context.Context, c *client.Client, args []string) error {
 			patch["due_at"] = resolveDateFlag(*due, now)
 		case "start":
 			patch["start_at"] = resolveDateFlag(*start, now)
+		case "parent":
+			patch["parent_id"] = nil
 		}
 	})
+	// The API takes the parent as an id, and the number is what you type,
+	// so it is looked up here rather than inside the Visit above, which has
+	// no way to return the error.
+	if ref := strings.TrimSpace(*parent); ref != "" {
+		p, err := c.Get(ctx, ref)
+		if err != nil {
+			return fmt.Errorf("parent %s: %w", ref, err)
+		}
+		patch["parent_id"] = p.ID
+	}
 
 	if patch["priority"] == "invalid" {
 		return errors.New("priority must be 1 to 4, or empty to clear")

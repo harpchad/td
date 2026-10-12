@@ -177,7 +177,9 @@ Which tool answers which question:
 - create_task takes the whole shape at once: due date, start_at to defer a
   task until a date, and repeat to make it recur ("every month on the 3rd").
   A start date on a repeating task recurs with it, keeping its distance from
-  each due date. update_task changes the same fields on an existing task.
+  each due date. update_task changes the same fields on an existing task,
+  and moves one under a different parent with parent_id rather than dropping
+  and recreating it, which would lose its history and its number.
 
 Every list result carries the tasks as JSON in a text block alongside a
 one-line summary, and repeats them in structuredContent. If you have a count

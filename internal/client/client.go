@@ -207,6 +207,9 @@ func (c *Client) PatchTyped(ctx context.Context, ref string, patch api.TaskPatch
 	if patch.Tags != nil {
 		body["tags"] = *patch.Tags
 	}
+	if patch.Presence["parent_id"] {
+		body["parent_id"] = patch.ParentID
+	}
 	return c.Patch(ctx, ref, body, ifMatch)
 }
 

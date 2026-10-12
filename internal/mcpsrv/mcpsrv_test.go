@@ -278,6 +278,77 @@ func TestUpdateTaskClearsADateOnlyWhenAsked(t *testing.T) {
 	}
 }
 
+// TestUpdateTaskMovesATaskBetweenParents is the call an agent had to fake by
+// dropping a task and recreating it under the right parent, which lost the
+// history and the number. The parent goes in by number, as a model quotes it.
+func TestUpdateTaskMovesATaskBetweenParents(t *testing.T) {
+	f, session := serve(t, api.ScopeRead, api.ScopeWrite)
+
+	var moved struct {
+		Task struct {
+			Num      int64  `json:"num"`
+			ParentID string `json:"parent_id"`
+		} `json:"task"`
+	}
+	res := call(t, session, "update_task", map[string]any{"id": "113", "parent_id": "102"}, &moved)
+	if res.IsError {
+		t.Fatalf("update_task: %s", text(res))
+	}
+	parent, err := f.store.GetByNum(t.Context(), 102)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.Task.Num != 113 || moved.Task.ParentID != parent.ID {
+		t.Errorf("got %d under %q, want 113 under %s", moved.Task.Num, moved.Task.ParentID, parent.ID)
+	}
+
+	var lifted struct {
+		Task struct {
+			ParentID string `json:"parent_id"`
+		} `json:"task"`
+	}
+	res = call(t, session, "update_task", map[string]any{"id": "113", "parent_id": "none"}, &lifted)
+	if res.IsError {
+		t.Fatalf("update_task: %s", text(res))
+	}
+	if lifted.Task.ParentID != "" {
+		t.Errorf("parent_id = %q, \"none\" must make it top-level", lifted.Task.ParentID)
+	}
+
+	// A cycle comes back as a tool error, not a silent success.
+	res = call(t, session, "update_task", map[string]any{"id": "102", "parent_id": "102"}, nil)
+	if !res.IsError {
+		t.Error("a task under itself must be refused")
+	}
+}
+
+// TestUpdateTaskCanSetWaiting covers td 136: status waiting needs a person,
+// and the tool had no way to name one.
+func TestUpdateTaskCanSetWaiting(t *testing.T) {
+	f, session := serve(t, api.ScopeRead, api.ScopeWrite)
+
+	var out taskEnvelope
+	res := call(t, session, "update_task",
+		map[string]any{"id": "103", "status": "waiting", "waiting_on": "@stacey"}, &out)
+	if res.IsError {
+		t.Fatalf("update_task: %s", text(res))
+	}
+	if out.Task.Status != api.StatusWaiting {
+		t.Errorf("status = %s, want waiting", out.Task.Status)
+	}
+	task, err := f.store.GetByNum(t.Context(), 103)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stacey, err := f.store.ResolvePerson(t.Context(), "stacey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.WaitingOn == nil || *task.WaitingOn != stacey.ID {
+		t.Errorf("waiting_on = %v, want %s", task.WaitingOn, stacey.ID)
+	}
+}
+
 // TestRecentActivityReturnsAResumableCursor covers the change feed. The event
 // log is what an MCP client polls instead of re-listing, so the cursor has to
 // be usable as the next `since`.
