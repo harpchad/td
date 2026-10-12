@@ -83,10 +83,10 @@ func parseTemplates() (map[string]*template.Template, error) {
 	pages := []string{
 		"home", "detail", "login", "help", "settings", "person", "triage",
 		"consent", "oautherror",
+		// Fragments htmx swaps in. They render the "body" template on their
+		// own, without the page around them.
+		"connect",
 	}
-	// Fragments htmx swaps in. They render the "body" template on their own,
-	// without the page around them.
-	pages = append(pages, "connect")
 	out := map[string]*template.Template{}
 
 	for _, page := range pages {

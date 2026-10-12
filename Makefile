@@ -2,9 +2,9 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := check
 
 # Pinned tool versions. Never a branch, never latest.
-GOFUMPT_VERSION      := v0.9.1
-GOLANGCI_LINT_VERSION := v2.6.1
-GOVULNCHECK_VERSION  := v1.1.4
+GOFUMPT_VERSION      := v0.12.0
+GOLANGCI_LINT_VERSION := v2.14.0
+GOVULNCHECK_VERSION  := v1.9.0
 
 BUILD_DIR := build
 
