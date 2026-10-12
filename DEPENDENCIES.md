@@ -14,7 +14,7 @@ Considered instead: ...
 
 ---
 
-## modernc.org/sqlite@v1.55.0
+## modernc.org/sqlite@v1.60.1
 Phase: 1
 Used for: the database. Schema, migrations, FTS5 full-text search, and the
 `td_local_date` scalar function every date predicate goes through.
@@ -40,7 +40,7 @@ ordering and lets a future keyset cursor exist at all. UUIDv7 would work and
 would have meant taking a larger module for one function.
 Binary impact: both. Pure Go, no cgo.
 
-## github.com/BurntSushi/toml@v1.5.0
+## github.com/BurntSushi/toml@v1.6.0
 Phase: 1
 Used for: reading `$XDG_CONFIG_HOME/td/config.toml`. Section 14 fixes the
 format, and sections 13 and 15 both specify config in TOML.
@@ -50,7 +50,7 @@ the moment the `[notify]` table from section 13 lands. Also considered
 read once at startup, so speed is not the axis that matters here.
 Binary impact: both.
 
-## github.com/getkin/kin-openapi@v0.145.0
+## github.com/getkin/kin-openapi@v0.149.0
 Phase: 1
 Used for: the `openapi.yaml` schema lint in `make check`, and the test that
 checks the document against the mux so a route cannot be added without a
@@ -62,7 +62,7 @@ shelling out to `spectral`, which would put Node in the build.
 Binary impact: neither. Test-only, and it does not appear in either
 binary's import graph.
 
-## golang.org/x/crypto@v0.54.0
+## golang.org/x/crypto@v0.58.0
 Phase: 2
 Used for: argon2id password hashing, which section 15 names directly.
 Considered instead: nothing seriously. `golang.org/x/crypto/argon2` is the
@@ -82,7 +82,7 @@ else in Go uses, has no dependencies beyond a barcode package, and gets the
 skew window and the URI format right.
 Binary impact: server only, and on the forbidden list for `cmd/td`.
 
-## golang.org/x/term@v0.45.0
+## golang.org/x/term@v0.47.0
 Phase: 2
 Used for: reading the password without echo in `tdd account create`.
 Considered instead: reading a plain line, which prints the password to the
@@ -90,7 +90,7 @@ terminal and into the scrollback. The command falls back to a plain read
 when stdin is not a terminal, which is what makes it testable.
 Binary impact: server only.
 
-## charm.land/bubbletea/v2@v2.0.8
+## charm.land/bubbletea/v2@v2.1.0
 Phase: 3
 Used for: the TUI event loop.
 Considered instead: nothing. Section 11 names it.
@@ -103,14 +103,14 @@ this was written, and the two things the warning names both checked out:
 rather than a program option.
 Binary impact: client only.
 
-## charm.land/lipgloss/v2@v2.0.5
+## charm.land/lipgloss/v2@v2.0.6
 Phase: 3
 Used for: styling and display-width measurement.
 Considered instead: writing the escape sequences by hand, which is fine
 until the first CJK title and then silently misaligns every box border.
 Binary impact: client only.
 
-## charm.land/bubbles/v2@v2.1.1
+## charm.land/bubbles/v2@v2.2.1
 Phase: 3
 Used for: the text input behind quick-add and the filter bar.
 Considered instead: hand-rolling a single-line editor. It is more code than
@@ -127,20 +127,22 @@ Considered instead: column arithmetic, which the spec rules out. It requires
 the alt screen, which the TUI uses anyway.
 Binary impact: client only.
 
-## github.com/charmbracelet/x/ansi
+## github.com/charmbracelet/x/ansi@v0.11.9
 Phase: 3
 Used for: width-aware truncation of styled strings.
 Considered instead: `lipgloss.Width` alone, which measures but does not cut.
 It arrives transitively with lipgloss regardless.
 Binary impact: client only.
 
-## htmx 2.0.7 (vendored, not a Go module)
+## htmx 2.0.11 (vendored, not a Go module)
 Phase: 4
 Used for: swapping the list fragment after an action, so completing a task
 does not reload the page. Section 12 names it and says to load it from a
 vendored file.
-Vendored at `internal/web/static/htmx.min.js`, 50 KB, 0BSD licensed.
-SHA-256: `sha256-YCMa5rqds4JesVomESLV9VkhxNU7Zr9jfcGLTuJ8efk=`.
+Vendored at `internal/web/static/htmx.min.js`, 51 KB, 0BSD licensed.
+Taken from the npm tarball after checking it against the registry's
+published sha512 integrity.
+SHA-256: `sha256-1v3HXyBOa976mbab8ebUrGm4o2T3eSn0XBNHa0AA9xc=`.
 `TestVendoredHTMXIsIntact` checks that hash, so a swapped bundle fails the
 build rather than being trusted on the strength of its filename.
 Considered instead: writing the fetch-and-swap by hand, which is perhaps
@@ -169,7 +171,7 @@ Binary impact: server only.
 
 ---
 
-## github.com/modelcontextprotocol/go-sdk v1.7.0
+## github.com/modelcontextprotocol/go-sdk v1.8.0
 
 The MCP server, required by `BUILD-SPEC.md` section 10.
 Replaced: nothing.
@@ -186,6 +188,8 @@ It pulls in `github.com/google/jsonschema-go` for the generated schemas,
 JSON, `github.com/yosida95/uritemplate/v3` for resource templates, and
 `golang.org/x/time/rate` for logging backpressure. All indirect and all server
 only.
+v1.8.0 adds no protocol revision: `2026-07-28` is still the newest it
+negotiates. It drops four `MCPGODEBUG` escape hatches, none of which td set.
 Binary impact: server only. The import boundary test forbids it in `cmd/td`.
 
 ---
@@ -195,9 +199,9 @@ Binary impact: server only. The import boundary test forbids it in `cmd/td`.
 Pinned in the `Makefile` and installed by `make tools`. Not modules of this
 project, but they define what passing means, so they are versioned here too.
 
-- `mvdan.cc/gofumpt@v0.9.1` for formatting
-- `golangci-lint@v2.6.1` for linting, configured in `.golangci.yml`
-- `golang.org/x/vuln/cmd/govulncheck@v1.1.4` for vulnerability scanning
+- `mvdan.cc/gofumpt@v0.12.0` for formatting
+- `golangci-lint@v2.14.0` for linting, configured in `.golangci.yml`
+- `golang.org/x/vuln/cmd/govulncheck@v1.9.0` for vulnerability scanning
 
-The Go toolchain itself is pinned in `go.mod` (`toolchain go1.26.5`) and in
+The Go toolchain itself is pinned in `go.mod` (`toolchain go1.26.9`) and in
 the `Dockerfile`. See `DECISIONS.md` for why that version specifically.
