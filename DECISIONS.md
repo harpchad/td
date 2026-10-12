@@ -18,6 +18,41 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-10-12  Go 1.27
+Phase: after v0.1
+
+`go 1.27.0` and `toolchain go1.27.2` in `go.mod`, and the same image in
+the `Dockerfile`. The 1.26 line still gets security fixes; this moves now
+because a Mac with a current Go could not run the pinned golangci-lint
+against the 1.27 standard library, so `make check` meant one thing on the
+laptop and another in CI.
+
+What the release changes that td can feel, checked rather than assumed:
+
+- `encoding/json` is backed by the v2 implementation. Its error text is
+  what a 400 body carries, so the strings were compared across both
+  toolchains for unknown fields, wrong types, truncated bodies, and
+  duplicate keys. They are identical, and duplicate keys still decode
+  the v1 way. `GOEXPERIMENT=nojsonv2` is the escape hatch if that ever
+  stops being true.
+- The `go 1.27` directive flips one GODEBUG default, `tracebacklabels`,
+  and td sets no goroutine labels. The settings 1.27 removes
+  (`asynctimerchan`, `tls10server`, `x509keypairleaf` and the rest) were
+  never set here.
+- The `darwin/arm64` client now needs macOS 13 or later. Rejected:
+  holding the client on 1.26 to keep macOS 12, which would mean two
+  toolchains in one module for a client whose one user is on 26.
+- gofmt's alignment fix, vet's new `%w` pointer check, and `stdversion`
+  under `go test` found nothing.
+
+golangci-lint v2.14.0 already understands 1.27 (support landed in
+v2.13.0); it only has to be built with it, which `make tools` does.
+
+Reversible: it is a version bump, and nothing in the module uses a
+1.27-only feature yet.
+
+---
+
 ## 2026-10-12  PATCH moves a task between parents, and refuses keys it does not know
 Phase: after v0.1
 

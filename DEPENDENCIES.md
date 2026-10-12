@@ -203,5 +203,5 @@ project, but they define what passing means, so they are versioned here too.
 - `golangci-lint@v2.14.0` for linting, configured in `.golangci.yml`
 - `golang.org/x/vuln/cmd/govulncheck@v1.9.0` for vulnerability scanning
 
-The Go toolchain itself is pinned in `go.mod` (`toolchain go1.26.9`) and in
+The Go toolchain itself is pinned in `go.mod` (`go 1.27.0`, `toolchain go1.27.2`) and in
 the `Dockerfile`. See `DECISIONS.md` for why that version specifically.
