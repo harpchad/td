@@ -2,7 +2,7 @@
 # distroless/static rather than distroless/base: DECISIONS.md records why the
 # pure-Go SQLite driver was taken over the cgo one.
 
-FROM golang:1.26.9-alpine AS build
+FROM golang:1.27.2-alpine AS build
 
 WORKDIR /src
 
