@@ -48,7 +48,7 @@ func TestVendoredHTMXIsIntact(t *testing.T) {
 		t.Fatalf("htmx.min.js is %d bytes, which is not the bundle", len(body))
 	}
 	// The recorded hash is in DEPENDENCIES.md; this is the same value.
-	const want = "sha256-YCMa5rqds4JesVomESLV9VkhxNU7Zr9jfcGLTuJ8efk="
+	const want = "sha256-1v3HXyBOa976mbab8ebUrGm4o2T3eSn0XBNHa0AA9xc="
 	if got := web.SRIHash(body); got != want {
 		t.Errorf("htmx.min.js hash = %s, want %s. The vendored bundle changed.", got, want)
 	}
