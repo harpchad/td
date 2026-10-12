@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -249,9 +250,7 @@ func (s *Store) Patch(ctx context.Context, actor, id string, p api.TaskPatch, if
 		if err != nil {
 			return api.Task{}, err
 		}
-		for k, v := range effects {
-			sets[k] = v
-		}
+		maps.Copy(sets, effects)
 		kind = statusEventKind(*p.Status)
 	}
 

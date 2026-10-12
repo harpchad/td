@@ -386,7 +386,7 @@ func suggestHandle(name, email string, taken map[string]bool) string {
 // slugHandle turns a display name into what you would type after @.
 func slugHandle(name string) string {
 	var parts []string
-	for _, word := range strings.Fields(strings.ToLower(name)) {
+	for word := range strings.FieldsSeq(strings.ToLower(name)) {
 		var b strings.Builder
 		for _, r := range word {
 			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
@@ -429,7 +429,7 @@ func knownPlugin(name string) bool {
 // with a trailing newline should not get an empty entry that fails every run.
 func lines(raw string) []string {
 	var out []string
-	for _, line := range strings.Split(raw, "\n") {
+	for line := range strings.SplitSeq(raw, "\n") {
 		if id := strings.TrimSpace(line); id != "" {
 			out = append(out, id)
 		}

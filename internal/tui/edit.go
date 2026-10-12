@@ -367,7 +367,7 @@ func priorityStatus(value string) string {
 
 func (m *Model) applyTags(t api.Task, value string) tea.Cmd {
 	tags := []string{}
-	for _, tag := range strings.Fields(value) {
+	for tag := range strings.FieldsSeq(value) {
 		tag = strings.TrimPrefix(tag, "#")
 		if tag != "" {
 			tags = append(tags, strings.ToLower(tag))

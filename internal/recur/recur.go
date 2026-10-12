@@ -96,10 +96,7 @@ func Parse(text string, dtstart time.Time, loc *time.Location) (*Rule, error) {
 	}
 	opt.Dtstart = dtstart.In(loc)
 
-	interval := opt.Interval
-	if interval < 1 {
-		interval = 1
-	}
+	interval := max(opt.Interval, 1)
 	return &Rule{
 		Text: text, Freq: opt.Freq, Interval: interval,
 		loc: loc, dtstart: dtstart.In(loc),

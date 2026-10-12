@@ -168,7 +168,7 @@ func TestSortIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		again, err := s.List(ctx, "is:open", now)
 		if err != nil {
 			t.Fatal(err)

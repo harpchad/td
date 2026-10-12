@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -108,7 +108,7 @@ func medianLoginTime(t *testing.T, ts *harness, req api.LoginRequest) time.Durat
 		doAnon(t, ts, http.MethodPost, "/login", req)
 		times = append(times, time.Since(start))
 	}
-	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
+	slices.Sort(times)
 	return times[len(times)/2]
 }
 

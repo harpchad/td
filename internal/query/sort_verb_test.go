@@ -95,9 +95,9 @@ func TestAnExplicitSortDropsTheBuckets(t *testing.T) {
 	now := at(t)
 	p1, p4 := 1, 4
 	tasks := []api.Task{
-		{Num: 1, Title: "overdue p4", DueAt: strp("2026-08-01"), Priority: &p4},
-		{Num: 2, Title: "next month p1", DueAt: strp("2026-09-10"), Priority: &p1},
-		{Num: 3, Title: "tomorrow p4", DueAt: strp("2026-08-06"), Priority: &p4},
+		{Num: 1, Title: "overdue p4", DueAt: new("2026-08-01"), Priority: &p4},
+		{Num: 2, Title: "next month p1", DueAt: new("2026-09-10"), Priority: &p1},
+		{Num: 3, Title: "tomorrow p4", DueAt: new("2026-08-06"), Priority: &p4},
 		{Num: 4, Title: "no due date p1", Priority: &p1},
 	}
 
@@ -119,12 +119,12 @@ func TestALaterKeyBreaksTheTiesTheEarlierOneLeft(t *testing.T) {
 	now := at(t)
 	p1, p2, p3, p4 := 1, 2, 3, 4
 	tasks := []api.Task{
-		{Num: 1, Title: "aug 10 p3", DueAt: strp("2026-08-10"), Priority: &p3},
-		{Num: 2, Title: "aug 10 p1", DueAt: strp("2026-08-10"), Priority: &p1},
-		{Num: 3, Title: "aug 9 p4", DueAt: strp("2026-08-09"), Priority: &p4},
+		{Num: 1, Title: "aug 10 p3", DueAt: new("2026-08-10"), Priority: &p3},
+		{Num: 2, Title: "aug 10 p1", DueAt: new("2026-08-10"), Priority: &p1},
+		{Num: 3, Title: "aug 9 p4", DueAt: new("2026-08-09"), Priority: &p4},
 		{Num: 4, Title: "no due p2", Priority: &p2},
 		{Num: 5, Title: "no due p1", Priority: &p1},
-		{Num: 6, Title: "aug 10 unset", DueAt: strp("2026-08-10")},
+		{Num: 6, Title: "aug 10 unset", DueAt: new("2026-08-10")},
 	}
 
 	query.NewSorterFor(now, sortOf(t, "sort:due,priority")).Sort(tasks)
@@ -169,7 +169,7 @@ func TestReversingDoesNotPromoteTheEmptyOnes(t *testing.T) {
 	now := at(t)
 	tasks := []api.Task{
 		{Num: 1, Title: "no due"},
-		{Num: 2, Title: "has one", DueAt: strp("2026-08-09")},
+		{Num: 2, Title: "has one", DueAt: new("2026-08-09")},
 	}
 	for _, in := range []string{"sort:due", "sort:-due"} {
 		query.NewSorterFor(now, sortOf(t, in)).Sort(tasks)
@@ -185,16 +185,14 @@ func TestTheDefaultOrderIsUnchanged(t *testing.T) {
 	now := at(t)
 	p1, p4 := 1, 4
 	tasks := []api.Task{
-		{Num: 2, Title: "next month p1", DueAt: strp("2026-09-10"), Priority: &p1},
-		{Num: 1, Title: "overdue p4", DueAt: strp("2026-08-01"), Priority: &p4},
+		{Num: 2, Title: "next month p1", DueAt: new("2026-09-10"), Priority: &p1},
+		{Num: 1, Title: "overdue p4", DueAt: new("2026-08-01"), Priority: &p4},
 	}
 	query.NewSorterFor(now, query.Sort{}).Sort(tasks)
 	if got := nums(tasks); got != "1,2" {
 		t.Errorf("the default order = %s, want overdue first", got)
 	}
 }
-
-func strp(s string) *string { return &s }
 
 func nums(tasks []api.Task) string {
 	out := ""

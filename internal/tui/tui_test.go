@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,11 +87,8 @@ func newFake(t *testing.T) *fakeServer {
 			tag := strings.TrimPrefix(q, "#")
 			var kept []api.Task
 			for _, task := range out {
-				for _, have := range task.Tags {
-					if have == tag {
-						kept = append(kept, task)
-						break
-					}
+				if slices.Contains(task.Tags, tag) {
+					kept = append(kept, task)
 				}
 			}
 			out = kept

@@ -562,10 +562,7 @@ func (m *Model) scrollToCursor() {
 }
 
 func (m *Model) clampOffset() {
-	maxOffset := len(m.rows) - m.listHeight()
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
+	maxOffset := max(len(m.rows)-m.listHeight(), 0)
 	if m.offset > maxOffset {
 		m.offset = maxOffset
 	}

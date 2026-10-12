@@ -3,6 +3,7 @@ package query
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -266,7 +267,7 @@ func (p *parser) setSort(value string) error {
 		return fmt.Errorf("sort: needs a key (try: %s)", strings.Join(SortKeys, ", "))
 	}
 	var next Sort
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		desc := strings.HasPrefix(part, "-")
 		key := strings.TrimPrefix(part, "-")
 		if key == "" {
@@ -363,10 +364,5 @@ func splitOp(v string) (op, rest string) {
 }
 
 func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }

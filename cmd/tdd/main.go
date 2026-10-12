@@ -305,8 +305,8 @@ func parseClock(value string, loc *time.Location) (*time.Time, error) {
 	if value == "" {
 		return nil, nil
 	}
-	if strings.HasPrefix(value, "@") {
-		data, err := seed.Load(strings.TrimPrefix(value, "@"))
+	if path, ok := strings.CutPrefix(value, "@"); ok {
+		data, err := seed.Load(path)
 		if err != nil {
 			return nil, fmt.Errorf("clock from seed file: %w", err)
 		}

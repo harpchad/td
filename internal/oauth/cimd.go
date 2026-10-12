@@ -239,7 +239,7 @@ func isLoopbackHost(host string) bool {
 // default rather than being refetched on every authorization.
 func (r *Resolver) ttl(cacheControl string) time.Duration {
 	out := r.DefaultTTL
-	for _, part := range strings.Split(cacheControl, ",") {
+	for part := range strings.SplitSeq(cacheControl, ",") {
 		part = strings.TrimSpace(strings.ToLower(part))
 		if part == "no-store" || part == "no-cache" {
 			return r.MinTTL

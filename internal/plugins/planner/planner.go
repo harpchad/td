@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -380,12 +381,7 @@ func emailOf(users map[string]GraphUser, id string) string {
 }
 
 func containsAssignee(assignees []string, id string) bool {
-	for _, a := range assignees {
-		if a == id {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(assignees, id)
 }
 
 // UserIDs collects every identity a batch refers to, so they can be looked up

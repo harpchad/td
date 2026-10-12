@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -82,12 +83,7 @@ func (p *Principal) has(scope string) bool {
 	if p == nil {
 		return false
 	}
-	for _, s := range p.Scopes {
-		if s == scope {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(p.Scopes, scope)
 }
 
 type principalKey struct{}
@@ -228,8 +224,7 @@ func message(err error) string {
 	if errors.As(err, &apiErr) && apiErr.Message != "" {
 		return apiErr.Message
 	}
-	var parseErr *query.ParseError
-	if errors.As(err, &parseErr) {
+	if parseErr, ok := errors.AsType[*query.ParseError](err); ok {
 		return parseErr.Msg
 	}
 	return err.Error()
