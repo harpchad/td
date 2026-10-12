@@ -154,7 +154,7 @@ func resolveDateFlag(value string, now time.Time) any {
 
 func splitTags(s string) []string {
 	out := []string{}
-	for _, tag := range strings.Split(s, ",") {
+	for tag := range strings.SplitSeq(s, ",") {
 		tag = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(tag), "#"))
 		if tag != "" {
 			out = append(out, tag)

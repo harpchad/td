@@ -160,7 +160,7 @@ func DescribeRecurrence(rule string) string {
 	}
 
 	parts := map[string]string{}
-	for _, field := range strings.Split(strings.TrimPrefix(strings.ToUpper(raw), "RRULE:"), ";") {
+	for field := range strings.SplitSeq(strings.TrimPrefix(strings.ToUpper(raw), "RRULE:"), ";") {
 		key, value, ok := strings.Cut(field, "=")
 		if !ok {
 			return raw

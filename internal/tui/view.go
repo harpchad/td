@@ -292,10 +292,7 @@ func (m *Model) renderRow(row query.Row, isCursor bool, inner int) string {
 	if titleWidth < minTitleWidth {
 		titleWidth = min(minTitleWidth, available)
 	}
-	tokenWidth := available - titleWidth
-	if tokenWidth < 0 {
-		tokenWidth = 0
-	}
+	tokenWidth := max(available-titleWidth, 0)
 
 	line := left +
 		padStyled(truncate(t.Title, titleWidth), titleWidth) +
@@ -433,7 +430,7 @@ func (m *Model) renderDetail() string {
 
 	if t.Notes != "" {
 		lines = append(lines, m.boxed(inner, ""))
-		for _, line := range strings.Split(t.Notes, "\n") {
+		for line := range strings.SplitSeq(t.Notes, "\n") {
 			lines = append(lines, m.boxed(inner, " "+truncate(line, inner-1)))
 		}
 	}
@@ -503,7 +500,7 @@ func (m *Model) renderNotes() string {
 		m.boxed(inner, " "+dim.Render("notes on ")+truncate(m.promptTask.Title, inner-12)),
 		m.rule(width, "├", "┤"),
 	}
-	for _, line := range strings.Split(m.notesInput.View(), "\n") {
+	for line := range strings.SplitSeq(m.notesInput.View(), "\n") {
 		lines = append(lines, m.boxed(inner, " "+truncate(line, inner-1)))
 	}
 	for len(lines) < m.height-2 {

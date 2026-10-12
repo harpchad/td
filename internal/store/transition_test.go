@@ -146,8 +146,7 @@ func TestTransitionTable(t *testing.T) {
 			got, err := s.Patch(ctx, actor, task.ID, patch, "", now)
 			if !c.Allowed {
 				assertAPIError(t, err, api.ErrIllegalTransition)
-				var apiErr *api.Error
-				if errors.As(err, &apiErr) {
+				if apiErr, ok := errors.AsType[*api.Error](err); ok {
 					if apiErr.From != c.From || apiErr.To != c.To {
 						t.Errorf("error carries %s->%s, want %s->%s", apiErr.From, apiErr.To, c.From, c.To)
 					}
@@ -292,7 +291,7 @@ func TestCompleteParentDoesNotCascade(t *testing.T) {
 		t.Fatal(err)
 	}
 	var children []api.Task
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		c, err := s.Create(ctx, actor, api.TaskCreate{
 			Title: "child", Priority: &p2, ParentID: &parent.ID,
 		}, now)

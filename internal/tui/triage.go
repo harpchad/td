@@ -284,7 +284,7 @@ func wrap(text string, width int) []string {
 	out := make([]string, 0, len(paragraphs))
 	for _, paragraph := range paragraphs {
 		line := ""
-		for _, word := range strings.Fields(paragraph) {
+		for word := range strings.FieldsSeq(paragraph) {
 			for len(word) > width {
 				if line != "" {
 					out = append(out, line)

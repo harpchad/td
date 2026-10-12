@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,12 +40,7 @@ type principal struct {
 }
 
 func (p *principal) has(scope string) bool {
-	for _, s := range p.Scopes {
-		if s == scope {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(p.Scopes, scope)
 }
 
 type principalKey struct{}
@@ -305,20 +301,14 @@ var tokenQueryKeys = []string{"access_token", "token", "api_key", "apikey", "bea
 
 func hasTokenInQuery(r *http.Request) bool {
 	q := r.URL.Query()
-	for _, key := range tokenQueryKeys {
-		if q.Has(key) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(tokenQueryKeys, q.Has)
 }
 
 // requiredScope maps a request onto the scope it needs. A read is a read; a
 // capture is the narrow write that creates an inbox item; everything else
 // that mutates needs write.
 func requiredScope(r *http.Request) string {
-	if strings.HasPrefix(r.URL.Path, "/api/v1/sync/") {
-		source := strings.TrimPrefix(r.URL.Path, "/api/v1/sync/")
+	if source, ok := strings.CutPrefix(r.URL.Path, "/api/v1/sync/"); ok {
 		return api.ScopeSyncPrefix + source
 	}
 	switch r.Method {

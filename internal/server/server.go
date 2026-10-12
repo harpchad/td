@@ -914,8 +914,7 @@ func writeJSON(w http.ResponseWriter, code int, body any) {
 // fail maps an error onto a status code and the error body. Every failure
 // says what went wrong in a way a client can branch on and a human can read.
 func (s *Server) fail(w http.ResponseWriter, err error) {
-	var apiErr *api.Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*api.Error](err); ok {
 		writeJSON(w, statusFor(apiErr.Code), apiErr)
 		return
 	}
@@ -927,8 +926,7 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	}
 	// A filter that does not parse is the user's typo, not a server fault,
 	// and the parser's message already names the problem.
-	var parseErr *query.ParseError
-	if errors.As(err, &parseErr) {
+	if parseErr, ok := errors.AsType[*query.ParseError](err); ok {
 		writeJSON(w, http.StatusBadRequest, &api.Error{
 			Code: api.ErrBadRequest, Message: parseErr.Msg,
 		})

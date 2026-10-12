@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/harpchad/td/internal/api"
@@ -239,9 +240,7 @@ func (s *Store) LogAuthEvent(ctx context.Context, kind, actor, ip string, extra 
 	defer func() { _ = tx.Rollback() }()
 
 	meta := map[string]any{"ip": ip}
-	for k, v := range extra {
-		meta[k] = v
-	}
+	maps.Copy(meta, extra)
 	if err := appendEvent(ctx, tx, now, actor, "", kind, api.Patch{Meta: meta}); err != nil {
 		return err
 	}

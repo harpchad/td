@@ -192,7 +192,7 @@ func TestAutoDarkIsDerivedFromTheDarkBlock(t *testing.T) {
 func TestDeEmphasisNeverUsesAFixedGrey(t *testing.T) {
 	tokens := readCSS(t, "tokens.css")
 
-	for _, line := range strings.Split(tokens, "\n") {
+	for line := range strings.SplitSeq(tokens, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "/*") {
 			continue
@@ -202,8 +202,8 @@ func TestDeEmphasisNeverUsesAFixedGrey(t *testing.T) {
 		}
 		// A declaration that paints text.
 		for _, property := range []string{"color:", "-color:"} {
-			idx := strings.Index(trimmed, property)
-			if idx < 0 {
+			found := strings.Contains(trimmed, property)
+			if !found {
 				continue
 			}
 			// scrollbar-color and border-color paint a rule or a thumb, not
@@ -222,7 +222,7 @@ func TestFixedGreysAreOnlyEverFills(t *testing.T) {
 	tokens := readCSS(t, "tokens.css")
 
 	allowed := []string{"background:", "scrollbar-color:"}
-	for _, line := range strings.Split(tokens, "\n") {
+	for line := range strings.SplitSeq(tokens, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !strings.Contains(trimmed, "var(--td-grey") || strings.HasPrefix(trimmed, "*") {
 			continue
@@ -284,7 +284,7 @@ func propertiesPaintedFromPageColours(css, class string) []string {
 	var out []string
 	seen := map[string]bool{}
 
-	for _, block := range strings.Split(css, "}") {
+	for block := range strings.SplitSeq(css, "}") {
 		selector, body, ok := strings.Cut(block, "{")
 		if !ok || strings.Contains(selector, ".td-modal") {
 			continue
@@ -292,7 +292,7 @@ func propertiesPaintedFromPageColours(css, class string) []string {
 		if !selectorTargets(selector, class) {
 			continue
 		}
-		for _, decl := range strings.Split(body, ";") {
+		for decl := range strings.SplitSeq(body, ";") {
 			property, value, ok := strings.Cut(decl, ":")
 			if !ok {
 				continue
@@ -313,7 +313,7 @@ func propertiesPaintedFromPageColours(css, class string) []string {
 // selectorTargets reports whether a selector styles the class itself rather
 // than something that merely mentions it.
 func selectorTargets(selector, class string) bool {
-	for _, part := range strings.Split(selector, ",") {
+	for part := range strings.SplitSeq(selector, ",") {
 		part = strings.TrimSpace(part)
 		if part == "."+class || strings.HasPrefix(part, "."+class+":") ||
 			strings.HasPrefix(part, "."+class+"[") {
@@ -325,7 +325,7 @@ func selectorTargets(selector, class string) bool {
 
 func modalRules(css, class string) string {
 	var out strings.Builder
-	for _, block := range strings.Split(css, "}") {
+	for block := range strings.SplitSeq(css, "}") {
 		selector, body, ok := strings.Cut(block, "{")
 		if ok && strings.Contains(selector, ".td-modal") && strings.Contains(selector, "."+class) {
 			out.WriteString(body)
@@ -338,7 +338,7 @@ func modalRules(css, class string) string {
 // overridesProperty allows a longhand to answer for a shorthand, so
 // border-bottom-color satisfies border-bottom.
 func overridesProperty(rules, property string) bool {
-	for _, decl := range strings.Split(rules, ";") {
+	for decl := range strings.SplitSeq(rules, ";") {
 		name, _, ok := strings.Cut(decl, ":")
 		if !ok {
 			continue
@@ -363,7 +363,7 @@ func TestTheFocusedCaretIsVisible(t *testing.T) {
 	}
 
 	modalFocus := ""
-	for _, block := range strings.Split(tokens, "}") {
+	for block := range strings.SplitSeq(tokens, "}") {
 		selector, body, ok := strings.Cut(block, "{")
 		if ok && strings.Contains(selector, ".td-modal .td-input:focus") {
 			modalFocus = body
@@ -378,7 +378,7 @@ func TestTheFocusedCaretIsVisible(t *testing.T) {
 // itself a modal override, concatenated.
 func baseRules(css, fragment string) string {
 	var out strings.Builder
-	for _, block := range strings.Split(css, "}") {
+	for block := range strings.SplitSeq(css, "}") {
 		selector, body, ok := strings.Cut(block, "{")
 		if !ok || strings.Contains(selector, ".td-modal") {
 			continue

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -537,8 +538,7 @@ func (u *UI) fillList(r *http.Request, data *pageData, filter, status string) {
 	now := u.Now()
 	tasks, err := u.svc.List(r.Context(), filter, now)
 	if err != nil {
-		var parseErr *query.ParseError
-		if errors.As(err, &parseErr) {
+		if parseErr, ok := errors.AsType[*query.ParseError](err); ok {
 			data.Error = parseErr.Msg
 			return
 		}
@@ -945,7 +945,7 @@ func (u *UI) edit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tags := []string{}
-	for _, tag := range strings.Fields(r.PostFormValue("tags")) {
+	for tag := range strings.FieldsSeq(r.PostFormValue("tags")) {
 		if tag = strings.TrimPrefix(tag, "#"); tag != "" {
 			tags = append(tags, strings.ToLower(tag))
 		}
@@ -1102,13 +1102,7 @@ func (u *UI) fold(w http.ResponseWriter, r *http.Request) {
 		u.after(w, r, humanError(err))
 		return
 	}
-	isCollapsed := false
-	for _, c := range collapsed {
-		if c == id {
-			isCollapsed = true
-			break
-		}
-	}
+	isCollapsed := slices.Contains(collapsed, id)
 	if err := u.svc.SetCollapsed(r.Context(), id, !isCollapsed); err != nil {
 		u.after(w, r, humanError(err))
 		return
@@ -1191,8 +1185,7 @@ func (u *UI) fail(w http.ResponseWriter, _ *http.Request, err error) {
 // humanError turns a store error into something worth reading. Errors say
 // what failed and what to do; they do not apologize.
 func humanError(err error) string {
-	var apiErr *api.Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*api.Error](err); ok {
 		if apiErr.Message != "" {
 			return apiErr.Message
 		}

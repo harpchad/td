@@ -135,7 +135,7 @@ func TestCursorMovesWithJAndK(t *testing.T) {
 // selectedRow finds the inverse-video row, which is how selection is drawn.
 func selectedRow(t *testing.T, h *harness) string {
 	t.Helper()
-	for _, line := range strings.Split(h.view(), "\n") {
+	for line := range strings.SplitSeq(h.view(), "\n") {
 		if strings.Contains(line, "\x1b[7m") {
 			return plain(line)
 		}
@@ -721,7 +721,7 @@ func TestOverdueIsTheOneColorException(t *testing.T) {
 	// Move the cursor off it to see the token itself.
 	h.key("j")
 
-	for _, line := range strings.Split(h.view(), "\n") {
+	for line := range strings.SplitSeq(h.view(), "\n") {
 		if !strings.Contains(plain(line), "Send Q3 numbers") {
 			continue
 		}

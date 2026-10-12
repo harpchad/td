@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,12 +52,7 @@ type OAuthClient struct {
 // redirectors happen, and an authorization code delivered to an attacker's
 // URL is the whole game.
 func (c OAuthClient) AllowsRedirect(uri string) bool {
-	for _, registered := range c.RedirectURIs {
-		if registered == uri {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.RedirectURIs, uri)
 }
 
 // RegisterClient stores a client and returns it with the secret, which is

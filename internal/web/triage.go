@@ -144,7 +144,7 @@ func (u *UI) triageAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if raw := r.PostFormValue("tags"); raw != "" {
 			tags := []string{}
-			for _, tag := range strings.Fields(raw) {
+			for tag := range strings.FieldsSeq(raw) {
 				if tag = strings.TrimPrefix(tag, "#"); tag != "" {
 					tags = append(tags, strings.ToLower(tag))
 				}
