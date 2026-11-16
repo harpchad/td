@@ -18,6 +18,39 @@ Implement the fixture's behavior anyway and write the argument here.
 
 ---
 
+## 2026-11-16  The consent screen offers what the client did not ask for
+Phase: after v0.1
+
+The 2026-08-03 entry narrowed the 401 challenge and Protected Resource
+Metadata to `td:read td:capture` and left write to a step-up. The wire half
+held up. The step-up half depended on the client, and claude.ai never steps
+up: a 403 naming `td:write` reaches the model as a tool error, and
+reconnecting asks for the challenge scope again. From 2026-08-03 on, every
+connector came back unable to write. Agents worked around it with the HTTP
+API and a personal token, which is a broader credential than the one
+being withheld.
+
+Decided: the consent screen offers every scope the client may hold. What
+it asked for starts checked. Anything else starts unchecked and is labelled
+"not requested". `approve` intersects the ticked boxes with that offer
+instead of with the request. RFC 6749 section 3.3 lets the authorization
+server issue a scope other than the one requested on the resource owner's
+instruction, and the token response already carries `scope`, which section
+5.1 requires when it differs. A client registered for fewer scopes, by DCR
+or by a `scope` in its metadata document, has its registration as the
+ceiling: the screen does not offer past it, and a forged form cannot
+widen past it.
+
+Rejected: putting `td:write` back in the challenge and `scopes_supported`.
+That works for claude.ai, but it asks every client for write on day one
+and shows it pre-checked, which reverses the 2026-08-03 reasoning for
+every client to fix one. Also rejected: keying the challenge off the
+client. A 401 has no client identity to key on, and a User-Agent is a
+claim.
+
+Reversible: dropping `offeredScopes` back to the request restores the old
+behavior, and existing grants keep exactly the scopes they were issued.
+
 ## 2026-10-12  Go 1.27
 Phase: after v0.1
 

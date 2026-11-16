@@ -350,6 +350,12 @@ ask for more rather than start the authorization dance again. That is how
 write is reached: it is deliberately not granted up front, and a tool that
 needs it says so.
 
+claude.ai does not step up. It asks for exactly what the challenge names, so
+the consent screen also offers every scope the client did not ask for,
+unchecked and marked "not requested". To give the connector write, tick
+"Change and complete your tasks" when you connect it. Leave it unticked and
+the connector reads and captures only.
+
 **One deployment gotcha, because it looks like an application bug.** The
 reverse proxy has to pass `/.well-known/*` through to td.
 nginx-proxy-manager already intercepts `/.well-known/acme-challenge/` for

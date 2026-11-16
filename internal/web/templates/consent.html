@@ -36,7 +36,7 @@
       <label class="td-consent__scope{{if .Sensitive}} td-consent__scope--sensitive{{end}}">
         <input class="td-check" type="checkbox" name="scope" value="{{.Value}}"
                {{if .Checked}}checked{{end}}>
-        <span>{{.Label}}</span>
+        <span>{{.Label}}</span>{{if .NotAsked}} <span class="td-dim">(not requested)</span>{{end}}
       </label>
       {{end}}
     </div>

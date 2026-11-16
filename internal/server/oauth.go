@@ -256,7 +256,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	// The approval ends in a navigation to the client, which the default
 	// policy would block. redirectURI is registered and matched by this point.
 	allowConsentRedirect(w.Header(), redirectURI)
-	s.ui.Consent(w, r, consentClient(client, redirectURI), scopes, q.Encode())
+	s.ui.Consent(w, r, consentClient(client, redirectURI), scopes, offeredScopes(client), q.Encode())
 }
 
 // approve is the consent form's POST. Approving mints the code; the consent
@@ -310,15 +310,20 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The consent screen lets you grant less than was asked for, so the
-	// granted set comes off the form and is then narrowed against the
-	// request. Widening it here would make the screen a lie.
-	asked, err := s.requestedScopes(q.Get("scope"), client)
-	if err != nil {
+	// The granted set comes off the form, so the screen can grant less than
+	// was asked for, and is then narrowed against what the screen offered.
+	// That is more than the request when the owner ticked a scope the client
+	// did not ask for, which is how write reaches a client that never steps
+	// up. Anything past the offer would make the screen a lie, so it is
+	// dropped here whatever the form says.
+	//
+	// The request is still validated, so a client asking for a scope it
+	// cannot have is refused rather than quietly narrowed.
+	if _, err := s.requestedScopes(q.Get("scope"), client); err != nil {
 		s.authError(w, r, redirectURI, state, "invalid_scope", err.Error())
 		return
 	}
-	granted := intersect(r.PostForm["scope"], asked)
+	granted := intersect(r.PostForm["scope"], offeredScopes(client))
 	if len(granted) == 0 {
 		s.authError(w, r, redirectURI, state, "access_denied", "you granted no scopes")
 		return
@@ -663,6 +668,27 @@ func (s *Server) requestedScopes(asked string, client store.OAuthClient) ([]stri
 		out = append(out, scope)
 	}
 	return out, nil
+}
+
+// offeredScopes is every scope the consent screen puts in front of the owner:
+// each one td issues, in a fixed order, capped by what the client registered.
+//
+// It is wider than the request on purpose. The 401 challenge names read and
+// capture and leaves write to a step-up, which is right on the wire but
+// useless with a client that never steps up: claude.ai asks for exactly what
+// the challenge says and nothing more, so its connector could never write. The
+// screen offers the rest unchecked instead, and the owner ticking one is the
+// resource owner's instruction RFC 6749 section 3.3 lets the authorization
+// server act on. Nothing is granted that nobody ticked.
+//
+// A registered client's scopes are a ceiling the screen respects. A CIMD
+// client registers none, so it is offered everything.
+func offeredScopes(client store.OAuthClient) []string {
+	all := []string{api.MCPScopeRead, api.MCPScopeCapture, api.MCPScopeWrite}
+	if len(client.Scopes) == 0 {
+		return all
+	}
+	return intersect(all, client.Scopes)
 }
 
 // authError sends an error back to the client through the redirect, which is

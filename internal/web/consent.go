@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,18 +18,25 @@ import (
 // checkboxes exist because the point of a consent screen is that it can grant
 // less than was asked for; a screen with only an Approve button is a
 // notification, not a decision.
-func (u *UI) Consent(w http.ResponseWriter, r *http.Request, client ConsentClient, scopes []string, request string) {
+//
+// asked is what the client requested and starts checked. offered is every
+// scope the owner may grant it; one in offered but not in asked is shown
+// unchecked and marked as not requested, so granting it takes a deliberate
+// tick. A scope in asked but missing from offered is not shown.
+func (u *UI) Consent(w http.ResponseWriter, r *http.Request, client ConsentClient, asked, offered []string, request string) {
 	data := u.base(r, "Authorize "+client.Name)
 	data.ClientName = client.Name
 	data.Request = request
 	data.RedirectHost = client.RedirectHost
 	data.LoopbackOnly = client.LoopbackOnly
 	data.SelfDescribed = client.SelfDescribed
-	for _, scope := range scopes {
+	for _, scope := range offered {
+		requested := slices.Contains(asked, scope)
 		data.ConsentScopes = append(data.ConsentScopes, consentScope{
 			Value:     scope,
 			Label:     scopeLabel(scope),
-			Checked:   true,
+			Checked:   requested,
+			NotAsked:  !requested,
 			Sensitive: scope == api.MCPScopeWrite,
 		})
 	}
@@ -71,6 +79,9 @@ type consentScope struct {
 	Value   string
 	Label   string
 	Checked bool
+	// NotAsked marks a scope the client did not request. It starts unchecked
+	// and says so, because ticking it grants more than the client asked for.
+	NotAsked bool
 	// Sensitive marks the one that lets an agent change your list rather than
 	// only read it and add to it. It is drawn differently because "can write"
 	// and "can read" deserve different amounts of attention.
